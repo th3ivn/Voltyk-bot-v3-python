@@ -1,0 +1,45 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  celery-worker:
+    build: .
+    command: celery -A bot.tasks.celery_app worker --loglevel=info --concurrency=4
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  celery-beat:
+    build: .
+    command: celery -A bot.tasks.celery_app beat --loglevel=info
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: voltyk
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

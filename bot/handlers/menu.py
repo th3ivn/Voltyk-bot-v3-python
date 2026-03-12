@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+import logging
+
+from aiogram import F, Router
+from aiogram.types import CallbackQuery
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from bot.config import settings as app_settings
+from bot.db.queries import get_user_by_telegram_id
+from bot.formatter.messages import format_live_status_message, format_main_menu_message
+from bot.formatter.schedule import format_schedule_message
+from bot.formatter.timer import format_timer_popup
+from bot.keyboards.inline import (
+    get_error_keyboard,
+    get_help_keyboard,
+    get_main_menu,
+    get_schedule_view_keyboard,
+    get_settings_keyboard,
+    get_statistics_keyboard,
+)
+from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+
+logger = logging.getLogger(__name__)
+router = Router(name="menu")
+
+
+@router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        return
+
+    text = format_main_menu_message(user)
+    has_channel = bool(user.channel_config and user.channel_config.channel_id)
+    channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
+            parse_mode="HTML",
+        )
+    except Exception:
+        await callback.message.answer(
+            text,
+            reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
+            parse_mode="HTML",
+        )
+
+
+@router.callback_query(F.data == "menu_schedule")
+async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        return
+
+    data = await fetch_schedule_data(user.region)
+    if data is None:
+        await callback.message.edit_text(
+            "😅 Щось пішло не так. Спробуйте ще раз!",
+            reply_markup=get_error_keyboard(),
+        )
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+
+    try:
+        await callback.message.edit_text(
+            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "schedule_refresh")
+async def schedule_refresh(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Користувача не знайдено")
+        return
+
+    data = await fetch_schedule_data(user.region)
+    if data is None:
+        await callback.answer("😅 Щось пішло не так. Спробуйте ще раз!")
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    try:
+        await callback.message.edit_text(
+            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await callback.answer("🔄 Оновлено")
+
+
+@router.callback_query(F.data == "my_queues")
+async def change_queue(callback: CallbackQuery, session: AsyncSession) -> None:
+
+    from bot.keyboards.inline import get_region_keyboard
+
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+
+    # We use FSMContext from the handler data dict not available directly here,
+    # so we'll use a simpler approach: show region keyboard
+    await callback.message.edit_text(
+        "Оберіть свій регіон:", reply_markup=get_region_keyboard()
+    )
+
+
+@router.callback_query(F.data == "menu_timer")
+async def menu_timer(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Спочатку запустіть бота")
+        return
+
+    data = await fetch_schedule_data(user.region)
+    if data is None:
+        await callback.answer("⚠️ Дані тимчасово недоступні")
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    text = format_timer_popup(next_event, schedule_data)
+    await callback.answer(text, show_alert=True)
+
+
+@router.callback_query(F.data == "menu_stats")
+async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    await callback.message.edit_text(
+        "📊 Статистика", reply_markup=get_statistics_keyboard()
+    )
+
+
+@router.callback_query(F.data.in_({"stats_week", "stats_device", "stats_settings"}))
+async def stats_detail(callback: CallbackQuery) -> None:
+    await callback.answer("⚠️ Ця функція в розробці", show_alert=True)
+
+
+@router.callback_query(F.data == "menu_help")
+async def menu_help(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    from bot.db.queries import get_setting
+
+    support_url = await get_setting(session, "support_url")
+    await callback.message.edit_text(
+        "❓ Допомога\n\nℹ️ Тут ви можете дізнатися як\nкористуватися ботом.",
+        reply_markup=get_help_keyboard(support_url=support_url),
+    )
+
+
+@router.callback_query(F.data == "help_howto")
+async def help_howto(callback: CallbackQuery) -> None:
+    await callback.answer()
+    text = (
+        "📖 Як користуватися ботом:\n\n"
+        "1. Оберіть регіон і чергу\n"
+        "2. Увімкніть сповіщення\n"
+        "3. (Опціонально) Підключіть канал\n"
+        "4. (Опціонально) Налаштуйте IP моніторинг\n\n"
+        "Бот автоматично сповістить про:\n"
+        "• Зміни в графіку\n"
+        "• Фактичні відключення (з IP)"
+    )
+    from bot.keyboards.inline import get_help_keyboard
+
+    await callback.message.edit_text(text, reply_markup=get_help_keyboard())
+
+
+@router.callback_query(F.data == "help_faq")
+async def help_faq(callback: CallbackQuery) -> None:
+    text = (
+        "❓ Чому не приходять сповіщення?\n"
+        "→ Перевірте налаштування\n\n"
+        "❓ Як працює IP моніторинг?\n"
+        "→ Бот пінгує роутер для визначення наявності світла"
+    )
+    await callback.answer(text, show_alert=True)
+
+
+@router.callback_query(F.data == "menu_settings")
+async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    is_admin = app_settings.is_admin(callback.from_user.id)
+    text = format_live_status_message(user)
+    await callback.message.edit_text(
+        text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("timer_"))
+async def timer_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    user_id_str = callback.data.replace("timer_", "")
+    from sqlalchemy import select
+
+    from bot.db.models import User
+
+    result = await session.execute(select(User).where(User.id == int(user_id_str)))
+    user = result.scalars().first()
+    if not user:
+        await callback.answer("❌ Користувач не знайдений")
+        return
+
+    data = await fetch_schedule_data(user.region)
+    if not data:
+        await callback.answer("⚠️ Дані тимчасово недоступні")
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    text = format_timer_popup(next_event, schedule_data)
+    await callback.answer(text, show_alert=True)
