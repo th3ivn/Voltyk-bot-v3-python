@@ -24,26 +24,26 @@ def configure_logging() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Database migration helper
+# Database initialisation helper
 # ---------------------------------------------------------------------------
 
 
-async def run_migrations() -> None:
-    """Run Alembic migrations programmatically on startup."""
-    import asyncio as _asyncio  # noqa: I001
-    from alembic import command
-    from alembic.config import Config
+async def ensure_database() -> None:
+    """Create all tables that don't yet exist (idempotent).
+
+    Uses ``Base.metadata.create_all`` directly so that the async event loop
+    never needs to be re-entered.  Alembic is kept for future *CLI* migrations
+    (``alembic upgrade head``) but is no longer invoked at runtime.
+    """
+    from app.db.models import Base  # noqa: F811 — ensures all model imports run
 
     log = logging.getLogger(__name__)
-    log.info("Running database migrations...")
+    log.info("Ensuring database tables exist...")
 
-    def _run_sync() -> None:
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-    loop = _asyncio.get_event_loop()
-    await loop.run_in_executor(None, _run_sync)
-    log.info("Database migrations complete.")
+    log.info("Database tables ready.")
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ async def run_migrations() -> None:
 async def on_startup() -> None:
     """Run on application startup."""
     logging.getLogger(__name__).info("Starting Voltyk Bot...")
-    await run_migrations()
+    await ensure_database()
     if settings.WEBHOOK_URL:
         await bot.set_webhook(
             url=settings.WEBHOOK_URL,
