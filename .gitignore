@@ -20,9 +20,6 @@ build/
 *.egg-info/
 *.egg
 
-# Alembic generated migrations (keep .gitkeep)
-alembic/versions/*.py
-!alembic/versions/.gitkeep
 
 # IDE
 .idea/
