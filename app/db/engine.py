@@ -1,4 +1,4 @@
-"""SQLAlchemy async engine factory for Neon PostgreSQL (asyncpg)."""
+"""SQLAlchemy async engine factory for PostgreSQL (Railway / Neon) via asyncpg."""
 
 import ssl as _ssl
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -11,9 +11,10 @@ from app.config import settings
 def prepare_database_url(url: str) -> tuple[str, dict]:
     """Strip sslmode from the URL query params and return (cleaned_url, connect_args).
 
-    asyncpg does not accept the ``sslmode`` query parameter that Neon PostgreSQL
-    DATABASE_URLs include.  This helper removes it and converts it to an
-    ``ssl`` entry in ``connect_args`` that asyncpg understands.
+    asyncpg does not accept the ``sslmode`` query parameter that some PostgreSQL
+    DATABASE_URLs (e.g. Neon) include.  This helper removes it and converts it to
+    an ``ssl`` entry in ``connect_args`` that asyncpg understands.
+    Railway PostgreSQL URLs without ``sslmode`` pass through unchanged.
     """
     parsed = urlparse(url)
     params = parse_qs(parsed.query)
@@ -33,7 +34,8 @@ def build_engine() -> AsyncEngine:
     """Create and return an async SQLAlchemy engine.
 
     Uses asyncpg driver with connection pool configured from settings.
-    Neon serverless PostgreSQL requires pool_pre_ping for connection health checks.
+    pool_pre_ping is enabled for connection health checks (required for Railway
+    and Neon serverless PostgreSQL alike).
     """
     url, connect_args = prepare_database_url(settings.DATABASE_URL)
     return create_async_engine(

@@ -23,8 +23,16 @@ class Settings(BaseSettings):
     OWNER_ID: int | None = None
     ADMIN_IDS: list[int] = []
 
-    # --- Database (Neon PostgreSQL via asyncpg) ---
+    # --- Database (PostgreSQL via asyncpg) ---
     DATABASE_URL: str
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def ensure_asyncpg_scheme(cls, value: Any) -> str:
+        """Auto-convert postgresql:// to postgresql+asyncpg:// for asyncpg driver."""
+        if isinstance(value, str) and value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     # --- Redis / Celery ---
     REDIS_URL: str = "redis://localhost:6379"

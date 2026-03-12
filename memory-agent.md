@@ -1,7 +1,7 @@
 # Memory Agent Log — Voltyk Bot v4 (Python Rewrite з нуля)
 
 **Дата старту:** 12 березня 2026  
-**Мета:** Повний rewrite з нуля на Python + aiogram 3 + Neon + Celery.  
+**Мета:** Повний rewrite з нуля на Python + aiogram 3 + Railway PostgreSQL + Celery.  
 **Старий референс:** https://github.com/th3ivn/Voltyk-bot  
 **Правило №1 (основне):**  
 НІКОЛИ не копіювати жодного рядка старого коду. Все пиши з нуля.  
@@ -43,7 +43,15 @@
   - .env.example, .gitignore, Dockerfile (multi-stage), docker-compose.yml (bot + celery_worker + celery_beat + redis)
   - Рішення: Settings модель (key-value) для глобальних налаштувань бота; DailyMetrics unique constraint на date; ScheduleHistory unique на (region_id, group_id, date)
   - Весь код з нуля, коментарі англійською, .env.example коментарі українською
-- [x] PR-2: /start handler + registration FSM + region/queue selection + main menu (12 березня 2026)
+- [x] PR-3: Switch from Neon PostgreSQL to Railway built-in PostgreSQL (12 березня 2026)
+  - Причина: Neon SSL вимагає sslmode, що спричиняє `TypeError: connect() got an unexpected keyword argument 'sslmode'` з asyncpg у Docker
+  - app/config.py: додано `field_validator` `ensure_asyncpg_scheme` — автоматично конвертує `postgresql://` → `postgresql+asyncpg://` (Railway надає URL без +asyncpg)
+  - app/config.py: оновлено коментар `# --- Database (Neon PostgreSQL via asyncpg) ---` → `# --- Database (PostgreSQL via asyncpg) ---`
+  - app/db/engine.py: оновлено docstrings — Neon → PostgreSQL (Railway / Neon); `prepare_database_url()` залишено для зворотної сумісності (Railway URL без sslmode проходить без змін)
+  - .env.example: оновлено приклад DATABASE_URL і коментар — Neon → Railway PostgreSQL
+  - docker-compose.yml: видалено коментар про Neon як external service; додано сервіс `postgres` (postgres:16-alpine) для локальної розробки; додано volume `pgdata`; bot/celery_worker/celery_beat тепер depends_on redis AND postgres
+  - alembic/env.py: без змін (вже використовує prepare_database_url, що коректно обробляє Railway URL)
+  - Рішення: `prepare_database_url()` збережено як safety net для зворотної сумісності з Neon URL; Railway URL без sslmode повертається без змін
   - Додано поле `queue` (String(8)) до моделі User для зберігання черги у форматі "3.2", "15.1" тощо
   - Створено app/constants/regions.py: REGIONS, REGION_CODE_TO_ID, QUEUES, KYIV_QUEUES, REGION_QUEUES, get_queues_for_region()
   - Створено app/states/registration.py: RegistrationFSM з трьома станами (choosing_region, choosing_queue, confirming)

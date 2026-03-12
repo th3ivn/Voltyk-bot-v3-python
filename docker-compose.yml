@@ -1,7 +1,5 @@
 version: "3.9"
 
-# Note: PostgreSQL (Neon) is an external service — not included here.
-
 services:
   redis:
     image: redis:7-alpine
@@ -14,12 +12,31 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: voltyk
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   bot:
     build: .
     restart: unless-stopped
     env_file: .env
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: python -m app.main
 
@@ -29,6 +46,8 @@ services:
     env_file: .env
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: >
       celery -A app.tasks.celery_app worker
@@ -43,7 +62,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: >
       celery -A app.tasks.celery_app beat
       --loglevel=info
       --scheduler=celery.beat:PersistentScheduler
+
+volumes:
+  pgdata:
