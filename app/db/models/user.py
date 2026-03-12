@@ -25,6 +25,7 @@ class User(Base):
 
     region_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    queue: Mapped[str | None] = mapped_column(String(8), nullable=True)  # e.g. "3.2", "15.1"
 
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

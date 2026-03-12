@@ -55,6 +55,8 @@ select = [
 ignore = [
     "S101",  # use of assert (OK in tests)
     "B008",  # do not perform function calls in argument defaults
+    "RUF001", # ambiguous unicode chars — OK for Ukrainian user-facing strings
+    "RUF003", # ambiguous unicode chars in comments — OK for Ukrainian comments
 ]
 
 [tool.ruff.lint.per-file-ignores]

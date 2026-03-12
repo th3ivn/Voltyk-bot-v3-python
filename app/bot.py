@@ -21,15 +21,20 @@ def build_bot() -> Bot:
 
 
 def build_dispatcher() -> Dispatcher:
-    """Create Dispatcher with Redis FSM storage."""
+    """Create Dispatcher with Redis FSM storage, middlewares and routers."""
     storage = RedisStorage.from_url(settings.REDIS_URL)
     dp = Dispatcher(storage=storage)
 
-    # --- Middlewares (registered here as they are implemented) ---
-    # dp.update.middleware(SomeMiddleware())
+    # --- Middlewares ---
+    from app.db.session import AsyncSessionFactory
+    from app.middleware.database import DatabaseMiddleware
 
-    # --- Routers (registered here as they are implemented) ---
-    # dp.include_router(start_router)
+    dp.update.middleware(DatabaseMiddleware(AsyncSessionFactory))
+
+    # --- Routers ---
+    from app.handlers import register_all_handlers
+
+    register_all_handlers(dp)
 
     return dp
 
