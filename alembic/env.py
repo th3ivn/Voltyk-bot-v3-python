@@ -17,13 +17,17 @@ from alembic import context
 load_dotenv()
 
 from app.config import settings
+from app.db.engine import prepare_database_url
 from app.db.models import Base
 
 # Alembic Config object
 config = context.config
 
+# Strip asyncpg-incompatible sslmode param before setting the URL
+_clean_url, _ = prepare_database_url(settings.DATABASE_URL)
+
 # Override sqlalchemy.url with the value from pydantic settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", _clean_url)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
@@ -59,9 +63,11 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations."""
+    url, connect_args = prepare_database_url(settings.DATABASE_URL)
     connectable = create_async_engine(
-        settings.DATABASE_URL,
+        url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
