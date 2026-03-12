@@ -27,5 +27,19 @@
 - Завжди перевіряй відповідність усім трьом правилам вище.
 
 **Історія змін (агент дописує сюди):**
-- [ ] PR-1:
-...
+- [x] PR-1: Скелет проєкту + Конфігурація + Моделі БД + Celery + Alembic + Docker (12 березня 2026)
+  - Створено повну структуру папок: app/, alembic/, handlers, keyboards, middleware, services, tasks, utils
+  - config.py: pydantic-settings з усіма змінними; ADMIN_IDS автоматично парситься з "123,456" → list[int]
+  - SQLAlchemy 2.0 моделі (13 таблиць): users, channels, pending_channels, schedule_history, schedule_checks, bot_notifications, channel_notifications, power_history, tickets, admin_routers, settings, pause_logs, daily_metrics
+  - Всі моделі: Mapped[] + mapped_column(), UUID PK (де потрібно), proper indexes під 100k DAU
+  - BotNotification і ChannelNotification — окремі сутності (Правило №3)
+  - db/engine.py: create_async_engine з asyncpg, pool_pre_ping=True для Neon serverless
+  - db/session.py: async_sessionmaker (expire_on_commit=False)
+  - tasks/celery_app.py: Celery + Redis, json serializer, Europe/Kyiv, beat_schedule: check-channels о 03:00 (Правило №3), task_routes для notifications/schedule/channels черг
+  - bot.py: aiogram Bot (HTML parse_mode) + Dispatcher з RedisStorage для FSM
+  - main.py: polling або webhook залежно від WEBHOOK_URL, startup/shutdown hooks (DB dispose, bot session close)
+  - alembic/env.py: async migrations, автоімпорт всіх моделей для autogenerate
+  - pyproject.toml: всі залежності, ruff конфіг, pytest налаштування
+  - .env.example, .gitignore, Dockerfile (multi-stage), docker-compose.yml (bot + celery_worker + celery_beat + redis)
+  - Рішення: Settings модель (key-value) для глобальних налаштувань бота; DailyMetrics unique constraint на date; ScheduleHistory unique на (region_id, group_id, date)
+  - Весь код з нуля, коментарі англійською, .env.example коментарі українською
