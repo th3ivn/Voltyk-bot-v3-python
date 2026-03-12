@@ -13,6 +13,7 @@
 
 **Історія змін (агент дописує сюди):**
 - [x] PR-1: структура + Docker + Neon + /start wizard
+- [x] PR-1.1: hotfix — webhook startup/shutdown не await-ились
 - [ ] PR-2: БД моделі + Alembic
 ...
 
@@ -83,4 +84,44 @@ celery_app.conf.update(
 ```python
 _engine = create_async_engine(settings.database_url, pool_size=settings.db_pool_size)
 _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+```
+
+### PR-1.1 — Hotfix: webhook startup/shutdown (12 березня 2026)
+**Що зроблено:**
+- Виправлено RuntimeWarning "coroutine 'on_startup' was never awaited"
+- Причина: `dp.startup.register(lambda: on_startup(bot, settings))` — lambda НЕ є async, повертає coroutine що ніколи не await-иться
+- Рішення: замінено lambda на async wrapper функції
+- Додано `print("Webhook set successfully")` для підтвердження set_webhook
+
+**Ключовий сніпет — on_startup (webhook):**
+```python
+async def on_startup(bot: Bot, settings: Settings) -> None:
+    webhook_url = f"{settings.webhook_url}{settings.webhook_path}"
+    await bot.set_webhook(
+        url=webhook_url,
+        secret_token=settings.webhook_secret or None,
+        drop_pending_updates=True,
+    )
+    logger.info("Webhook set: {}", webhook_url)
+    print("Webhook set successfully")
+```
+
+**Ключовий сніпет — on_shutdown (webhook):**
+```python
+async def on_shutdown(bot: Bot) -> None:
+    await bot.delete_webhook(drop_pending_updates=True)
+    await close_engine()
+    logger.info("Bot shutdown complete")
+```
+
+**Ключовий сніпет — правильна реєстрація startup/shutdown:**
+```python
+async def _on_startup() -> None:
+    await on_startup(bot, settings)
+
+async def _on_shutdown() -> None:
+    await on_shutdown(bot)
+
+dp.startup.register(_on_startup)
+dp.shutdown.register(_on_shutdown)
 ```
