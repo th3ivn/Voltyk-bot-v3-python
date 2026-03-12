@@ -4,11 +4,12 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY src/ src/
+COPY alembic/ alembic/
+COPY alembic.ini ./
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
-
-COPY . .
 
 # ──── Stage 2: Runtime ────
 FROM python:3.12-slim AS runtime

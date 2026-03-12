@@ -1,20 +1,18 @@
 from __future__ import annotations
 
+import os
+
 from celery import Celery
 from celery.schedules import crontab
 
-from src.core.config import get_settings
-
-settings = get_settings()
-
 celery_app = Celery(
     "voltyk",
-    broker=settings.celery_broker_url,
-    backend=settings.celery_result_backend,
+    broker=os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0")),
+    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1"),
 )
 
 celery_app.conf.update(
-    timezone=settings.tz,
+    timezone=os.getenv("TZ", "Europe/Kyiv"),
     enable_utc=True,
     task_serializer="json",
     result_serializer="json",
