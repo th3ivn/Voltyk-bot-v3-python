@@ -53,4 +53,5 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 def get_settings() -> Settings:
+    # Required fields (bot_token, database_url) are populated from environment variables
     return Settings()  # type: ignore[call-arg]

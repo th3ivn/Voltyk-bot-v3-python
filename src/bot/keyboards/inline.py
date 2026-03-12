@@ -4,6 +4,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from src.bot.constants import REGIONS, get_queues_for_region, QUEUES
 
+KYIV_MAX_PAGES = 5
+
 
 # ──────────────────── Main Menu ────────────────────
 
@@ -71,7 +73,7 @@ def get_region_keyboard() -> InlineKeyboardMarkup:
 def get_queue_keyboard(region: str | None = None, page: int = 1) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
 
-    if region == "kyiv" and (page < 1 or page > 5):
+    if region == "kyiv" and (page < 1 or page > KYIV_MAX_PAGES):
         page = 1
 
     # Non-Kyiv regions: standard 12 queues, 3 per row

@@ -27,7 +27,7 @@ router = Router(name="start")
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     """Handle /start command — new user wizard or main menu for existing users."""
-    _ = message.from_user.id  # type: ignore[union-attr]  # will be used in PR-2 for DB lookup
+    user_id = message.from_user.id  # type: ignore[union-attr]  # noqa: F841
 
     # Check if user is in wizard — ask to resume/restart
     current_state = await state.get_state()
