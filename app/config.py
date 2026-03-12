@@ -59,14 +59,16 @@ class Settings(BaseSettings):
     @field_validator("ADMIN_IDS", mode="before")
     @classmethod
     def parse_admin_ids(cls, value: Any) -> list[int]:
-        """Convert comma-separated string '123,456' to list of ints."""
+        """Convert comma-separated string '123,456', single int, or list to list of ints."""
+        if isinstance(value, int):
+            return [value]
         if isinstance(value, str):
             if not value.strip():
                 return []
             return [int(v.strip()) for v in value.split(",") if v.strip()]
         if isinstance(value, list):
             return [int(v) for v in value]
-        raise ValueError(f"ADMIN_IDS must be a string or list, got {type(value).__name__}")
+        raise ValueError(f"ADMIN_IDS must be a string, int, or list, got {type(value).__name__}")
 
 
 settings = Settings()  # type: ignore[call-arg]
