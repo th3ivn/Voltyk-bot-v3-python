@@ -37,6 +37,7 @@ async def on_startup(bot: Bot, settings: Settings) -> None:
         drop_pending_updates=True,
     )
     logger.info("Webhook set: {}", webhook_url)
+    print("Webhook set successfully")
 
 
 async def on_shutdown(bot: Bot) -> None:
@@ -59,8 +60,14 @@ def run_webhook() -> None:
     bot = create_bot(settings)
     dp = create_dispatcher()
 
-    dp.startup.register(lambda: on_startup(bot, settings))
-    dp.shutdown.register(lambda: on_shutdown(bot))
+    async def _on_startup() -> None:
+        await on_startup(bot, settings)
+
+    async def _on_shutdown() -> None:
+        await on_shutdown(bot)
+
+    dp.startup.register(_on_startup)
+    dp.shutdown.register(_on_shutdown)
 
     app = web.Application()
     app.router.add_get("/health", health_handler)
