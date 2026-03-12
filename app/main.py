@@ -24,6 +24,29 @@ def configure_logging() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Database migration helper
+# ---------------------------------------------------------------------------
+
+
+async def run_migrations() -> None:
+    """Run Alembic migrations programmatically on startup."""
+    import asyncio as _asyncio  # noqa: I001
+    from alembic import command
+    from alembic.config import Config
+
+    log = logging.getLogger(__name__)
+    log.info("Running database migrations...")
+
+    def _run_sync() -> None:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+
+    loop = _asyncio.get_event_loop()
+    await loop.run_in_executor(None, _run_sync)
+    log.info("Database migrations complete.")
+
+
+# ---------------------------------------------------------------------------
 # Startup / shutdown hooks
 # ---------------------------------------------------------------------------
 
@@ -31,6 +54,7 @@ def configure_logging() -> None:
 async def on_startup() -> None:
     """Run on application startup."""
     logging.getLogger(__name__).info("Starting Voltyk Bot...")
+    await run_migrations()
     if settings.WEBHOOK_URL:
         await bot.set_webhook(
             url=settings.WEBHOOK_URL,
