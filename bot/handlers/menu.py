@@ -122,7 +122,7 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
         if edit_photo:
             # Try editMessageMedia first (no flicker)
             try:
-                media = InputMediaPhoto(media=photo, caption=plain_text, caption_entities=entities)
+                media = InputMediaPhoto(media=photo, caption=plain_text, caption_entities=entities, parse_mode=None)
                 await callback.message.edit_media(media=media, reply_markup=kb)
                 return
             except Exception as e:
@@ -132,20 +132,20 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
         # Fallback: delete + send new
         await _safe_delete(callback.message)
         await callback.message.answer_photo(
-            photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
+            photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb, parse_mode=None
         )
     else:
         if edit_photo:
             # Try edit text
             try:
-                await callback.message.edit_text(plain_text, entities=entities, reply_markup=kb)
+                await callback.message.edit_text(plain_text, entities=entities, reply_markup=kb, parse_mode=None)
                 return
             except Exception as e:
                 if _MSG_NOT_MODIFIED in str(e):
                     return
                 logger.warning("edit_text failed, falling back to delete+send: %s", e)
         await _safe_delete(callback.message)
-        await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
+        await callback.message.answer(plain_text, entities=entities, reply_markup=kb, parse_mode=None)
 
 
 @router.callback_query(F.data == "menu_schedule")

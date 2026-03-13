@@ -55,10 +55,10 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
     if image_bytes:
         photo = BufferedInputFile(image_bytes, filename="schedule.png")
         await message.answer_photo(
-            photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
+            photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb, parse_mode=None
         )
     else:
-        await message.answer(plain_text, entities=entities, reply_markup=kb)
+        await message.answer(plain_text, entities=entities, reply_markup=kb, parse_mode=None)
 
 
 @router.message(Command("next"))
