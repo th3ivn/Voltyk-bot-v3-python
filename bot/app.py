@@ -58,7 +58,7 @@ async def on_startup(bot: Bot) -> None:
 
     _bg_tasks.extend([
         asyncio.create_task(schedule_checker_loop()),
-        asyncio.create_task(power_monitor_loop()),
+        asyncio.create_task(power_monitor_loop(bot)),
     ])
 
 
