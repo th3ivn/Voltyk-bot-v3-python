@@ -46,6 +46,13 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
         return
 
     if user and user.is_active:
+        # Delete previous menu message to avoid clutter
+        if user.last_menu_message_id:
+            try:
+                await message.bot.delete_message(message.chat.id, user.last_menu_message_id)
+            except Exception:
+                pass
+
         text = format_main_menu_message(user)
         has_channel = bool(user.channel_config and user.channel_config.channel_id)
         channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
@@ -380,7 +387,7 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
         )
         from bot.handlers.menu import _send_schedule_photo
 
-        await _send_schedule_photo(callback, user, edit_photo=False)
+        await _send_schedule_photo(callback, user, session, edit_photo=False)
         return
     else:
         await callback.message.edit_text(

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from bot.db.models import (
     AdminRouter,
     PauseLog,
     PendingChannel,
+    ScheduleCheck,
     Setting,
     Ticket,
     TicketMessage,
@@ -378,3 +380,36 @@ async def upsert_admin_router(
         session.add(router)
     await session.flush()
     return router
+
+
+# ─── Schedule Checks ──────────────────────────────────────────────────────
+
+
+async def get_schedule_check_time(session: AsyncSession, region: str, queue: str) -> int:
+    """Return the unix timestamp of the last schedule check for the given region/queue.
+
+    Falls back to the current time if no record exists yet.
+    """
+    result = await session.execute(
+        select(ScheduleCheck).where(ScheduleCheck.region == region, ScheduleCheck.queue == queue)
+    )
+    check = result.scalars().first()
+    if check and check.last_checked_at:
+        dt = check.last_checked_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return int(dt.timestamp())
+    return int(time.time())
+
+
+async def update_schedule_check_time(session: AsyncSession, region: str, queue: str) -> None:
+    """Upsert last_checked_at = now() for the given region/queue in schedule_checks."""
+    result = await session.execute(
+        select(ScheduleCheck).where(ScheduleCheck.region == region, ScheduleCheck.queue == queue)
+    )
+    check = result.scalars().first()
+    if check:
+        check.last_checked_at = datetime.now(UTC)
+    else:
+        session.add(ScheduleCheck(region=region, queue=queue, last_checked_at=datetime.now(UTC)))
+    await session.flush()

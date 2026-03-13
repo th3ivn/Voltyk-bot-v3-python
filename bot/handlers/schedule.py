@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import logging
-import time
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message, MessageEntity
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.queries import get_user_by_telegram_id
+from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_next_event_message, format_timer_message
 from bot.keyboards.inline import get_main_menu, get_schedule_view_keyboard
@@ -47,7 +46,7 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
     html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
     kb = get_schedule_view_keyboard()
 
-    now_unix = int(time.time())
+    now_unix = await get_schedule_check_time(session, user.region, user.queue)
     plain_text, raw_entities = append_timestamp(html_text, now_unix)
     entities = _to_aiogram_entities(raw_entities)
 
