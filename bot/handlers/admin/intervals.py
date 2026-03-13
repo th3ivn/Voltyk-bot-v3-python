@@ -17,8 +17,8 @@ router = Router(name="admin_intervals")
 
 @router.callback_query(F.data == "admin_intervals")
 async def admin_intervals(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
     sched = int(await get_setting(session, "schedule_check_interval") or "60")
@@ -31,8 +31,8 @@ async def admin_intervals(callback: CallbackQuery, session: AsyncSession) -> Non
 
 @router.callback_query(F.data == "admin_interval_schedule")
 async def admin_interval_schedule(callback: CallbackQuery) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
     await callback.message.edit_text(
@@ -43,8 +43,8 @@ async def admin_interval_schedule(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("admin_schedule_"))
 async def admin_schedule_set(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     minutes = int(callback.data.replace("admin_schedule_", ""))
     seconds = minutes * 60
@@ -54,8 +54,8 @@ async def admin_schedule_set(callback: CallbackQuery, session: AsyncSession) -> 
 
 @router.callback_query(F.data == "admin_interval_ip")
 async def admin_interval_ip(callback: CallbackQuery) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
     await callback.message.edit_text(
@@ -66,8 +66,8 @@ async def admin_interval_ip(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("admin_ip_"))
 async def admin_ip_set(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     seconds = int(callback.data.replace("admin_ip_", ""))
     await set_setting(session, "power_check_interval", str(seconds))
