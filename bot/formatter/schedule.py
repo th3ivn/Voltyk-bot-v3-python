@@ -64,7 +64,7 @@ def format_schedule_message(
             f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         )
         lines.append("")
-        lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
+        lines.append('✅ Відключень не заплановано')
         return "\n".join(lines)
 
     tomorrow_start = today_start + timedelta(days=1)
@@ -143,7 +143,7 @@ def format_schedule_message(
             f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         )
         lines.append("")
-        lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
+        lines.append('✅ Відключень не заплановано')
 
     return "\n".join(lines)
 
@@ -164,7 +164,7 @@ def format_schedule_for_channel(
     has_data = schedule_data.get("hasData", False)
 
     if not has_data or not events:
-        lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
+        lines.append('✅ Відключень не заплановано')
         return "\n".join(lines)
 
     today_start = date.replace(hour=0, minute=0, second=0, microsecond=0)

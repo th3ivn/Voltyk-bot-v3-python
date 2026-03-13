@@ -74,10 +74,18 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.message.edit_text(
             text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
         )
-    except Exception:
-        await callback.message.answer(
-            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
-        )
+    except Exception as e:
+        logger.warning("Failed to edit schedule message: %s", e)
+        try:
+            await callback.message.answer(
+                text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
+            )
+        except Exception as e2:
+            logger.error("Failed to send schedule message: %s", e2)
+            await callback.message.answer(
+                "😅 Щось пішло не так. Спробуйте ще раз!",
+                reply_markup=get_error_keyboard(),
+            )
 
 
 @router.callback_query(F.data == "schedule_refresh")

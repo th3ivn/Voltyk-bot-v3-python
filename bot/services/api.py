@@ -39,7 +39,7 @@ async def fetch_schedule_data(region: str) -> dict | None:
                     headers={"User-Agent": "SvitloCheck-Bot/4.0"},
                 ) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
+                        data = await resp.json(content_type=None)
                         if len(_schedule_cache) >= MAX_CACHE_SIZE:
                             oldest = min(_schedule_cache, key=lambda k: _schedule_cache[k][0])
                             del _schedule_cache[oldest]
@@ -84,39 +84,123 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
     return None
 
 
-def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
-    if not raw_data:
-        return {"hasData": False, "events": []}
+def _parse_hourly_schedule(hourly_data: dict) -> tuple[list[dict], list[dict]]:
+    """Parse hourly data (1-24 keys) into planned and possible outage periods."""
+    planned: list[dict] = []
+    possible: list[dict] = []
 
-    events = []
-    groups = raw_data.get("groups", raw_data.get("data", []))
-    if isinstance(groups, dict):
-        group_data = groups.get(queue, [])
-    elif isinstance(groups, list):
-        group_data = []
-        for g in groups:
-            if g.get("queue") == queue or g.get("group") == queue:
-                group_data = g.get("events", g.get("periods", []))
-                break
+    for hour in range(1, 25):
+        value = hourly_data.get(str(hour)) or hourly_data.get(hour)
+        if value is None:
+            continue
+
+        if value in ("no", "first", "second"):
+            _add_outage_period(planned, hour, value)
+        elif value in ("maybe", "mfirst", "msecond"):
+            _add_outage_period(possible, hour, value)
+
+    return _merge_consecutive(planned), _merge_consecutive(possible)
+
+
+def _add_outage_period(periods: list[dict], hour: int, value: str) -> None:
+    """hour=14 with 'no' means period 13:00-14:00 (1-based indexing)."""
+    if value in ("no", "maybe"):
+        _add_or_extend(periods, hour - 1, hour)
+    elif value in ("first", "mfirst"):
+        _add_or_extend(periods, hour - 1, hour - 0.5)
+    elif value in ("second", "msecond"):
+        _add_or_extend(periods, hour - 0.5, hour)
+
+
+def _add_or_extend(periods: list[dict], start: float, end: float) -> None:
+    if periods and periods[-1]["end"] == start:
+        periods[-1]["end"] = end
     else:
-        group_data = []
+        periods.append({"start": start, "end": end})
 
-    for ev in group_data:
-        start = ev.get("start")
-        end = ev.get("end")
-        if start and end:
-            try:
-                start_dt = datetime.fromisoformat(str(start))
-                end_dt = datetime.fromisoformat(str(end))
+
+def _merge_consecutive(periods: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    for p in periods:
+        if merged and merged[-1]["end"] == p["start"]:
+            merged[-1]["end"] = p["end"]
+        else:
+            merged.append({**p})
+    return merged
+
+
+def _hour_to_datetime(base_date: datetime, hour_value: float) -> datetime:
+    """Convert hour value (e.g. 13.5 = 13:30) to datetime.
+    hour=24 rolls over to 00:00 next day (Python handles this)."""
+    h = int(hour_value)
+    m = int((hour_value % 1) * 60)
+    return base_date.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=h, minutes=m)
+
+
+def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
+    """Parse raw API data into schedule events for a specific queue."""
+    if not raw_data or not isinstance(raw_data, dict):
+        return {"hasData": False, "events": [], "queue": queue}
+
+    fact = raw_data.get("fact")
+    if not fact or not isinstance(fact, dict):
+        return {"hasData": False, "events": [], "queue": queue}
+
+    fact_data = fact.get("data")
+    if not fact_data or not isinstance(fact_data, dict):
+        return {"hasData": False, "events": [], "queue": queue}
+
+    queue_key = f"GPV{queue}"
+
+    timestamps = sorted(int(ts) for ts in fact_data.keys())
+    if not timestamps:
+        return {"hasData": False, "events": [], "queue": queue}
+
+    events: list[dict] = []
+
+    today_ts = timestamps[0]
+    tomorrow_ts = timestamps[1] if len(timestamps) > 1 else None
+
+    today_schedule = fact_data.get(str(today_ts), {}).get(queue_key)
+    if today_schedule:
+        today_date = datetime.fromtimestamp(today_ts)
+        planned, possible = _parse_hourly_schedule(today_schedule)
+
+        for p in planned:
+            events.append({
+                "start": _hour_to_datetime(today_date, p["start"]).isoformat(),
+                "end": _hour_to_datetime(today_date, p["end"]).isoformat(),
+                "isPossible": False,
+            })
+        for p in possible:
+            events.append({
+                "start": _hour_to_datetime(today_date, p["start"]).isoformat(),
+                "end": _hour_to_datetime(today_date, p["end"]).isoformat(),
+                "isPossible": True,
+            })
+
+    if tomorrow_ts:
+        tomorrow_schedule = fact_data.get(str(tomorrow_ts), {}).get(queue_key)
+        if tomorrow_schedule:
+            tomorrow_date = datetime.fromtimestamp(tomorrow_ts)
+            planned, possible = _parse_hourly_schedule(tomorrow_schedule)
+
+            for p in planned:
                 events.append({
-                    "start": start_dt.isoformat(),
-                    "end": end_dt.isoformat(),
-                    "isPossible": ev.get("isPossible", ev.get("is_possible", False)),
+                    "start": _hour_to_datetime(tomorrow_date, p["start"]).isoformat(),
+                    "end": _hour_to_datetime(tomorrow_date, p["end"]).isoformat(),
+                    "isPossible": False,
                 })
-            except (ValueError, TypeError):
-                continue
+            for p in possible:
+                events.append({
+                    "start": _hour_to_datetime(tomorrow_date, p["start"]).isoformat(),
+                    "end": _hour_to_datetime(tomorrow_date, p["end"]).isoformat(),
+                    "isPossible": True,
+                })
 
-    return {"hasData": len(events) > 0, "events": events}
+    events.sort(key=lambda e: e["start"])
+
+    return {"hasData": len(events) > 0, "events": events, "queue": queue}
 
 
 def find_next_event(schedule_data: dict) -> dict | None:
@@ -125,37 +209,36 @@ def find_next_event(schedule_data: dict) -> dict | None:
 
     now = datetime.now()
     events = schedule_data.get("events", [])
-    next_ev = None
-    min_diff = float("inf")
 
-    for ev in events:
+    for i, ev in enumerate(events):
         start = datetime.fromisoformat(ev["start"])
         end = datetime.fromisoformat(ev["end"])
 
-        if now < start:
-            diff = (start - now).total_seconds() / 60
-            if diff < min_diff:
-                min_diff = diff
-                next_ev = {
-                    "type": "power_off",
-                    "time": ev["start"],
-                    "endTime": ev["end"],
-                    "minutes": int(diff),
-                    "isPossible": ev.get("isPossible", False),
-                }
-        elif start <= now <= end:
-            diff = (end - now).total_seconds() / 60
-            if diff < min_diff:
-                min_diff = diff
-                next_ev = {
-                    "type": "power_on",
-                    "time": ev["end"],
-                    "startTime": ev["start"],
-                    "minutes": int(diff),
-                    "isPossible": ev.get("isPossible", False),
-                }
+        if start <= now < end:
+            final_end = end
+            j = i + 1
+            while j < len(events) and datetime.fromisoformat(events[j]["start"]) == final_end:
+                final_end = datetime.fromisoformat(events[j]["end"])
+                j += 1
+            return {
+                "type": "power_on",
+                "time": final_end.isoformat(),
+                "startTime": ev["start"],
+                "endTime": None,
+                "minutes": int((final_end - now).total_seconds() / 60),
+                "isPossible": ev.get("isPossible", False),
+            }
 
-    return next_ev
+        if now < start:
+            return {
+                "type": "power_off",
+                "time": ev["start"],
+                "endTime": ev["end"],
+                "minutes": int((start - now).total_seconds() / 60),
+                "isPossible": ev.get("isPossible", False),
+            }
+
+    return None
 
 
 def calculate_schedule_hash(events: list[dict]) -> str:
