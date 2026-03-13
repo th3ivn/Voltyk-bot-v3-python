@@ -94,7 +94,11 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool = False) -> None:
-    """Send schedule as photo with live timestamp entities."""
+    """Send schedule as photo with live timestamp entities.
+
+    edit_photo=True → try editMessageMedia first (no flicker), fallback to delete+send.
+    edit_photo=False → always delete+send (initial show from menu).
+    """
     data = await fetch_schedule_data(user.region)
     if data is None:
         await callback.message.answer(
@@ -115,10 +119,8 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
 
     if image_bytes:
         photo = BufferedInputFile(image_bytes, filename="schedule.png")
-
         if edit_photo:
-            # Always try editMessageMedia first to avoid delete+send flicker
-            # (matches old JS bot behavior in handleMenuSchedule)
+            # Try editMessageMedia first (no flicker)
             try:
                 media = InputMediaPhoto(media=photo, caption=plain_text, caption_entities=entities)
                 await callback.message.edit_media(media=media, reply_markup=kb)
@@ -127,19 +129,14 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
                 if _MSG_NOT_MODIFIED in str(e):
                     return
                 logger.warning("edit_media failed, falling back to delete+send: %s", e)
-                await _safe_delete(callback.message)
-                await callback.message.answer_photo(
-                    photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
-                )
-                return
-
-        # edit_photo=False: direct delete+send
+        # Fallback: delete + send new
         await _safe_delete(callback.message)
         await callback.message.answer_photo(
             photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
         )
     else:
         if edit_photo:
+            # Try edit text
             try:
                 await callback.message.edit_text(plain_text, entities=entities, reply_markup=kb)
                 return
@@ -147,11 +144,6 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
                 if _MSG_NOT_MODIFIED in str(e):
                     return
                 logger.warning("edit_text failed, falling back to delete+send: %s", e)
-                await _safe_delete(callback.message)
-                await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
-                return
-
-        # edit_photo=False: direct delete+send
         await _safe_delete(callback.message)
         await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
 

@@ -29,6 +29,7 @@
 **Історія змін (агент дописує сюди):**
 - [x] PR-1: Повний rewrite з нуля (12 березня 2026)
 - [x] PR-2: Виправлення UTF-16 offsets, edit_media, animated emoji (13 березня 2026)
+- [x] PR-3: Оновлення aiogram до 3.26, фінальне виправлення date_time entity та _send_schedule_photo (13 березня 2026)
 
 ---
 
@@ -100,4 +101,21 @@
 ### Відповідність правилам:
 - ✅ Правило №1: UI ідентичний старому боту — "X секунд тому", анімоване emoji, edit замість delete+send
 - ✅ Правило №2: Чистий код без костилів
+- ✅ Правило №3: Без змін у логіці каналів/Celery
+
+---
+
+## PR-3: Оновлення aiogram до 3.26, фінальне виправлення date_time entity та _send_schedule_photo (13 березня 2026)
+
+### Що зроблено:
+1. **`pyproject.toml`** — підняти мінімальну версію aiogram з `>=3.13,<4` до `>=3.26,<4`. Причина: `date_time` entity (поля `unix_time`, `date_time_format`) та підтримка `custom_emoji_id` в `MessageEntity` з'явились тільки в aiogram 3.26.0 (Bot API 9.5). До цього Telegram отримував невалідну entity і показував сирий unix timestamp (`1773397524`) замість "X хвилин тому", а анімоване emoji 🔄 не рендерилось.
+2. **`bot/handlers/menu.py`** — `_send_schedule_photo` переписана: fallback delete+send виведений за межі блоку `if edit_photo:` (структурне виправлення для відповідності логіці старого JS бота). Оновлений docstring чітко описує поведінку при `edit_photo=True` і `False`.
+
+### Рішення і чому:
+- Мінімальна вимога aiogram `>=3.26` — це офіційна версія з підтримкою Bot API 9.5, яка вперше дає `MessageEntity(type="date_time", unix_time=..., date_time_format="r")`. Без неї `unix_time`/`date_time_format` ігнорувались — Telegram рендерив сирий timestamp.
+- Структура `_send_schedule_photo`: fallback поза `if edit_photo:` — відповідає паттерну старого JS бота `handleMenuSchedule`, де fallback завжди спільний (DRY, читабельніше).
+
+### Відповідність правилам:
+- ✅ Правило №1: "X секунд тому" і анімоване 🔄 тепер відображаються коректно; переход меню→графік без flicker (edit_media)
+- ✅ Правило №2: Оновлення залежності до актуальної версії — єдине правильне рішення, без костилів
 - ✅ Правило №3: Без змін у логіці каналів/Celery
