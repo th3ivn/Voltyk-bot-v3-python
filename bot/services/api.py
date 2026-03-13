@@ -62,7 +62,8 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
         if now - cached_at < CACHE_TTL:
             return data
 
-    url = settings.IMAGE_URL_TEMPLATE.replace("{region}", region).replace("{queue}", queue)
+    queue_dashed = queue.replace(".", "-")
+    url = settings.IMAGE_URL_TEMPLATE.replace("{region}", region).replace("{queue}", queue_dashed)
 
     try:
         async with aiohttp.ClientSession() as session:
