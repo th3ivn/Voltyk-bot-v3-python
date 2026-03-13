@@ -146,8 +146,8 @@ async def pause_log(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "admin_debounce")
 async def admin_debounce(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
     current = int(await get_setting(session, "power_debounce") or "5")
@@ -159,8 +159,8 @@ async def admin_debounce(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data.startswith("debounce_set_"))
 async def debounce_set(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     value = int(callback.data.replace("debounce_set_", ""))
     await set_setting(session, "power_debounce", str(value))
