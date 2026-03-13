@@ -39,16 +39,16 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     notification_settings: Mapped[UserNotificationSettings | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="joined"
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
     channel_config: Mapped[UserChannelConfig | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="joined"
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
     power_tracking: Mapped[UserPowerTracking | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="joined"
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
     message_tracking: Mapped[UserMessageTracking | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="joined"
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
 
     __table_args__ = (
