@@ -10,6 +10,7 @@ import aiohttp
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
 from bot.db.models import User as UserModel
@@ -18,6 +19,7 @@ from bot.db.queries import (
     change_power_state_and_get_duration,
     deactivate_user,
     get_recent_user_power_states,
+    get_setting,
     get_users_with_ip,
     upsert_user_power_state,
 )
@@ -117,17 +119,34 @@ def _format_time(iso_str: str) -> str:
         return "невідомо"
 
 
-def _calculate_check_interval(user_count: int) -> int:
-    """Return check interval in seconds (dynamic based on user count, or config override)."""
-    if settings.POWER_CHECK_INTERVAL_S > 0:
-        return settings.POWER_CHECK_INTERVAL_S
-    if user_count < 50:
-        return 2
-    elif user_count < 200:
-        return 5
-    elif user_count < 1000:
-        return 10
-    return 30
+DEFAULT_CHECK_INTERVAL_S = 10
+DEFAULT_DEBOUNCE_S = 5 * 60
+
+
+async def _get_check_interval(session: AsyncSession) -> int:
+    """Return check interval in seconds. Default 10s, overridable via admin panel (DB setting)."""
+    val = await get_setting(session, "power_check_interval")
+    if val:
+        try:
+            n = int(val)
+            if n > 0:
+                return n
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_CHECK_INTERVAL_S
+
+
+async def _get_debounce_seconds(session: AsyncSession) -> int:
+    """Return debounce delay in seconds. Default 5 minutes, overridable via admin panel (DB setting)."""
+    val = await get_setting(session, "power_debounce_minutes")
+    if val:
+        try:
+            n = int(val)
+            if n >= 0:
+                return n * 60
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_DEBOUNCE_S
 
 
 # ─── Notification sender ──────────────────────────────────────────────────
@@ -428,13 +447,16 @@ async def _check_user_power(bot: Bot, user) -> None:
         except Exception as e:
             logger.warning("Could not set pending power state for user %s: %s", telegram_id, e)
 
-        # Determine debounce delay
-        debounce_min = settings.POWER_DEBOUNCE_MINUTES
-        if debounce_min == 0:
+        # Determine debounce delay from DB (fallback: 5 minutes)
+        try:
+            async with async_session() as session:
+                debounce_s = await _get_debounce_seconds(session)
+        except Exception:
+            debounce_s = DEFAULT_DEBOUNCE_S
+        if debounce_s == 0:
             debounce_s = settings.POWER_MIN_STABILIZATION_S
             logger.debug("User %s: Debounce=0, using %ds min stabilisation", telegram_id, debounce_s)
         else:
-            debounce_s = debounce_min * 60
             logger.debug("User %s: Waiting %ds for %s to stabilise", telegram_id, debounce_s, new_state)
 
         old_state = user_state["current_state"]
@@ -590,20 +612,7 @@ async def power_monitor_loop(bot: Bot) -> None:
     # Restore persisted states before the first check
     await _restore_user_states()
 
-    # Fetch initial user count for interval calculation
-    try:
-        async with async_session() as session:
-            users = await get_users_with_ip(session)
-        user_count = len(users)
-    except Exception:
-        user_count = 0
-
-    logger.info(
-        "⚡ Power monitor started — users: %d, interval: %ds, debounce: %dmin",
-        user_count,
-        _calculate_check_interval(user_count),
-        settings.POWER_DEBOUNCE_MINUTES,
-    )
+    logger.info("⚡ Power monitor started (default interval: %ds, admin-overridable via DB)", DEFAULT_CHECK_INTERVAL_S)
 
     # First check immediately
     await _check_all_ips(bot)
@@ -612,15 +621,13 @@ async def power_monitor_loop(bot: Bot) -> None:
     save_interval_s = 5 * 60  # 5 minutes
 
     while _running:
-        # Recalculate interval each iteration (user count can change)
+        # Read interval from DB each iteration (admin panel can change it)
         try:
             async with async_session() as session:
-                users = await get_users_with_ip(session)
-            user_count = len(users)
+                interval = await _get_check_interval(session)
         except Exception:
-            user_count = 0
+            interval = DEFAULT_CHECK_INTERVAL_S
 
-        interval = _calculate_check_interval(user_count)
         await asyncio.sleep(interval)
 
         if not _running:
