@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     TZ: str = "Europe/Kyiv"
 
+    PORT: int = 3000
+
     USE_WEBHOOK: bool = False
     WEBHOOK_URL: str = ""
     WEBHOOK_PATH: str = "/webhook"
