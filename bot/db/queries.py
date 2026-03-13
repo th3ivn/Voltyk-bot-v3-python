@@ -145,6 +145,18 @@ async def get_all_active_users(session: AsyncSession) -> list[User]:
     return list(result.scalars().all())
 
 
+async def get_active_users_paginated(session: AsyncSession, limit: int = 500, offset: int = 0) -> list[User]:
+    result = await session.execute(
+        select(User)
+        .options(*_user_with_relations())
+        .where(User.is_active.is_(True))
+        .order_by(User.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
 async def get_users_with_ip(session: AsyncSession) -> list[User]:
     result = await session.execute(
         select(User).options(*_user_with_relations()).where(
