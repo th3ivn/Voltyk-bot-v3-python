@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from bot.db.models import (
     AdminRouter,
@@ -23,9 +24,21 @@ from bot.db.models import (
 logger = logging.getLogger(__name__)
 
 
+def _user_with_relations():
+    """Standard eager-load options for User queries."""
+    return (
+        selectinload(User.notification_settings),
+        selectinload(User.channel_config),
+        selectinload(User.power_tracking),
+        selectinload(User.message_tracking),
+    )
+
+
 async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int | str) -> User | None:
     tid = str(telegram_id)
-    result = await session.execute(select(User).where(User.telegram_id == tid))
+    result = await session.execute(
+        select(User).options(*_user_with_relations()).where(User.telegram_id == tid)
+    )
     return result.scalars().first()
 
 
@@ -42,6 +55,7 @@ async def create_or_update_user(
 ) -> User:
     tid = str(telegram_id)
     user = await get_user_by_telegram_id(session, tid)
+
     if user:
         user.region = region
         user.queue = queue
@@ -59,27 +73,44 @@ async def create_or_update_user(
         session.add(user)
         await session.flush()
 
+        ns = UserNotificationSettings(user_id=user.id)
+        cc = UserChannelConfig(user_id=user.id)
+        pt = UserPowerTracking(user_id=user.id)
+        mt = UserMessageTracking(user_id=user.id)
+        session.add_all([ns, cc, pt, mt])
+        await session.flush()
+
+        user.notification_settings = ns
+        user.channel_config = cc
+        user.power_tracking = pt
+        user.message_tracking = mt
+
+        return user
+
     if not user.notification_settings:
         ns = UserNotificationSettings(user_id=user.id)
         session.add(ns)
+        await session.flush()
         user.notification_settings = ns
 
     if not user.channel_config:
         cc = UserChannelConfig(user_id=user.id)
         session.add(cc)
+        await session.flush()
         user.channel_config = cc
 
     if not user.power_tracking:
         pt = UserPowerTracking(user_id=user.id)
         session.add(pt)
+        await session.flush()
         user.power_tracking = pt
 
     if not user.message_tracking:
         mt = UserMessageTracking(user_id=user.id)
         session.add(mt)
+        await session.flush()
         user.message_tracking = mt
 
-    await session.flush()
     return user
 
 
@@ -97,19 +128,21 @@ async def delete_user_data(session: AsyncSession, telegram_id: int | str) -> Non
 
 async def get_active_users_by_region(session: AsyncSession, region: str) -> list[User]:
     result = await session.execute(
-        select(User).where(User.is_active.is_(True), User.region == region)
+        select(User).options(*_user_with_relations()).where(User.is_active.is_(True), User.region == region)
     )
     return list(result.scalars().all())
 
 
 async def get_all_active_users(session: AsyncSession) -> list[User]:
-    result = await session.execute(select(User).where(User.is_active.is_(True)).order_by(User.id))
+    result = await session.execute(
+        select(User).options(*_user_with_relations()).where(User.is_active.is_(True)).order_by(User.id)
+    )
     return list(result.scalars().all())
 
 
 async def get_users_with_ip(session: AsyncSession) -> list[User]:
     result = await session.execute(
-        select(User).where(
+        select(User).options(*_user_with_relations()).where(
             User.is_active.is_(True),
             User.router_ip.isnot(None),
             User.router_ip != "",
@@ -121,6 +154,7 @@ async def get_users_with_ip(session: AsyncSession) -> list[User]:
 async def get_users_with_channel(session: AsyncSession) -> list[User]:
     result = await session.execute(
         select(User)
+        .options(*_user_with_relations())
         .join(UserChannelConfig, User.id == UserChannelConfig.user_id)
         .where(
             User.is_active.is_(True),
@@ -134,6 +168,7 @@ async def get_users_with_channel(session: AsyncSession) -> list[User]:
 async def get_user_by_channel_id(session: AsyncSession, channel_id: str) -> User | None:
     result = await session.execute(
         select(User)
+        .options(*_user_with_relations())
         .join(UserChannelConfig, User.id == UserChannelConfig.user_id)
         .where(UserChannelConfig.channel_id == channel_id)
     )
@@ -152,7 +187,7 @@ async def count_total_users(session: AsyncSession) -> int:
 
 async def get_recent_users(session: AsyncSession, limit: int = 20) -> list[User]:
     result = await session.execute(
-        select(User).order_by(User.created_at.desc()).limit(limit)
+        select(User).options(*_user_with_relations()).order_by(User.created_at.desc()).limit(limit)
     )
     return list(result.scalars().all())
 
