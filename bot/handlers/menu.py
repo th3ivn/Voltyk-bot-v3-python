@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
@@ -19,7 +19,7 @@ from bot.keyboards.inline import (
     get_settings_keyboard,
     get_statistics_keyboard,
 )
-from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 
 logger = logging.getLogger(__name__)
 router = Router(name="menu")
@@ -36,18 +36,69 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
     text = format_main_menu_message(user)
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
+    kb = get_main_menu(channel_paused=channel_paused, has_channel=has_channel)
     try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
-            parse_mode="HTML",
-        )
+        await callback.message.delete()
     except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
-            parse_mode="HTML",
-        )
+        pass
+    msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    user.last_menu_message_id = msg.message_id
+
+
+async def _send_schedule(callback: CallbackQuery, user, edit: bool = False) -> None:
+    """Fetch and send schedule as photo with caption (like the old bot)."""
+    data = await fetch_schedule_data(user.region)
+    if data is None:
+        if edit:
+            try:
+                await callback.message.edit_text(
+                    "😅 Щось пішло не так. Спробуйте ще раз!", reply_markup=get_error_keyboard()
+                )
+            except Exception:
+                await callback.message.answer(
+                    "😅 Щось пішло не так. Спробуйте ще раз!", reply_markup=get_error_keyboard()
+                )
+        else:
+            await callback.message.answer(
+                "😅 Щось пішло не так. Спробуйте ще раз!", reply_markup=get_error_keyboard()
+            )
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    kb = get_schedule_view_keyboard()
+
+    image_bytes = await fetch_schedule_image(user.region, user.queue)
+
+    if image_bytes:
+        photo = BufferedInputFile(image_bytes, filename="schedule.png")
+        if edit and callback.message.photo:
+            try:
+                media = InputMediaPhoto(media=photo, caption=text, parse_mode="HTML")
+                await callback.message.edit_media(media=media, reply_markup=kb)
+                return
+            except Exception as e:
+                logger.warning("Failed to edit media: %s", e)
+
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
+    else:
+        if edit and not callback.message.photo:
+            try:
+                await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+                return
+            except Exception as e:
+                logger.warning("Failed to edit text: %s", e)
+
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu_schedule")
@@ -57,35 +108,7 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     if not user:
         await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
-
-    data = await fetch_schedule_data(user.region)
-    if data is None:
-        await callback.message.edit_text(
-            "😅 Щось пішло не так. Спробуйте ще раз!",
-            reply_markup=get_error_keyboard(),
-        )
-        return
-
-    schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
-    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
-
-    try:
-        await callback.message.edit_text(
-            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.warning("Failed to edit schedule message: %s", e)
-        try:
-            await callback.message.answer(
-                text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
-            )
-        except Exception as e2:
-            logger.error("Failed to send schedule message: %s", e2)
-            await callback.message.answer(
-                "😅 Щось пішло не так. Спробуйте ще раз!",
-                reply_markup=get_error_keyboard(),
-            )
+    await _send_schedule(callback, user, edit=False)
 
 
 @router.callback_query(F.data == "schedule_refresh")
@@ -94,39 +117,23 @@ async def schedule_refresh(callback: CallbackQuery, session: AsyncSession) -> No
     if not user:
         await callback.answer("❌ Користувача не знайдено")
         return
-
-    data = await fetch_schedule_data(user.region)
-    if data is None:
-        await callback.answer("😅 Щось пішло не так. Спробуйте ще раз!")
-        return
-
-    schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
-    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
-    try:
-        await callback.message.edit_text(
-            text, reply_markup=get_schedule_view_keyboard(), parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await callback.answer("🔄 Оновлено")
+    await callback.answer("🔄 Оновлюю...")
+    await _send_schedule(callback, user, edit=True)
 
 
 @router.callback_query(F.data == "my_queues")
 async def change_queue(callback: CallbackQuery, session: AsyncSession) -> None:
-
     from bot.keyboards.inline import get_region_keyboard
 
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         return
-
-    # We use FSMContext from the handler data dict not available directly here,
-    # so we'll use a simpler approach: show region keyboard
-    await callback.message.edit_text(
-        "Оберіть свій регіон:", reply_markup=get_region_keyboard()
-    )
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer("Оберіть свій регіон:", reply_markup=get_region_keyboard())
 
 
 @router.callback_query(F.data == "menu_timer")
@@ -153,9 +160,11 @@ async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         return
-    await callback.message.edit_text(
-        "📊 Статистика", reply_markup=get_statistics_keyboard()
-    )
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer("📊 Статистика", reply_markup=get_statistics_keyboard())
 
 
 @router.callback_query(F.data.in_({"stats_week", "stats_device", "stats_settings"}))
@@ -169,7 +178,11 @@ async def menu_help(callback: CallbackQuery, session: AsyncSession) -> None:
     from bot.db.queries import get_setting
 
     support_url = await get_setting(session, "support_url")
-    await callback.message.edit_text(
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(
         "❓ Допомога\n\nℹ️ Тут ви можете дізнатися як\nкористуватися ботом.",
         reply_markup=get_help_keyboard(support_url=support_url),
     )
@@ -190,7 +203,10 @@ async def help_howto(callback: CallbackQuery) -> None:
     )
     from bot.keyboards.inline import get_help_keyboard
 
-    await callback.message.edit_text(text, reply_markup=get_help_keyboard())
+    try:
+        await callback.message.edit_text(text, reply_markup=get_help_keyboard())
+    except Exception:
+        await callback.message.answer(text, reply_markup=get_help_keyboard())
 
 
 @router.callback_query(F.data == "help_faq")
@@ -212,7 +228,11 @@ async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     is_admin = app_settings.is_admin(callback.from_user.id)
     text = format_live_status_message(user)
-    await callback.message.edit_text(
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(
         text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML"
     )
 
