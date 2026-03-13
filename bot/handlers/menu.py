@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
+from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, MessageEntity
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
@@ -23,11 +24,32 @@ from bot.keyboards.inline import (
 )
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import WizardSG
+from bot.utils.html_to_entities import append_timestamp
 
 logger = logging.getLogger(__name__)
 router = Router(name="menu")
 
 _MSG_NOT_MODIFIED = "message is not modified"
+
+
+def _to_aiogram_entities(raw_entities: list[dict]) -> list[MessageEntity]:
+    result = []
+    for e in raw_entities:
+        params = {
+            "type": e["type"],
+            "offset": e["offset"],
+            "length": e["length"],
+        }
+        if "url" in e:
+            params["url"] = e["url"]
+        if "custom_emoji_id" in e:
+            params["custom_emoji_id"] = e["custom_emoji_id"]
+        if "unix_time" in e:
+            params["unix_time"] = e["unix_time"]
+        if "date_time_format" in e:
+            params["date_time_format"] = e["date_time_format"]
+        result.append(MessageEntity(**params))
+    return result
 
 
 async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTML") -> bool:
@@ -37,7 +59,6 @@ async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTM
     except Exception as e:
         if _MSG_NOT_MODIFIED in str(e):
             return True
-        logger.warning("edit_text failed: %s", e)
         return False
 
 
@@ -65,13 +86,52 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
         await _safe_delete(callback.message)
         msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        edited = await _safe_edit_text(callback.message, text, reply_markup=kb)
-        if edited:
+        if await _safe_edit_text(callback.message, text, reply_markup=kb):
             msg = callback.message
         else:
             msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
-
     user.last_menu_message_id = msg.message_id
+
+
+async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool = False) -> None:
+    """Send schedule as photo with live timestamp entities."""
+    data = await fetch_schedule_data(user.region)
+    if data is None:
+        await callback.message.answer(
+            "😅 Щось пішло не так. Спробуйте ще раз!", reply_markup=get_error_keyboard()
+        )
+        return
+
+    schedule_data = parse_schedule_for_queue(data, user.queue)
+    next_event = find_next_event(schedule_data)
+    html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    kb = get_schedule_view_keyboard()
+
+    now_unix = int(time.time())
+    plain_text, raw_entities = append_timestamp(html_text, now_unix)
+    entities = _to_aiogram_entities(raw_entities)
+
+    image_bytes = await fetch_schedule_image(user.region, user.queue)
+
+    if image_bytes:
+        photo = BufferedInputFile(image_bytes, filename="schedule.png")
+        if edit_photo and callback.message.photo:
+            try:
+                media = InputMediaPhoto(media=photo, caption=plain_text, caption_entities=entities)
+                await callback.message.edit_media(media=media, reply_markup=kb)
+                return
+            except Exception as e:
+                if _MSG_NOT_MODIFIED in str(e):
+                    return
+                logger.warning("edit_media failed: %s", e)
+
+        await _safe_delete(callback.message)
+        await callback.message.answer_photo(
+            photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
+        )
+    else:
+        await _safe_delete(callback.message)
+        await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
 
 
 @router.callback_query(F.data == "menu_schedule")
@@ -81,40 +141,7 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     if not user:
         await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
-
-    data = await fetch_schedule_data(user.region)
-    if data is None:
-        await _safe_edit_text(
-            callback.message, "😅 Щось пішло не так. Спробуйте ще раз!", reply_markup=get_error_keyboard()
-        )
-        return
-
-    schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
-    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
-    kb = get_schedule_view_keyboard()
-
-    image_bytes = await fetch_schedule_image(user.region, user.queue)
-
-    if image_bytes:
-        photo = BufferedInputFile(image_bytes, filename="schedule.png")
-        if callback.message.photo:
-            try:
-                media = InputMediaPhoto(media=photo, caption=text, parse_mode="HTML")
-                await callback.message.edit_media(media=media, reply_markup=kb)
-                return
-            except Exception as e:
-                logger.warning("edit_media failed: %s", e)
-
-        await _safe_delete(callback.message)
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
-    else:
-        if callback.message.photo:
-            await _safe_delete(callback.message)
-            await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
-        else:
-            if not await _safe_edit_text(callback.message, text, reply_markup=kb):
-                await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await _send_schedule_photo(callback, user, edit_photo=False)
 
 
 @router.callback_query(F.data == "schedule_refresh")
@@ -123,46 +150,7 @@ async def schedule_refresh(callback: CallbackQuery, session: AsyncSession) -> No
     if not user:
         await callback.answer("❌ Користувача не знайдено")
         return
-
-    data = await fetch_schedule_data(user.region)
-    if data is None:
-        await callback.answer("😅 Щось пішло не так. Спробуйте ще раз!")
-        return
-
-    schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
-    text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
-    kb = get_schedule_view_keyboard()
-
-    image_bytes = await fetch_schedule_image(user.region, user.queue)
-
-    if image_bytes and callback.message.photo:
-        try:
-            photo = BufferedInputFile(image_bytes, filename="schedule.png")
-            media = InputMediaPhoto(media=photo, caption=text, parse_mode="HTML")
-            await callback.message.edit_media(media=media, reply_markup=kb)
-            await callback.answer("🔄 Оновлено")
-            return
-        except Exception as e:
-            if _MSG_NOT_MODIFIED in str(e):
-                await callback.answer("Графік не змінився")
-                return
-            logger.warning("edit_media refresh failed: %s", e)
-
-    if image_bytes:
-        await _safe_delete(callback.message)
-        photo = BufferedInputFile(image_bytes, filename="schedule.png")
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=kb, parse_mode="HTML")
-    else:
-        if not callback.message.photo:
-            try:
-                await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-            except Exception:
-                pass
-        else:
-            await _safe_delete(callback.message)
-            await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
-
+    await _send_schedule_photo(callback, user, edit_photo=True)
     await callback.answer("🔄 Оновлено")
 
 
@@ -241,8 +229,6 @@ async def help_howto(callback: CallbackQuery) -> None:
         "• Зміни в графіку\n"
         "• Фактичні відключення (з IP)"
     )
-    from bot.keyboards.inline import get_help_keyboard
-
     await _safe_edit_text(callback.message, text, reply_markup=get_help_keyboard())
 
 

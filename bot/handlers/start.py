@@ -375,13 +375,13 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
     region_name = region.name if region else region_code
 
     if mode == "edit_from_schedule":
-        text = f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}\n\nГрафік буде опубліковано при наступній перевірці."
-        has_channel = bool(user.channel_config and user.channel_config.channel_id)
-        channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
         await callback.message.edit_text(
-            text,
-            reply_markup=get_main_menu(has_channel=has_channel, channel_paused=channel_paused),
+            f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",
         )
+        from bot.handlers.menu import _send_schedule_photo
+
+        await _send_schedule_photo(callback, user, edit_photo=False)
+        return
     else:
         await callback.message.edit_text(
             f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",

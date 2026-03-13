@@ -1,0 +1,114 @@
+"""Convert Telegram HTML to plain text + MessageEntity array.
+
+Supports: b/strong, i/em, code, pre, a, s/strike/del, u/ins, tg-spoiler, blockquote, tg-emoji.
+"""
+from __future__ import annotations
+
+import re
+from html import unescape
+
+TAG_MAP = {
+    "b": "bold", "strong": "bold",
+    "i": "italic", "em": "italic",
+    "code": "code", "pre": "pre",
+    "s": "strikethrough", "strike": "strikethrough", "del": "strikethrough",
+    "u": "underline", "ins": "underline",
+    "tg-spoiler": "spoiler",
+    "blockquote": "blockquote",
+}
+
+
+def html_to_entities(html: str) -> tuple[str, list[dict]]:
+    entities: list[dict] = []
+    text = ""
+    i = 0
+    stack: list[dict] = []
+
+    while i < len(html):
+        if html[i] == "<":
+            close_tag = html.find(">", i)
+            if close_tag == -1:
+                text += html[i]
+                i += 1
+                continue
+
+            tag_content = html[i + 1 : close_tag]
+
+            if tag_content.startswith("/"):
+                tag_name = tag_content[1:].strip().lower().split()[0]
+                for s in range(len(stack) - 1, -1, -1):
+                    if stack[s]["tag"] == tag_name:
+                        entry = stack[s]
+                        entity: dict = {
+                            "type": entry["entity_type"],
+                            "offset": entry["offset"],
+                            "length": len(text) - entry["offset"],
+                        }
+                        if entry.get("url"):
+                            entity["url"] = entry["url"]
+                        if entry.get("custom_emoji_id"):
+                            entity["custom_emoji_id"] = entry["custom_emoji_id"]
+                        entities.append(entity)
+                        stack.pop(s)
+                        break
+            else:
+                space_idx = tag_content.find(" ")
+                tag_name = (tag_content if space_idx == -1 else tag_content[:space_idx]).strip().lower()
+
+                if tag_name == "a":
+                    href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
+                    url = href_match.group(1) if href_match else ""
+                    stack.append({"tag": "a", "entity_type": "text_link", "offset": len(text), "url": url})
+                elif tag_name == "tg-emoji":
+                    emoji_match = re.search(r'emoji-id\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
+                    eid = emoji_match.group(1) if emoji_match else ""
+                    stack.append({"tag": "tg-emoji", "entity_type": "custom_emoji", "offset": len(text), "custom_emoji_id": eid})
+                elif tag_name in TAG_MAP:
+                    stack.append({"tag": tag_name, "entity_type": TAG_MAP[tag_name], "offset": len(text)})
+
+            i = close_tag + 1
+        elif html[i] == "&":
+            semi_idx = html.find(";", i)
+            if semi_idx != -1 and semi_idx - i < 8:
+                html_entity = html[i : semi_idx + 1]
+                text += unescape(html_entity)
+                i = semi_idx + 1
+            else:
+                text += html[i]
+                i += 1
+        else:
+            text += html[i]
+            i += 1
+
+    return text, entities
+
+
+def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list[dict]]:
+    """Append a live date_time entity (Bot API 9.5) to an HTML message.
+
+    Returns (plain_text, entities) — use with entities= parameter, NOT parse_mode.
+    """
+    plain_text, entities = html_to_entities(html_message)
+
+    prefix = "\n\n🔄 Оновлено: "
+    timestamp_str = str(check_time_unix)
+    full_text = plain_text + prefix + timestamp_str
+
+    # Animated refresh emoji (🔄 = 2 UTF-16 code units)
+    entities.append({
+        "type": "custom_emoji",
+        "offset": len(plain_text) + 2,  # after '\n\n'
+        "length": 2,
+        "custom_emoji_id": "5017470156276761427",
+    })
+
+    # Live relative timestamp (e.g. "3 секунди тому")
+    entities.append({
+        "type": "date_time",
+        "offset": len(plain_text) + len(prefix),
+        "length": len(timestamp_str),
+        "unix_time": check_time_unix,
+        "date_time_format": "r",
+    })
+
+    return full_text, entities
