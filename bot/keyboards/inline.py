@@ -2,51 +2,88 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.constants.regions import KYIV_QUEUES, REGION_QUEUES, REGIONS, STANDARD_QUEUES
+from bot.constants.regions import KYIV_QUEUES, REGION_QUEUES, STANDARD_QUEUES
+
+# ─── Custom animated emoji IDs (from old bot, 1:1) ────────────────────────
+
+E_SCHEDULE = "5210956306952758910"
+E_HELP = "5443038326535759644"
+E_STATS = "5190806721286657692"
+E_TIMER = "5382194935057372936"
+E_SETTINGS = "5341715473882955310"
+E_RESUME = "5348125953090403204"
+E_PAUSE_CHANNEL = "5359543311897998264"
+E_REGION = "5399898266265475100"
+E_REFRESH = "5017470156276761427"
+E_IP = "5447410659077661506"
+E_CHANNEL = "5424818078833715060"
+E_ALERTS = "5458603043203327669"
+E_ADMIN = "5217822164362739968"
+E_DELETE_DATA = "5445267414562389170"
+E_SCHEDULE_CHANGES = "5231200819986047254"
+E_BOT_NOTIF = "5372981976804366741"
+E_FACT = "5382194935057372936"
+E_CONFIRM_CHANGE = "5206607081334906820"
+E_CANCEL = "5210952531676504517"
+E_WELCOME = "5472055112702629499"
+E_CHECK = "5870509845911702494"
+E_WARN = "5447644880824181073"
+E_QUEUE = "5390854796011906616"
+E_BELL = "5262598817626234330"
+E_HOURGLASS = "5451732530048802485"
+
+
+def _btn(text: str, callback_data: str, emoji_id: str | None = None, **kwargs) -> InlineKeyboardButton:
+    params: dict = {"text": text, "callback_data": callback_data, **kwargs}
+    if emoji_id:
+        params["icon_custom_emoji_id"] = emoji_id
+    return InlineKeyboardButton(**params)
+
+
+def _url_btn(text: str, url: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, url=url)
+
+
+# ─── Main menu ─────────────────────────────────────────────────────────────
 
 
 def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
+    rows = [
         [
-            InlineKeyboardButton(text="Графік", callback_data="menu_schedule"),
-            InlineKeyboardButton(text="Допомога", callback_data="menu_help"),
+            _btn("Графік", "menu_schedule", E_SCHEDULE),
+            _btn("Допомога", "menu_help", E_HELP),
         ],
         [
-            InlineKeyboardButton(text="Статистика", callback_data="menu_stats"),
-            InlineKeyboardButton(text="Таймер", callback_data="menu_timer"),
+            _btn("Статистика", "menu_stats", E_STATS),
+            _btn("Таймер", "menu_timer", E_TIMER),
         ],
-        [InlineKeyboardButton(text="Налаштування", callback_data="menu_settings")],
+        [_btn("Налаштування", "menu_settings", E_SETTINGS)],
     ]
     if has_channel:
         if channel_paused:
-            rows.append([InlineKeyboardButton(text="Відновити роботу каналу", callback_data="channel_resume")])
+            rows.append([_btn("Відновити роботу каналу", "channel_resume", E_RESUME)])
         else:
-            rows.append(
-                [InlineKeyboardButton(text="Тимчасово зупинити канал", callback_data="channel_pause")]
-            )
+            rows.append([_btn("Тимчасово зупинити канал", "channel_pause", E_PAUSE_CHANNEL)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Замінити", callback_data="my_queues"),
-                InlineKeyboardButton(text="Оновити", callback_data="schedule_refresh"),
-            ],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Замінити", "my_queues", E_REGION),
+            _btn("Оновити", "schedule_refresh", E_REFRESH),
+        ],
+        [_btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_region_keyboard() -> InlineKeyboardMarkup:
-    buttons: list[list[InlineKeyboardButton]] = []
-    region_list = list(REGIONS.values())
-    for i in range(0, len(region_list), 2):
-        row = [InlineKeyboardButton(text=r.name, callback_data=f"region_{r.code}") for r in region_list[i : i + 2]]
-        buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="🏙 Запропонувати регіон", callback_data="region_request_start")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    rows = [
+        [_btn("Київ", "region_kyiv"), _btn("Київщина", "region_kyiv-region")],
+        [_btn("Дніпропетровщина", "region_dnipro"), _btn("Одещина", "region_odesa")],
+        [_btn("🏙 Запропонувати регіон", "region_request_start")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
@@ -55,9 +92,9 @@ def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
 
     if region != "kyiv":
         for i in range(0, len(queues), 3):
-            row = [InlineKeyboardButton(text=q, callback_data=f"queue_{q}") for q in queues[i : i + 3]]
+            row = [_btn(q, f"queue_{q}") for q in queues[i : i + 3]]
             rows.append(row)
-        rows.append([InlineKeyboardButton(text="← Назад", callback_data="back_to_region")])
+        rows.append([_btn("← Назад", "back_to_region")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     pages: dict[int, list[str]] = {1: STANDARD_QUEUES}
@@ -68,812 +105,562 @@ def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
 
     total_pages = len(pages)
     current_queues = pages.get(page, STANDARD_QUEUES)
-    cols = 4 if page > 1 else 3
+    cols = 4
 
     for i in range(0, len(current_queues), cols):
-        row = [InlineKeyboardButton(text=q, callback_data=f"queue_{q}") for q in current_queues[i : i + cols]]
+        row = [_btn(q, f"queue_{q}") for q in current_queues[i : i + cols]]
         rows.append(row)
 
-    nav_row: list[InlineKeyboardButton] = []
     if page == 1:
-        nav_row.append(InlineKeyboardButton(text="Інші черги →", callback_data="queue_page_2"))
-        nav_row.insert(0, InlineKeyboardButton(text="← Назад", callback_data="back_to_region"))
+        rows.append([_btn("Інші черги →", "queue_page_2")])
+        rows.append([_btn("← Назад", "back_to_region")])
     else:
-        nav_row.append(InlineKeyboardButton(text="← Назад", callback_data=f"queue_page_{page - 1}"))
+        nav: list[InlineKeyboardButton] = []
+        nav.append(_btn("← Назад", f"queue_page_{page - 1}"))
         if page < total_pages:
-            nav_row.append(InlineKeyboardButton(text="Далі →", callback_data=f"queue_page_{page + 1}"))
-    rows.append(nav_row)
+            nav.append(_btn("Далі →", f"queue_page_{page + 1}"))
+        rows.append(nav)
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✓ Підтвердити", callback_data="confirm_setup")],
-            [InlineKeyboardButton(text="🔄 Змінити регіон", callback_data="back_to_region")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✓ Підтвердити", "confirm_setup")],
+        [_btn("🔄 Змінити регіон", "back_to_region")],
+        [_btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [
-            InlineKeyboardButton(text="Регіон", callback_data="settings_region"),
-            InlineKeyboardButton(text="IP", callback_data="settings_ip"),
-        ],
-        [
-            InlineKeyboardButton(text="Канал", callback_data="settings_channel"),
-            InlineKeyboardButton(text="Сповіщення", callback_data="settings_alerts"),
-        ],
-        [InlineKeyboardButton(text="🗑 Очищення", callback_data="settings_cleanup")],
+        [_btn("Регіон", "settings_region", E_REGION), _btn("IP", "settings_ip", E_IP)],
+        [_btn("Канал", "settings_channel", E_CHANNEL), _btn("Сповіщення", "settings_alerts", E_ALERTS)],
+        [_btn("🗑 Очищення", "settings_cleanup")],
     ]
     if is_admin:
-        rows.append([InlineKeyboardButton(text="Адмін-панель", callback_data="settings_admin")])
-    rows.extend([
-        [InlineKeyboardButton(text="Видалити мої дані", callback_data="settings_delete_data")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
+        rows.append([_btn("Адмін-панель", "settings_admin", E_ADMIN)])
+    rows.append([_btn("Видалити мої дані", "settings_delete_data", E_DELETE_DATA)])
+    rows.append([_btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_statistics_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⚡ Відключення за тиждень", callback_data="stats_week")],
-            [InlineKeyboardButton(text="📡 Статус пристрою", callback_data="stats_device")],
-            [InlineKeyboardButton(text="⚙️ Мої налаштування", callback_data="stats_settings")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("⚡ Відключення за тиждень", "stats_week")],
+        [_btn("📡 Статус пристрою", "stats_device")],
+        [_btn("⚙️ Мої налаштування", "stats_settings")],
+        [_btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_help_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="📖 Інструкція", callback_data="help_howto")],
-    ]
+    row1 = [_btn("📖 Інструкція", "help_howto")]
     if support_url:
-        rows.append([InlineKeyboardButton(text="✉️ Підтримка", url=support_url)])
+        row1.append(_url_btn("✉️ Підтримка", support_url))
     else:
-        rows.append([InlineKeyboardButton(text="⚒️ Підтримка", callback_data="feedback_start")])
-    rows.extend([
-        [InlineKeyboardButton(text="📢 Новини", url="https://t.me/Voltyk_news")],
-        [InlineKeyboardButton(text="💬 Обговорення", url="https://t.me/voltyk_chat")],
-        [InlineKeyboardButton(text="🏙 Запропонувати регіон", callback_data="region_request_start")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
+        row1.append(_btn("⚒️ Підтримка", "feedback_start"))
+    return InlineKeyboardMarkup(inline_keyboard=[
+        row1,
+        [_url_btn("📢 Новини", "https://t.me/Voltyk_news"), _url_btn("💬 Обговорення", "https://t.me/voltyk_chat")],
+        [_btn("🏙 Запропонувати регіон", "region_request_start")],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def get_channel_menu_keyboard(
-    channel_id: str | None = None,
-    is_public: bool = False,
-    channel_username: str | None = None,
-    channel_status: str = "active",
-) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-
-    if not channel_id:
-        rows.append([InlineKeyboardButton(text="✚ Підключити канал", callback_data="channel_connect")])
-    else:
-        if is_public and channel_username:
-            rows.append(
-                [InlineKeyboardButton(text="📺 Відкрити канал", url=f"https://t.me/{channel_username}")]
-            )
-        rows.append([
-            InlineKeyboardButton(text="ℹ️ Інфо", callback_data="channel_info"),
-            InlineKeyboardButton(text="✏️ Назва", callback_data="channel_edit_title"),
-        ])
-        rows.append([
-            InlineKeyboardButton(text="📝 Опис", callback_data="channel_edit_description"),
-            InlineKeyboardButton(text="📋 Формат", callback_data="channel_format"),
-        ])
-        rows.append([
-            InlineKeyboardButton(text="🧪 Тест", callback_data="channel_test"),
-        ])
-        if channel_status == "blocked":
-            rows.append([InlineKeyboardButton(text="⚙️ Перепідключити", callback_data="channel_reconnect")])
-        else:
-            rows.append([InlineKeyboardButton(text="🔴 Вимкнути", callback_data="channel_disable")])
-        rows.append([InlineKeyboardButton(text="🔔 Сповіщення", callback_data="channel_notifications")])
-
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_restoration_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Відновити налаштування", callback_data="restore_profile")],
-            [InlineKeyboardButton(text="🆕 Почати заново", callback_data="create_new_profile")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🔄 Відновити налаштування", "restore_profile")],
+        [_btn("🆕 Почати заново", "create_new_profile")],
+    ])
 
 
 def get_wizard_notify_target_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📱 У цьому боті", callback_data="wizard_notify_bot")],
-            [InlineKeyboardButton(text="📺 У Telegram-каналі", callback_data="wizard_notify_channel")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📱 У цьому боті", "wizard_notify_bot")],
+        [_btn("📺 У Telegram-каналі", "wizard_notify_channel")],
+    ])
 
 
-def get_wizard_bot_notification_keyboard(
-    schedule_changes: bool = True,
-    remind_off: bool = True,
-    fact_off: bool = True,
-    remind_on: bool = True,
-    fact_on: bool = True,
-    remind_15m: bool = True,
-    remind_30m: bool = False,
-    remind_1h: bool = False,
+# ─── Notification keyboards (wizard + settings) ───────────────────────────
+
+
+def _notif_keyboard(
+    prefix: str,
+    schedule_changes: bool, fact_off: bool,
+    remind_15m: bool, remind_30m: bool, remind_1h: bool,
+    back_cb: str, done_cb: str | None = None,
 ) -> InlineKeyboardMarkup:
-    def _check(v: bool) -> str:
+    def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text=f"Оновлення графіків {_check(schedule_changes)}", callback_data="wizard_notif_toggle_schedule")],
+    rows = [
+        [_btn(f"Оновлення графіків {_c(schedule_changes)}", f"{prefix}_toggle_schedule", E_SCHEDULE_CHANGES)],
         [
-            InlineKeyboardButton(text=f"1 год {_check(remind_1h)}", callback_data="wizard_notif_time_60"),
-            InlineKeyboardButton(text=f"30 хв {_check(remind_30m)}", callback_data="wizard_notif_time_30"),
-            InlineKeyboardButton(text=f"15 хв {_check(remind_15m)}", callback_data="wizard_notif_time_15"),
+            _btn(f"1 год {_c(remind_1h)}", f"{prefix}_time_60"),
+            _btn(f"30 хв {_c(remind_30m)}", f"{prefix}_time_30"),
+            _btn(f"15 хв {_c(remind_15m)}", f"{prefix}_time_15"),
         ],
-        [InlineKeyboardButton(
-            text=f"Фактично за {'IP-адресою' if True else 'графіком'} {_check(fact_off)}",
-            callback_data="wizard_notif_toggle_fact",
-        )],
-        [InlineKeyboardButton(text="← Назад", callback_data="wizard_notify_back")],
-        [InlineKeyboardButton(text="✓ Готово!", callback_data="wizard_bot_done")],
+        [_btn(f"Фактично за IP-адресою {_c(fact_off)}", f"{prefix}_toggle_fact", E_FACT)],
     ]
+    last_row = [_btn("← Назад", back_cb)]
+    if done_cb:
+        last_row.append(_btn("✓ Готово!", done_cb))
+    rows.append(last_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_wizard_channel_notification_keyboard(
-    schedule_changes: bool = True,
-    remind_off: bool = True,
-    fact_off: bool = True,
-    remind_on: bool = True,
-    fact_on: bool = True,
-    remind_15m: bool = True,
-    remind_30m: bool = False,
-    remind_1h: bool = False,
-) -> InlineKeyboardMarkup:
-    def _check(v: bool) -> str:
+def get_wizard_bot_notification_keyboard(**kw) -> InlineKeyboardMarkup:
+    return _notif_keyboard("wizard_notif", kw.get("schedule_changes", True), kw.get("fact_off", True),
+                           kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
+                           "wizard_notify_back", "wizard_bot_done")
+
+
+def get_wizard_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
+    return _notif_keyboard("wizard_ch_notif", kw.get("schedule_changes", True), kw.get("fact_off", True),
+                           kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
+                           "wizard_channel_back", "wizard_channel_done")
+
+
+def get_notification_main_keyboard(schedule_changes: bool = True, has_channel: bool = False) -> InlineKeyboardMarkup:
+    def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text=f"Оновлення графіків {_check(schedule_changes)}", callback_data="wizard_ch_notif_toggle_schedule")],
-        [
-            InlineKeyboardButton(text=f"1 год {_check(remind_1h)}", callback_data="wizard_ch_notif_time_60"),
-            InlineKeyboardButton(text=f"30 хв {_check(remind_30m)}", callback_data="wizard_ch_notif_time_30"),
-            InlineKeyboardButton(text=f"15 хв {_check(remind_15m)}", callback_data="wizard_ch_notif_time_15"),
-        ],
-        [InlineKeyboardButton(
-            text=f"Фактично за {'IP-адресою' if True else 'графіком'} {_check(fact_off)}",
-            callback_data="wizard_ch_notif_toggle_fact",
-        )],
-        [InlineKeyboardButton(text="← Назад", callback_data="wizard_channel_back")],
-        [InlineKeyboardButton(text="✓ Готово!", callback_data="wizard_channel_done")],
+    rows = [
+        [_btn(f"📊 Зміни графіка  {_c(schedule_changes)}", "notif_toggle_schedule")],
+        [_btn("⏰ Нагадування  →", "notif_reminders")],
     ]
+    if has_channel:
+        rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
+    rows.append([_btn("← Назад", "back_to_settings")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_notification_main_keyboard(
-    schedule_changes: bool = True,
-) -> InlineKeyboardMarkup:
-    def _check(v: bool) -> str:
+def get_notification_reminders_keyboard(**kw) -> InlineKeyboardMarkup:
+    def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"📊 Зміни графіка {_check(schedule_changes)}", callback_data="notif_toggle_schedule")],
-            [InlineKeyboardButton(text="⏰ Нагадування →", callback_data="notif_reminders")],
-            [InlineKeyboardButton(text="📍 Куди надсилати →", callback_data="notif_targets")],
-            [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-        ]
-    )
-
-
-def get_notification_reminders_keyboard(
-    remind_off: bool = True,
-    fact_off: bool = True,
-    remind_on: bool = True,
-    fact_on: bool = True,
-    remind_15m: bool = True,
-    remind_30m: bool = False,
-    remind_1h: bool = False,
-) -> InlineKeyboardMarkup:
-    def _check(v: bool) -> str:
-        return "✅" if v else "❌"
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"🔴 Нагадування перед відкл. {_check(remind_off)}", callback_data="notif_toggle_remind_off")],
-            [InlineKeyboardButton(text=f"🔴 Факт відключення {_check(fact_off)}", callback_data="notif_toggle_fact_off")],
-            [InlineKeyboardButton(text=f"🟢 Нагадування перед вкл. {_check(remind_on)}", callback_data="notif_toggle_remind_on")],
-            [InlineKeyboardButton(text=f"🟢 Факт включення {_check(fact_on)}", callback_data="notif_toggle_fact_on")],
-            [
-                InlineKeyboardButton(text=f"15 хв {_check(remind_15m)}", callback_data="notif_time_15"),
-                InlineKeyboardButton(text=f"30 хв {_check(remind_30m)}", callback_data="notif_time_30"),
-                InlineKeyboardButton(text=f"1 год {_check(remind_1h)}", callback_data="notif_time_60"),
-            ],
-            [InlineKeyboardButton(text="← Назад", callback_data="notif_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(f"🔴 Нагадування перед відкл.  {_c(kw.get('remind_off', True))}", "notif_toggle_remind_off")],
+        [_btn(f"🔴 Факт відключення  {_c(kw.get('fact_off', True))}", "notif_toggle_fact_off")],
+        [_btn(f"🟢 Нагадування перед вкл.  {_c(kw.get('remind_on', True))}", "notif_toggle_remind_on")],
+        [_btn(f"🟢 Факт включення  {_c(kw.get('fact_on', True))}", "notif_toggle_fact_on")],
+        [
+            _btn(f"15 хв {'✅' if kw.get('remind_15m', True) else ''}", "notif_time_15"),
+            _btn(f"30 хв {'✅' if kw.get('remind_30m', False) else ''}", "notif_time_30"),
+            _btn(f"1 год {'✅' if kw.get('remind_1h', False) else ''}", "notif_time_60"),
+        ],
+        [_btn("← Назад", "notif_main")],
+    ])
 
 
 def get_notification_targets_keyboard(has_ip: bool = False) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="📊 Зміни графіка →", callback_data="notif_target_type_schedule")],
-        [InlineKeyboardButton(text="⏰ Нагадування →", callback_data="notif_target_type_remind")],
-        [InlineKeyboardButton(text="⚡ Факт. стан (IP) →", callback_data="notif_target_type_power")],
+    rows = [
+        [_btn("📊 Зміни графіка  →", "notif_target_type_schedule")],
+        [_btn("⏰ Нагадування  →", "notif_target_type_remind")],
     ]
-    if not has_ip:
-        rows.append([InlineKeyboardButton(text="📡 Налаштувати IP моніторинг", callback_data="settings_ip")])
-    rows.append([InlineKeyboardButton(text="← Назад", callback_data="notif_main")])
+    if has_ip:
+        rows.append([_btn("⚡ Факт. стан (IP)  →", "notif_target_type_power")])
+    else:
+        rows.append([_btn("📡 Налаштувати IP моніторинг", "settings_ip")])
+    rows.append([_btn("← Назад", "notif_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_notification_target_select_keyboard(
-    target_type: str, current_target: str = "bot"
-) -> InlineKeyboardMarkup:
-    def _mark(t: str) -> str:
-        return "● " if t == current_target else "○ "
+def get_notification_target_select_keyboard(target_type: str, current_target: str = "bot") -> InlineKeyboardMarkup:
+    def _m(t: str) -> str:
+        return "✅ " if t == current_target else ""
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"{_mark('bot')}📱 В бот", callback_data=f"notif_target_set_{target_type}_bot")],
-            [InlineKeyboardButton(text=f"{_mark('channel')}📺 В канал", callback_data=f"notif_target_set_{target_type}_channel")],
-            [InlineKeyboardButton(text=f"{_mark('both')}📱📺 Обидва", callback_data=f"notif_target_set_{target_type}_both")],
-            [InlineKeyboardButton(text="← Назад", callback_data="notif_targets")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(f"{_m('bot')}📱 В бот", f"notif_target_set_{target_type}_bot")],
+        [_btn(f"{_m('channel')}📺 В канал", f"notif_target_set_{target_type}_channel")],
+        [_btn(f"{_m('both')}📱📺 Обидва", f"notif_target_set_{target_type}_both")],
+        [_btn("← Назад", "notif_targets")],
+    ])
 
 
 def get_notification_select_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Сповіщення в боті", callback_data="notif_select_bot")],
-            [InlineKeyboardButton(text="Сповіщення для каналу", callback_data="notif_select_channel")],
-            [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Сповіщення в боті", "notif_select_bot", E_BOT_NOTIF)],
+        [_btn("Сповіщення для каналу", "notif_select_channel", E_CHANNEL)],
+        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
-def get_channel_notification_keyboard(
-    schedule: bool = True,
-    remind_off: bool = True,
-    fact_off: bool = True,
-    remind_on: bool = True,
-    fact_on: bool = True,
-    remind_15m: bool = True,
-    remind_30m: bool = False,
-    remind_1h: bool = False,
+def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
+    return _notif_keyboard("ch_notif", kw.get("schedule", True), kw.get("fact_off", True),
+                           kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
+                           "notif_main")
+
+
+# ─── Channel keyboards ────────────────────────────────────────────────────
+
+
+def get_channel_menu_keyboard(
+    channel_id: str | None = None, is_public: bool = False,
+    channel_username: str | None = None, channel_status: str = "active",
 ) -> InlineKeyboardMarkup:
-    def _check(v: bool) -> str:
-        return "✅" if v else "❌"
+    rows: list[list[InlineKeyboardButton]] = []
+    if not channel_id:
+        rows.append([_btn("✚ Підключити канал", "channel_connect")])
+    else:
+        if is_public and channel_username:
+            rows.append([_url_btn("📺 Відкрити канал", f"https://t.me/{channel_username}")])
+        rows.append([_btn("ℹ️ Інфо", "channel_info"), _btn("✏️ Назва", "channel_edit_title")])
+        rows.append([_btn("📝 Опис", "channel_edit_description"), _btn("📋 Формат", "channel_format")])
+        rows.append([
+            _btn("🧪 Тест", "channel_test"),
+            _btn("⚙️ Перепідключити", "channel_reconnect") if channel_status == "blocked"
+            else _btn("🔴 Вимкнути", "channel_disable"),
+        ])
+        rows.append([_btn("🔔 Сповіщення", "channel_notifications")])
+    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"Оновлення графіків {_check(schedule)}", callback_data="ch_notif_toggle_schedule")],
-            [
-                InlineKeyboardButton(text=f"1 год {_check(remind_1h)}", callback_data="ch_notif_time_60"),
-                InlineKeyboardButton(text=f"30 хв {_check(remind_30m)}", callback_data="ch_notif_time_30"),
-                InlineKeyboardButton(text=f"15 хв {_check(remind_15m)}", callback_data="ch_notif_time_15"),
-            ],
-            [InlineKeyboardButton(
-                text=f"Фактично за IP-адресою {_check(fact_off)}",
-                callback_data="ch_notif_toggle_fact",
-            )],
-            [InlineKeyboardButton(text="← Назад", callback_data="notif_main")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+
+# ─── IP keyboards ─────────────────────────────────────────────────────────
 
 
 def get_ip_monitoring_keyboard(has_ip: bool = False) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="ℹ️ Інструкція", callback_data="ip_instruction")],
+        [_btn("ℹ️ Інструкція", "ip_instruction"), _btn("✚ Підключити IP", "ip_setup")],
     ]
-    if not has_ip:
-        rows.append([InlineKeyboardButton(text="✚ Підключити IP", callback_data="ip_setup")])
-    else:
-        rows.append([InlineKeyboardButton(text="📋 Показати поточний", callback_data="ip_show")])
-        rows.append([InlineKeyboardButton(text="🗑️ Видалити IP", callback_data="ip_delete")])
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
+    if has_ip:
+        rows.append([_btn("📋 Показати поточний", "ip_show"), _btn("🗑️ Видалити IP", "ip_delete")])
+    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_ip_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="✕ Скасувати", callback_data="ip_cancel")]]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[_btn("✕ Скасувати", "ip_cancel")]])
 
 
-def get_cleanup_keyboard(
-    auto_delete_commands: bool = False,
-    auto_delete_bot_messages: bool = False,
-) -> InlineKeyboardMarkup:
-    cmd_icon = "✅" if auto_delete_commands else "⌨️"
-    msg_icon = "✅" if auto_delete_bot_messages else "💬"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"{cmd_icon} Видаляти команди", callback_data="cleanup_toggle_commands")],
-            [InlineKeyboardButton(text=f"{msg_icon} Видаляти старі відповіді", callback_data="cleanup_toggle_messages")],
-            [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+# ─── Cleanup / Data deletion ──────────────────────────────────────────────
+
+
+def get_cleanup_keyboard(auto_delete_commands: bool = False, auto_delete_bot_messages: bool = False) -> InlineKeyboardMarkup:
+    cmd = "✅ Видаляти команди" if auto_delete_commands else "⌨️ Видаляти команди"
+    msg = "✅ Видаляти старі відповіді" if auto_delete_bot_messages else "💬 Видаляти старі відповіді"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(cmd, "cleanup_toggle_commands")],
+        [_btn(msg, "cleanup_toggle_messages")],
+        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_delete_data_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Скасувати", callback_data="back_to_settings"),
-                InlineKeyboardButton(text="Продовжити", callback_data="delete_data_step2"),
-            ],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Скасувати", "back_to_settings"), _btn("Продовжити", "delete_data_step2")],
+    ])
 
 
 def get_delete_data_final_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Ні", callback_data="back_to_settings"),
-                InlineKeyboardButton(text="Так, видалити", callback_data="confirm_delete_data"),
-            ],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Ні", "back_to_settings"), _btn("Так, видалити", "confirm_delete_data", E_DELETE_DATA)],
+    ])
 
 
 def get_deactivate_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✓ Так, деактивувати", callback_data="confirm_deactivate"),
-                InlineKeyboardButton(text="✕ Скасувати", callback_data="back_to_settings"),
-            ],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✓ Так, деактивувати", "confirm_deactivate")],
+        [_btn("✕ Скасувати", "back_to_settings")],
+    ])
+
+
+# ─── Format keyboards ─────────────────────────────────────────────────────
 
 
 def get_format_settings_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Графік відключень", callback_data="format_schedule_settings")],
-            [InlineKeyboardButton(text="⚡ Фактичний стан", callback_data="format_power_settings")],
-            [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Графік відключень", "format_schedule_settings")],
+        [_btn("⚡ Фактичний стан", "format_power_settings")],
+        [_btn("← Назад", "settings_channel"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
-def get_format_schedule_keyboard(
-    delete_old: bool = False,
-    picture_only: bool = False,
-) -> InlineKeyboardMarkup:
-    del_icon = "✓" if delete_old else "○"
-    pic_icon = "✓" if picture_only else "○"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📝 Налаштувати текст графіка", callback_data="format_schedule_text")],
-            [InlineKeyboardButton(text=f"{del_icon} Видаляти старий графік", callback_data="format_toggle_delete")],
-            [InlineKeyboardButton(text=f"{pic_icon} Без тексту (тільки картинка)", callback_data="format_toggle_piconly")],
-            [InlineKeyboardButton(text="← Назад", callback_data="format_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+def get_format_schedule_keyboard(delete_old: bool = False, picture_only: bool = False) -> InlineKeyboardMarkup:
+    d = "✓" if delete_old else "○"
+    p = "✓" if picture_only else "○"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📝 Налаштувати текст графіка", "format_schedule_text")],
+        [_btn(f"{d} Видаляти старий графік", "format_toggle_delete")],
+        [_btn(f"{p} Без тексту (тільки картинка)", "format_toggle_piconly")],
+        [_btn("← Назад", "format_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_format_power_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='🔴 Повідомлення "Світло зникло"', callback_data="format_power_off")],
-            [InlineKeyboardButton(text='🟢 Повідомлення "Світло є"', callback_data="format_power_on")],
-            [InlineKeyboardButton(text="🔄 Скинути все до стандартних", callback_data="format_reset_all_power")],
-            [InlineKeyboardButton(text="← Назад", callback_data="format_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn('🔴 Повідомлення "Світло зникло"', "format_power_off")],
+        [_btn('🟢 Повідомлення "Світло є"', "format_power_on")],
+        [_btn("🔄 Скинути все до стандартних", "format_reset_all_power")],
+        [_btn("← Назад", "format_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_test_publication_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Графік відключень", callback_data="test_schedule")],
-            [InlineKeyboardButton(text="⚡ Фактичний стан (світло є)", callback_data="test_power_on")],
-            [InlineKeyboardButton(text="📴 Фактичний стан (світла немає)", callback_data="test_power_off")],
-            [InlineKeyboardButton(text="✏️ Своє повідомлення", callback_data="test_custom")],
-            [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Графік відключень", "test_schedule")],
+        [_btn("⚡ Фактичний стан (світло є)", "test_power_on")],
+        [_btn("📴 Фактичний стан (світла немає)", "test_power_off")],
+        [_btn("✏️ Своє повідомлення", "test_custom")],
+        [_btn("← Назад", "settings_channel"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_error_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Спробувати ще", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🔄 Спробувати ще", "back_to_main")],
+    ])
 
 
-# ─── Admin keyboards ──────────────────────────────────────────────────────────
+# ─── Feedback / Region request ────────────────────────────────────────────
+
+
+def get_feedback_type_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🐛 Баг", "feedback_type_bug")],
+        [_btn("💡 Ідея", "feedback_type_idea")],
+        [_btn("💬 Інше", "feedback_type_other")],
+        [_btn("← Назад", "back_to_main")],
+    ])
+
+
+def get_feedback_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✅ Надіслати", "feedback_confirm"), _btn("❌ Скасувати", "feedback_cancel")],
+    ])
+
+
+def get_region_request_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✅ Надіслати", "region_request_confirm"), _btn("❌ Скасувати", "region_request_cancel")],
+    ])
+
+
+def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[_btn("❌ Скасувати", "broadcast_cancel")]])
+
+
+# ─── Admin keyboards ──────────────────────────────────────────────────────
 
 
 def get_admin_keyboard(open_tickets_count: int = 0) -> InlineKeyboardMarkup:
-    tickets_text = f"📩 Звернення ({open_tickets_count})" if open_tickets_count else "📩 Звернення"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📊 Аналітика", callback_data="admin_analytics"),
-                InlineKeyboardButton(text="👥 Користувачі", callback_data="admin_users"),
-            ],
-            [InlineKeyboardButton(text=tickets_text, callback_data="admin_tickets")],
-            [InlineKeyboardButton(text="📢 Розсилка", callback_data="admin_broadcast")],
-            [InlineKeyboardButton(text="⚙️ Налаштування", callback_data="admin_settings_menu")],
-            [
-                InlineKeyboardButton(text="📡 Роутер", callback_data="admin_router"),
-                InlineKeyboardButton(text="🔧 Тех. роботи", callback_data="admin_maintenance"),
-            ],
-            [InlineKeyboardButton(text="📞 Підтримка", callback_data="admin_support")],
-            [InlineKeyboardButton(text="← Назад", callback_data="back_to_settings")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    t = f"📩 Звернення ({open_tickets_count})" if open_tickets_count else "📩 Звернення"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Аналітика", "admin_analytics"), _btn("👥 Користувачі", "admin_users")],
+        [_btn(t, "admin_tickets"), _btn("📢 Розсилка", "admin_broadcast")],
+        [_btn("⚙️ Налаштування", "admin_settings_menu"), _btn("📡 Роутер", "admin_router")],
+        [_btn("🔧 Тех. роботи", "admin_maintenance"), _btn("📞 Підтримка", "admin_support")],
+        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_admin_analytics_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Загальна статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="📈 Ріст / Growth", callback_data="admin_growth")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Загальна статистика", "admin_stats")],
+        [_btn("📈 Ріст / Growth", "admin_growth")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💻 Система", callback_data="admin_system")],
-            [
-                InlineKeyboardButton(text="⏱ Інтервали", callback_data="admin_intervals"),
-                InlineKeyboardButton(text="⏸ Debounce", callback_data="admin_debounce"),
-            ],
-            [InlineKeyboardButton(text="⏸️ Режим паузи", callback_data="admin_pause")],
-            [InlineKeyboardButton(text="🗑 Очистити базу", callback_data="admin_clear_db")],
-            [InlineKeyboardButton(text="🔄 Перезапуск", callback_data="admin_restart")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("💻 Система", "admin_system"), _btn("⏱ Інтервали", "admin_intervals")],
+        [_btn("⏸ Debounce", "admin_debounce"), _btn("⏸️ Режим паузи", "admin_pause")],
+        [_btn("🗑 Очистити базу", "admin_clear_db"), _btn("🔄 Перезапуск", "admin_restart")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_maintenance_keyboard(enabled: bool = False) -> InlineKeyboardMarkup:
-    toggle_text = "🟢 Вимкнути тех. роботи" if enabled else "🔴 Увімкнути тех. роботи"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=toggle_text, callback_data="maintenance_toggle")],
-            [InlineKeyboardButton(text="✏️ Змінити повідомлення", callback_data="maintenance_edit_message")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    t = "🟢 Вимкнути тех. роботи" if enabled else "🔴 Увімкнути тех. роботи"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(t, "maintenance_toggle")],
+        [_btn("✏️ Змінити повідомлення", "maintenance_edit_message")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
-def get_admin_intervals_keyboard(
-    schedule_interval: int = 60, ip_interval: int = 2
-) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"⏱ Графіки: {schedule_interval // 60} хв", callback_data="admin_interval_schedule")],
-            [InlineKeyboardButton(text=f"📡 IP: {ip_interval}", callback_data="admin_interval_ip")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_settings_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+def get_admin_intervals_keyboard(schedule_interval: int = 60, ip_interval: int = 2) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(f"⏱ Графіки: {schedule_interval // 60} хв", "admin_interval_schedule")],
+        [_btn(f"📡 IP: {ip_interval}", "admin_interval_ip")],
+        [_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_schedule_interval_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="1 хв", callback_data="admin_schedule_1"),
-                InlineKeyboardButton(text="5 хв", callback_data="admin_schedule_5"),
-            ],
-            [
-                InlineKeyboardButton(text="10 хв", callback_data="admin_schedule_10"),
-                InlineKeyboardButton(text="15 хв", callback_data="admin_schedule_15"),
-            ],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_intervals")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("1 хв", "admin_schedule_1"), _btn("5 хв", "admin_schedule_5"),
+         _btn("10 хв", "admin_schedule_10"), _btn("15 хв", "admin_schedule_15")],
+        [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_ip_interval_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="10 сек", callback_data="admin_ip_10"),
-                InlineKeyboardButton(text="30 сек", callback_data="admin_ip_30"),
-            ],
-            [
-                InlineKeyboardButton(text="1 хв", callback_data="admin_ip_60"),
-                InlineKeyboardButton(text="2 хв", callback_data="admin_ip_120"),
-            ],
-            [InlineKeyboardButton(text="🔄 Динамічний", callback_data="admin_ip_0")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_intervals")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("10 сек", "admin_ip_10"), _btn("30 сек", "admin_ip_30"),
+         _btn("1 хв", "admin_ip_60"), _btn("2 хв", "admin_ip_120")],
+        [_btn("🔄 Динамічний", "admin_ip_0")],
+        [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_debounce_keyboard(current_value: int = 0) -> InlineKeyboardMarkup:
-    values = [0, 1, 2, 3, 5, 10, 15]
-    rows: list[list[InlineKeyboardButton]] = []
-    for v in values:
-        if v == 0:
-            mark = "✓ " if current_value == 0 else ""
-            text = f"{mark}Вимкнено" if current_value == 0 else "❌ Вимкнути"
-        else:
-            mark = "✓ " if current_value == v else ""
-            text = f"{mark}{v} хв"
-        rows.append([InlineKeyboardButton(text=text, callback_data=f"debounce_set_{v}")])
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
+    def _d(v: int, label: str) -> InlineKeyboardButton:
+        mark = "✓ " if current_value == v else ""
+        return _btn(f"{mark}{label}", f"debounce_set_{v}")
+
+    row0_text = "✓ Вимкнено" if current_value == 0 else "❌ Вимкнути"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(row0_text, "debounce_set_0")],
+        [_d(1, "1 хв"), _d(2, "2 хв"), _d(3, "3 хв")],
+        [_d(5, "5 хв"), _d(10, "10 хв"), _d(15, "15 хв")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_pause_menu_keyboard(is_paused: bool = False) -> InlineKeyboardMarkup:
-    status_text = "🔴 Бот на паузі" if is_paused else "🟢 Бот активний"
-    toggle_text = "🟢 Вимкнути паузу" if is_paused else "🔴 Увімкнути паузу"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=status_text, callback_data="pause_status")],
-            [InlineKeyboardButton(text=toggle_text, callback_data="pause_toggle")],
-            [InlineKeyboardButton(text="📋 Налаштувати повідомлення", callback_data="pause_message_settings")],
-            [InlineKeyboardButton(text="🏷 Тип паузи", callback_data="pause_type_select")],
-            [InlineKeyboardButton(text="📜 Лог паузи", callback_data="pause_log")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_settings_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    status = "🔴 Бот на паузі" if is_paused else "🟢 Бот активний"
+    toggle = "🟢 Вимкнути паузу" if is_paused else "🔴 Увімкнути паузу"
+    rows = [
+        [_btn(status, "pause_status")],
+        [_btn(toggle, "pause_toggle")],
+        [_btn("📋 Налаштувати повідомлення", "pause_message_settings")],
+    ]
+    if is_paused:
+        rows.append([_btn("🏷 Тип паузи", "pause_type_select")])
+    rows.append([_btn("📜 Лог паузи", "pause_log")])
+    rows.append([_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_pause_type_keyboard(current_type: str = "update") -> InlineKeyboardMarkup:
-    types = [
-        ("🔧 Оновлення", "update"),
-        ("🚨 Аварія", "emergency"),
-        ("🔨 Обслуговування", "maintenance"),
-        ("🧪 Тестування", "testing"),
-    ]
+    types = [("🔧 Оновлення", "update"), ("🚨 Аварія", "emergency"),
+             ("🔨 Обслуговування", "maintenance"), ("🧪 Тестування", "testing")]
     rows = []
     for text, t in types:
-        mark = "● " if t == current_type else "○ "
-        rows.append([InlineKeyboardButton(text=f"{mark}{text}", callback_data=f"pause_type_{t}")])
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="admin_pause")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
+        mark = "✓ " if t == current_type else ""
+        rows.append([_btn(f"{mark}{text}", f"pause_type_{t}")])
+    rows.append([_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_pause_message_keyboard(show_support_button: bool = False) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="🔧 Бот тимчасово недоступний...", callback_data="pause_template_1")],
-        [InlineKeyboardButton(text="⏸️ Бот на паузі. Скоро повернемось", callback_data="pause_template_2")],
-        [InlineKeyboardButton(text="🔧 Бот тимчасово оновлюється. Спробуйте пізніше.", callback_data="pause_template_3")],
-        [InlineKeyboardButton(text="⏸️ Бот на паузі. Скоро повернемось.", callback_data="pause_template_4")],
-        [InlineKeyboardButton(text="🚧 Технічні роботи. Дякуємо за розуміння.", callback_data="pause_template_5")],
-        [InlineKeyboardButton(text="✏️ Свій текст...", callback_data="pause_custom_message")],
-    ]
-    support_mark = "✓" if show_support_button else "○"
-    rows.append(
-        [InlineKeyboardButton(
-            text=f'{support_mark} Показувати кнопку "Обговорення/Підтримка"',
-            callback_data="pause_toggle_support",
-        )]
-    )
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="admin_pause")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
+    s = "✓" if show_support_button else "○"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🔧 Бот тимчасово недоступний...", "pause_template_1")],
+        [_btn("⏸️ Бот на паузі. Скоро повернемось", "pause_template_2")],
+        [_btn("🔧 Бот тимчасово оновлюється. Спробуйте пізніше.", "pause_template_3")],
+        [_btn("⏸️ Бот на паузі. Скоро повернемось.", "pause_template_4")],
+        [_btn("🚧 Технічні роботи. Дякуємо за розуміння.", "pause_template_5")],
+        [_btn("✏️ Свій текст...", "pause_custom_message")],
+        [_btn(f'{s} Показувати кнопку "Обговорення/Підтримка"', "pause_toggle_support")],
+        [_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")],
     ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_growth_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Метрики", callback_data="growth_metrics")],
-            [InlineKeyboardButton(text="🎯 Етап росту", callback_data="growth_stage")],
-            [InlineKeyboardButton(text="🔐 Реєстрація", callback_data="growth_registration")],
-            [InlineKeyboardButton(text="📝 Події", callback_data="growth_events")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_analytics")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Метрики", "growth_metrics")],
+        [_btn("🎯 Етап росту", "growth_stage")],
+        [_btn("🔐 Реєстрація", "growth_registration")],
+        [_btn("📝 Події", "growth_events")],
+        [_btn("← Назад", "admin_analytics"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_growth_stage_keyboard(current_stage: int = 0) -> InlineKeyboardMarkup:
-    stages = [
-        ("Етап 0: Закрите тестування (0-50)", 0),
-        ("Етап 1: Відкритий тест (50-300)", 1),
-        ("Етап 2: Контрольований ріст (300-1000)", 2),
-        ("Етап 3: Активний ріст (1000-5000)", 3),
-        ("Етап 4: Масштаб (5000+)", 4),
-    ]
+    stages = [("Етап 0: Закрите тестування (0-50)", 0), ("Етап 1: Відкритий тест (50-300)", 1),
+              ("Етап 2: Контрольований ріст (300-1000)", 2), ("Етап 3: Активний ріст (1000-5000)", 3),
+              ("Етап 4: Масштаб (5000+)", 4)]
     rows = []
     for text, s in stages:
-        mark = "● " if s == current_stage else "○ "
-        rows.append([InlineKeyboardButton(text=f"{mark}{text}", callback_data=f"growth_stage_{s}")])
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="admin_growth")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
+        mark = "✓ " if s == current_stage else ""
+        rows.append([_btn(f"{mark}{text}", f"growth_stage_{s}")])
+    rows.append([_btn("← Назад", "admin_growth"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_growth_registration_keyboard(enabled: bool = True) -> InlineKeyboardMarkup:
-    status_text = "🟢 Реєстрація увімкнена" if enabled else "🔴 Реєстрація вимкнена"
-    toggle_text = "🔴 Вимкнути реєстрацію" if enabled else "🟢 Увімкнути реєстрацію"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=status_text, callback_data="growth_reg_status")],
-            [InlineKeyboardButton(text=toggle_text, callback_data="growth_reg_toggle")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_growth")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    st = "🟢 Реєстрація увімкнена" if enabled else "🔴 Реєстрація вимкнена"
+    tg = "🔴 Вимкнути реєстрацію" if enabled else "🟢 Увімкнути реєстрацію"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn(st, "growth_reg_status")],
+        [_btn(tg, "growth_reg_toggle")],
+        [_btn("← Назад", "admin_growth"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_restart_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Так, перезапустити", callback_data="admin_restart_confirm"),
-                InlineKeyboardButton(text="❌ Скасувати", callback_data="admin_settings_menu"),
-            ],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✅ Так, перезапустити", "admin_restart_confirm")],
+        [_btn("❌ Скасувати", "admin_settings_menu")],
+    ])
 
 
 def get_users_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Статистика користувачів", callback_data="admin_users_stats")],
-            [InlineKeyboardButton(text="📋 Список користувачів", callback_data="admin_users_list_1")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("📊 Статистика користувачів", "admin_users_stats")],
+        [_btn("📋 Список користувачів", "admin_users_list_1")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
 def get_admin_ticket_keyboard(ticket_id: int, status: str = "open") -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="💬 Відповісти", callback_data=f"admin_ticket_reply_{ticket_id}")],
-    ]
+    rows = [[_btn("💬 Відповісти", f"admin_ticket_reply_{ticket_id}")]]
     if status == "open":
-        rows.append([InlineKeyboardButton(text="✅ Закрити", callback_data=f"admin_ticket_close_{ticket_id}")])
+        rows.append([_btn("✅ Закрити", f"admin_ticket_close_{ticket_id}")])
     else:
-        rows.append(
-            [InlineKeyboardButton(text="🔄 Відкрити знову", callback_data=f"admin_ticket_reopen_{ticket_id}")]
-        )
-    rows.append([InlineKeyboardButton(text="← Назад до списку", callback_data="admin_tickets")])
+        rows.append([_btn("🔄 Відкрити знову", f"admin_ticket_reopen_{ticket_id}")])
+    rows.append([_btn("← Назад до списку", "admin_tickets")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_admin_tickets_list_keyboard(
-    tickets: list, page: int = 1, per_page: int = 10
-) -> InlineKeyboardMarkup:
+def get_admin_tickets_list_keyboard(tickets: list, page: int = 1, per_page: int = 5) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     start = (page - 1) * per_page
-    page_tickets = tickets[start : start + per_page]
-
-    for t in page_tickets:
-        status_icon = "🟢" if t.status == "open" else "🔴"
-        type_icon = {"bug": "🐛", "idea": "💡", "other": "💬", "region_request": "🏙"}.get(t.type, "📩")
-        text = f"{status_icon}{type_icon} #{t.id}"
+    for t in tickets[start : start + per_page]:
+        si = "🟢" if t.status == "open" else "🔴"
+        ti = {"bug": "🐛", "idea": "💡", "other": "💬", "region_request": "🏙"}.get(t.type, "📩")
+        text = f"{si}{ti} #{t.id}"
         if t.subject:
             text += f" - {t.subject[:30]}"
-        rows.append([InlineKeyboardButton(text=text, callback_data=f"admin_ticket_view_{t.id}")])
-
-    nav_row: list[InlineKeyboardButton] = []
+        rows.append([_btn(text, f"admin_ticket_view_{t.id}")])
+    nav: list[InlineKeyboardButton] = []
     if page > 1:
-        nav_row.append(InlineKeyboardButton(text="← Попередня", callback_data=f"admin_tickets_page_{page - 1}"))
+        nav.append(_btn("← Попередня", f"admin_tickets_page_{page - 1}"))
     total_pages = max(1, (len(tickets) + per_page - 1) // per_page)
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton(text="Наступна →", callback_data=f"admin_tickets_page_{page + 1}"))
-    if nav_row:
-        rows.append(nav_row)
-
-    rows.extend([
-        [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-        [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-    ])
+        nav.append(_btn("Наступна →", f"admin_tickets_page_{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_admin_router_keyboard(has_ip: bool = False, notifications_on: bool = True) -> InlineKeyboardMarkup:
-    ip_text = "✏️ Змінити IP" if has_ip else "✏️ Налаштувати IP"
-    notif_text = "✓ Сповіщення" if notifications_on else "✗ Сповіщення"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=ip_text, callback_data="admin_router_set_ip")],
-            [InlineKeyboardButton(text=notif_text, callback_data="admin_router_toggle_notify")],
-            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_router_stats")],
-            [InlineKeyboardButton(text="🔄 Оновити", callback_data="admin_router_refresh")],
-            [InlineKeyboardButton(text="← Назад", callback_data="admin_menu")],
-            [InlineKeyboardButton(text="⤴ Меню", callback_data="back_to_main")],
-        ]
-    )
+    if not has_ip:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [_btn("✏️ Налаштувати IP", "admin_router_set_ip")],
+            [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+        ])
+    n = "✓ Сповіщення" if notifications_on else "✗ Сповіщення"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✏️ Змінити IP", "admin_router_set_ip"), _btn(n, "admin_router_toggle_notify")],
+        [_btn("📊 Статистика", "admin_router_stats"), _btn("🔄 Оновити", "admin_router_refresh")],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
 
 
-def get_admin_support_keyboard(
-    current_mode: str = "bot", support_url: str | None = None
-) -> InlineKeyboardMarkup:
-    channel_mark = "●" if current_mode == "channel" else "○"
-    bot_mark = "●" if current_mode == "bot" else "○"
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text=f"{channel_mark} Через канал (листування)", callback_data="admin_support_channel")],
-        [InlineKeyboardButton(text=f"{bot_mark} Через бот (тікети)", callback_data="admin_support_bot")],
+def get_admin_support_keyboard(current_mode: str = "bot", support_url: str | None = None) -> InlineKeyboardMarkup:
+    cm = "●" if current_mode == "channel" else "○"
+    bm = "●" if current_mode == "bot" else "○"
+    rows = [
+        [_btn(f"{cm} Через канал (листування)", "admin_support_channel")],
+        [_btn(f"{bm} Через бот (тікети)", "admin_support_bot")],
+        [_btn("✏️ Змінити посилання", "admin_support_edit_url")],
+        [_btn("← Назад", "admin_menu")],
     ]
-    if current_mode == "channel":
-        url_text = "✏️ Змінити посилання" if support_url else "✏️ Додати посилання"
-        rows.append([InlineKeyboardButton(text=url_text, callback_data="admin_support_edit_url")])
-    rows.append([InlineKeyboardButton(text="← Назад", callback_data="admin_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def get_feedback_type_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🐛 Баг", callback_data="feedback_type_bug")],
-            [InlineKeyboardButton(text="💡 Ідея", callback_data="feedback_type_idea")],
-            [InlineKeyboardButton(text="💬 Інше", callback_data="feedback_type_other")],
-            [InlineKeyboardButton(text="← Назад", callback_data="back_to_main")],
-        ]
-    )
-
-
-def get_feedback_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Надіслати", callback_data="feedback_confirm"),
-                InlineKeyboardButton(text="❌ Скасувати", callback_data="feedback_cancel"),
-            ],
-        ]
-    )
-
-
-def get_region_request_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Надіслати", callback_data="region_request_confirm"),
-                InlineKeyboardButton(text="❌ Скасувати", callback_data="region_request_cancel"),
-            ],
-        ]
-    )
-
-
-def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Скасувати", callback_data="broadcast_cancel")]]
-    )

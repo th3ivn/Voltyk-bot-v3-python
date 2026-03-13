@@ -69,28 +69,30 @@ def format_main_menu_message(user) -> str:
 
 
 def build_notification_settings_message(ns) -> str:
-    def _check(v: bool) -> str:
+    def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
-    msg = "🔔 Керування сповіщеннями\n\n"
-    msg += f"📈 Оновлення графіків — {_check(ns.notify_schedule_changes)}\n\n"
-    msg += "⏳ Нагадування про події перед (вимкнення / відновлення):\n"
-    msg += f"├ За 1 год — {_check(ns.remind_1h)}\n"
-    msg += f"├ За 30 хв — {_check(ns.remind_30m)}\n"
-    msg += f"├ За 15 хв — {_check(ns.remind_15m)}\n"
-    msg += f"└ Фактично за IP-адресою — {_check(ns.notify_fact_off)}\n"
-    return msg
+    return (
+        '<tg-emoji emoji-id="5262598817626234330">🔔</tg-emoji> Керування сповіщеннями\n\n'
+        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(ns.notify_schedule_changes)}\n\n'
+        f'<tg-emoji emoji-id="5451732530048802485">⏳</tg-emoji> Нагадування про події перед (вимкнення / відновлення):\n'
+        f"├ За 1 год — {_c(ns.remind_1h)}\n"
+        f"├ За 30 хв — {_c(ns.remind_30m)}\n"
+        f"├ За 15 хв — {_c(ns.remind_15m)}\n"
+        f"└ Фактично за IP-адресою — {_c(ns.notify_fact_off)}\n"
+    )
 
 
 def build_channel_notification_message(cc) -> str:
-    def _check(v: bool) -> str:
+    def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
-    msg = "📺 Сповіщення каналу\n\n"
-    msg += f"📈 Оновлення графіків — {_check(cc.ch_notify_schedule)}\n\n"
-    msg += "⏳ Нагадування про події перед (вимкнення / відновлення):\n"
-    msg += f"├ За 1 год — {_check(cc.ch_remind_1h)}\n"
-    msg += f"├ За 30 хв — {_check(cc.ch_remind_30m)}\n"
-    msg += f"├ За 15 хв — {_check(cc.ch_remind_15m)}\n"
-    msg += f"└ Фактично за IP-адресою — {_check(cc.ch_notify_fact_off)}\n"
-    return msg
+    return (
+        f'<tg-emoji emoji-id="5424818078833715060">📺</tg-emoji> Сповіщення каналу\n\n'
+        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(cc.ch_notify_schedule)}\n\n'
+        f'<tg-emoji emoji-id="5451732530048802485">⏳</tg-emoji> Нагадування про події перед (вимкнення / відновлення):\n'
+        f"├ За 1 год — {_c(cc.ch_remind_1h)}\n"
+        f"├ За 30 хв — {_c(cc.ch_remind_30m)}\n"
+        f"├ За 15 хв — {_c(cc.ch_remind_15m)}\n"
+        f"└ Фактично за IP-адресою — {_c(cc.ch_notify_fact_off)}\n"
+    )
