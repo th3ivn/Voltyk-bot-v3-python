@@ -73,8 +73,17 @@ def _get_user_state(telegram_id: str) -> dict:
 # ─── Router check ─────────────────────────────────────────────────────────
 
 
-async def _check_router_http(router_ip: str) -> bool:
-    """Check if router is reachable via HTTP HEAD request (like the JS bot)."""
+async def _check_router_http(router_ip: str | None) -> bool | None:
+    """Check if router is reachable via HTTP HEAD request (like the JS bot).
+
+    Returns:
+        True  — router responded (power is on).
+        False — connection failed (power is likely off).
+        None  — no IP configured; monitoring is disabled for this user.
+    """
+    if not router_ip:
+        return None  # Monitoring disabled — no IP configured
+
     host = router_ip
     port = 80
 
@@ -336,6 +345,10 @@ async def _check_user_power(bot: Bot, user) -> None:
     try:
         telegram_id = str(user.telegram_id)
         is_available = await _check_router_http(user.router_ip)
+
+        if is_available is None:
+            # No IP configured — skip this user silently
+            return
 
         user_state = _get_user_state(telegram_id)
         user_state["last_ping_time"] = datetime.now(KYIV_TZ).isoformat()

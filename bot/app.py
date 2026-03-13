@@ -21,6 +21,21 @@ logger = logging.getLogger(__name__)
 _bg_tasks: list[asyncio.Task] = []
 
 
+async def _run_migrations() -> None:
+    """Apply pending Alembic migrations programmatically at startup."""
+    from alembic import command
+    from alembic.config import Config
+
+    def _upgrade() -> None:
+        cfg = Config("alembic.ini")
+        cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+        command.upgrade(cfg, "head")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _upgrade)
+    logger.info("✅ Alembic migrations applied")
+
+
 def create_bot() -> Bot:
     return Bot(
         token=settings.BOT_TOKEN,
@@ -47,6 +62,7 @@ def create_dispatcher() -> Dispatcher:
 
 async def on_startup(bot: Bot) -> None:
     logger.info("🚀 Запуск СвітлоБот v4...")
+    await _run_migrations()
     await init_db()
     logger.info("✅ База даних ініціалізована")
 
