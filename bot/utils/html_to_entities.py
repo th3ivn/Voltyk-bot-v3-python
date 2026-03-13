@@ -18,6 +18,11 @@ TAG_MAP = {
 }
 
 
+def _utf16_len(s: str) -> int:
+    """Return the number of UTF-16 code units for string s."""
+    return len(s.encode("utf-16-le")) // 2
+
+
 def html_to_entities(html: str) -> tuple[str, list[dict]]:
     entities: list[dict] = []
     text = ""
@@ -42,7 +47,7 @@ def html_to_entities(html: str) -> tuple[str, list[dict]]:
                         entity: dict = {
                             "type": entry["entity_type"],
                             "offset": entry["offset"],
-                            "length": len(text) - entry["offset"],
+                            "length": _utf16_len(text) - entry["offset"],
                         }
                         if entry.get("url"):
                             entity["url"] = entry["url"]
@@ -58,13 +63,13 @@ def html_to_entities(html: str) -> tuple[str, list[dict]]:
                 if tag_name == "a":
                     href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
                     url = href_match.group(1) if href_match else ""
-                    stack.append({"tag": "a", "entity_type": "text_link", "offset": len(text), "url": url})
+                    stack.append({"tag": "a", "entity_type": "text_link", "offset": _utf16_len(text), "url": url})
                 elif tag_name == "tg-emoji":
                     emoji_match = re.search(r'emoji-id\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
                     eid = emoji_match.group(1) if emoji_match else ""
-                    stack.append({"tag": "tg-emoji", "entity_type": "custom_emoji", "offset": len(text), "custom_emoji_id": eid})
+                    stack.append({"tag": "tg-emoji", "entity_type": "custom_emoji", "offset": _utf16_len(text), "custom_emoji_id": eid})
                 elif tag_name in TAG_MAP:
-                    stack.append({"tag": tag_name, "entity_type": TAG_MAP[tag_name], "offset": len(text)})
+                    stack.append({"tag": tag_name, "entity_type": TAG_MAP[tag_name], "offset": _utf16_len(text)})
 
             i = close_tag + 1
         elif html[i] == "&":
@@ -90,23 +95,34 @@ def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list
     """
     plain_text, entities = html_to_entities(html_message)
 
+    # Use 🔄 as placeholder in text, then overlay with animated custom emoji
     prefix = "\n\n🔄 Оновлено: "
     timestamp_str = str(check_time_unix)
     full_text = plain_text + prefix + timestamp_str
 
-    # Animated refresh emoji (🔄 = 2 UTF-16 code units)
+    # UTF-16 offset of plain_text end
+    plain_utf16 = _utf16_len(plain_text)
+
+    # "\n\n" is 2 UTF-16 code units; 🔄 is U+1F504 (surrogate pair → 2 UTF-16 code units)
+    emoji_offset = plain_utf16 + _utf16_len("\n\n")  # offset of 🔄 in full_text (UTF-16)
+    emoji_utf16_len = _utf16_len("🔄")  # 2
+
+    # Animated refresh emoji overlay
     entities.append({
         "type": "custom_emoji",
-        "offset": len(plain_text) + 2,  # after '\n\n'
-        "length": 2,
+        "offset": emoji_offset,
+        "length": emoji_utf16_len,
         "custom_emoji_id": "5017470156276761427",
     })
+
+    # UTF-16 length of the full prefix "\n\n🔄 Оновлено: "
+    prefix_utf16 = _utf16_len(prefix)
 
     # Live relative timestamp (e.g. "3 секунди тому")
     entities.append({
         "type": "date_time",
-        "offset": len(plain_text) + len(prefix),
-        "length": len(timestamp_str),
+        "offset": plain_utf16 + prefix_utf16,
+        "length": _utf16_len(timestamp_str),
         "unix_time": check_time_unix,
         "date_time_format": "r",
     })

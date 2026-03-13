@@ -141,7 +141,7 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     if not user:
         await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
-    await _send_schedule_photo(callback, user, edit_photo=False)
+    await _send_schedule_photo(callback, user, edit_photo=True)
 
 
 @router.callback_query(F.data == "schedule_refresh")
