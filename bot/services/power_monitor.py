@@ -20,6 +20,7 @@ from bot.db.queries import (
     deactivate_user,
     get_recent_user_power_states,
     get_setting,
+    get_user_by_telegram_id,
     get_users_with_ip,
     upsert_user_power_state,
 )
@@ -35,6 +36,7 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 _user_states: dict[str, dict] = {}
 _running = False
 _is_checking = False
+_is_checking_started_at: float | None = None
 
 # Shared aiohttp connector — reused across all router checks
 _http_connector: aiohttp.TCPConnector | None = None
@@ -173,6 +175,15 @@ async def _handle_power_state_change(
         now = datetime.now(KYIV_TZ)
         telegram_id = str(user.telegram_id)
 
+        # ── Reload fresh user from DB to avoid stale/detached object ─────
+        async with async_session() as session:
+            fresh_user = await get_user_by_telegram_id(session, telegram_id)
+        if fresh_user is None:
+            logger.warning("_handle_power_state_change: user %s not found in DB, skipping", telegram_id)
+            return
+        ns = fresh_user.notification_settings
+        cc = fresh_user.channel_config
+
         # ── Cooldown check ────────────────────────────────────────────
         should_notify = True
         if user_state["last_notification_at"]:
@@ -223,7 +234,7 @@ async def _handle_power_state_change(
             async with async_session() as session:
                 await add_power_history(
                     session,
-                    user_id=user.id,
+                    user_id=fresh_user.id,
                     event_type=new_state,
                     timestamp=int(now.timestamp()),
                     duration_seconds=duration_s,
@@ -236,8 +247,8 @@ async def _handle_power_state_change(
         next_event = None
         is_scheduled_outage = False
         try:
-            schedule_raw = await fetch_schedule_data(user.region)
-            parsed = parse_schedule_for_queue(schedule_raw, user.queue)
+            schedule_raw = await fetch_schedule_data(fresh_user.region)
+            parsed = parse_schedule_for_queue(schedule_raw, fresh_user.queue)
             next_event = find_next_event(parsed)
             # If find_next_event returns "power_on" → we're currently inside a planned outage
             if next_event and next_event["type"] == "power_on":
@@ -274,9 +285,6 @@ async def _handle_power_state_change(
 
         # ── Send notifications ────────────────────────────────────────
         if should_notify:
-            ns = user.notification_settings
-            cc = user.channel_config
-
             # Send to private chat
             send_to_bot = True
             if ns:
@@ -352,7 +360,7 @@ async def _check_user_power(bot: Bot, user) -> None:
 
         user_state = _get_user_state(telegram_id)
         user_state["last_ping_time"] = datetime.now(KYIV_TZ).isoformat()
-        user_state["last_ping_success"] = True
+        user_state["last_ping_success"] = is_available
 
         new_state = "on" if is_available else "off"
 
@@ -505,11 +513,19 @@ async def _check_user_power(bot: Bot, user) -> None:
 
 async def _check_all_ips(bot: Bot) -> None:
     """Check all users with a router IP configured, with concurrency limiting."""
-    global _is_checking
+    global _is_checking, _is_checking_started_at
+
+    # Reset stale lock (if checking takes more than 5 minutes, something is wrong)
+    if _is_checking and _is_checking_started_at is not None:
+        if asyncio.get_event_loop().time() - _is_checking_started_at > 300:
+            logger.warning("_check_all_ips lock was stale (>5min), resetting")
+            _is_checking = False
+
     if _is_checking:
         logger.debug("_check_all_ips already running, skipping")
         return
     _is_checking = True
+    _is_checking_started_at = asyncio.get_event_loop().time()
     try:
         async with async_session() as session:
             users = await get_users_with_ip(session)
@@ -531,6 +547,7 @@ async def _check_all_ips(bot: Bot) -> None:
         logger.error("Error in _check_all_ips: %s", e)
     finally:
         _is_checking = False
+        _is_checking_started_at = None
 
 
 # ─── State persistence ────────────────────────────────────────────────────
@@ -615,6 +632,66 @@ async def _restore_user_states() -> None:
 # ─── Main loop ────────────────────────────────────────────────────────────
 
 
+async def _restart_pending_debounce_tasks(bot: Bot) -> None:
+    """After restore, restart debounce tasks for users with pending state."""
+    now = datetime.now(KYIV_TZ)
+    try:
+        async with async_session() as session:
+            debounce_s = await _get_debounce_seconds(session)
+    except Exception:
+        debounce_s = DEFAULT_DEBOUNCE_S
+
+    for telegram_id, user_state in _user_states.items():
+        if user_state.get("pending_state") and user_state.get("debounce_task") is None:
+            pending_state_time_str = user_state.get("pending_state_time")
+            remaining_s = debounce_s  # default
+            if pending_state_time_str:
+                try:
+                    pending_at = datetime.fromisoformat(pending_state_time_str)
+                    if pending_at.tzinfo is None:
+                        pending_at = pending_at.replace(tzinfo=KYIV_TZ)
+                    elapsed = (now - pending_at).total_seconds()
+                    remaining_s = max(0, debounce_s - elapsed)
+                except Exception:
+                    pass
+
+            new_state = user_state["pending_state"]
+            old_state = user_state.get("current_state")
+
+            logger.info(
+                "User %s: Restarting pending debounce for %s (%.0fs remaining)",
+                telegram_id, new_state, remaining_s,
+            )
+
+            async def _confirm_restored(
+                telegram_id=telegram_id,
+                new_state=new_state,
+                old_state=old_state,
+                remaining_s=remaining_s,
+            ) -> None:
+                try:
+                    await asyncio.sleep(remaining_s)
+                    us = _user_states.get(telegram_id)
+                    if us is None or us.get("pending_state") != new_state:
+                        return  # state changed while sleeping
+                    logger.info("User %s: Restored debounce done — confirming %s", telegram_id, new_state)
+                    us["current_state"] = new_state
+                    us["consecutive_checks"] = 0
+                    us["debounce_task"] = None
+                    us["pending_state"] = None
+                    us["pending_state_time"] = None
+                    async with async_session() as session:
+                        fresh_user = await get_user_by_telegram_id(session, telegram_id)
+                    if fresh_user:
+                        await _handle_power_state_change(bot, fresh_user, new_state, old_state, us)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    logger.error("Error in restored debounce confirm for user %s: %s", telegram_id, exc)
+
+            user_state["debounce_task"] = asyncio.create_task(_confirm_restored())
+
+
 async def power_monitor_loop(bot: Bot) -> None:
     """Main power monitoring loop. Must receive the Bot instance to send messages."""
     global _running
@@ -624,6 +701,7 @@ async def power_monitor_loop(bot: Bot) -> None:
 
     # Restore persisted states before the first check
     await _restore_user_states()
+    await _restart_pending_debounce_tasks(bot)
 
     logger.info("⚡ Power monitor started (default interval: %ds, admin-overridable via DB)", DEFAULT_CHECK_INTERVAL_S)
 
