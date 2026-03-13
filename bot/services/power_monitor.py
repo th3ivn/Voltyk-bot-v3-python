@@ -46,7 +46,7 @@ def _get_http_connector() -> aiohttp.TCPConnector:
     """Return (or lazily create) the shared TCP connector."""
     global _http_connector
     if _http_connector is None or _http_connector.closed:
-        _http_connector = aiohttp.TCPConnector(ssl=False, limit=100)
+        _http_connector = aiohttp.TCPConnector(ssl=False, limit=settings.POWER_MAX_CONCURRENT_PINGS * 2)
     return _http_connector
 
 
