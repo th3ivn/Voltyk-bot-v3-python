@@ -23,7 +23,7 @@ def check_all_schedules(self):
 
 
 async def _check_schedules():
-    from bot.db.queries import get_all_active_users
+    from bot.db.queries import get_all_active_users, update_schedule_check_time
     from bot.db.session import async_session
     from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
 
@@ -48,6 +48,10 @@ async def _check_schedules():
                 if user.last_hash != new_hash:
                     user.last_hash = new_hash
                     logger.info("Schedule changed for user %s (%s/%s)", user.telegram_id, region, queue)
+
+        for cache_key in checked_regions:
+            region, queue = cache_key.split("_", 1)
+            await update_schedule_check_time(session, region, queue)
 
         await session.commit()
 

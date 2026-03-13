@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -9,7 +8,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, Mes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
-from bot.db.queries import get_user_by_telegram_id
+from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
 from bot.formatter.messages import format_live_status_message, format_main_menu_message
 from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_timer_popup
@@ -77,6 +76,13 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
         await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
 
+    # Delete previous menu message if it exists and differs from the current one
+    if user.last_menu_message_id and user.last_menu_message_id != callback.message.message_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, user.last_menu_message_id)
+        except Exception:
+            pass
+
     text = format_main_menu_message(user)
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
@@ -93,7 +99,7 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
     user.last_menu_message_id = msg.message_id
 
 
-async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool = False) -> None:
+async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSession, edit_photo: bool = False) -> None:
     """Send schedule as photo with live timestamp entities.
 
     edit_photo=True → try editMessageMedia first (no flicker), fallback to delete+send.
@@ -111,8 +117,8 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
     html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
     kb = get_schedule_view_keyboard()
 
-    now_unix = int(time.time())
-    plain_text, raw_entities = append_timestamp(html_text, now_unix)
+    last_check = await get_schedule_check_time(session, user.region, user.queue)
+    plain_text, raw_entities = append_timestamp(html_text, last_check)
     entities = _to_aiogram_entities(raw_entities)
 
     image_bytes = await fetch_schedule_image(user.region, user.queue)
@@ -155,7 +161,7 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     if not user:
         await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
-    await _send_schedule_photo(callback, user, edit_photo=True)
+    await _send_schedule_photo(callback, user, session, edit_photo=True)
 
 
 @router.callback_query(F.data == "schedule_refresh")
@@ -164,7 +170,7 @@ async def schedule_refresh(callback: CallbackQuery, session: AsyncSession) -> No
     if not user:
         await callback.answer("❌ Користувача не знайдено")
         return
-    await _send_schedule_photo(callback, user, edit_photo=True)
+    await _send_schedule_photo(callback, user, session, edit_photo=True)
     await callback.answer("🔄 Оновлено")
 
 
