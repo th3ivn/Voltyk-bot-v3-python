@@ -150,7 +150,7 @@ async def admin_debounce(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
-    current = int(await get_setting(session, "power_debounce") or "5")
+    current = int(await get_setting(session, "power_debounce_minutes") or "5")
     await callback.message.edit_text(
         f"⏸ Debounce\n\nПоточне значення: {current} хв",
         reply_markup=get_debounce_keyboard(current_value=current),
@@ -163,7 +163,7 @@ async def debounce_set(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     value = int(callback.data.replace("debounce_set_", ""))
-    await set_setting(session, "power_debounce", str(value))
+    await set_setting(session, "power_debounce_minutes", str(value))
     label = "Вимкнено" if value == 0 else f"{value} хв"
     await callback.answer(f"✅ Debounce: {label}")
     await callback.message.edit_reply_markup(
