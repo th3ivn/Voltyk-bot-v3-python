@@ -363,6 +363,7 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
     data = await state.get_data()
     region_code = data.get("region", "")
     queue = data.get("queue", "")
+    mode = data.get("mode", "new")
 
     user = await create_or_update_user(
         session, callback.from_user.id, callback.from_user.username, region_code, queue
@@ -371,10 +372,20 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
 
     region = REGIONS.get(region_code)
     region_name = region.name if region else region_code
-    await callback.message.edit_text(
-        f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",
-        reply_markup=get_main_menu(
-            has_channel=bool(user.channel_config and user.channel_config.channel_id),
-            channel_paused=bool(user.channel_config and user.channel_config.channel_paused),
-        ),
-    )
+
+    if mode == "edit_from_schedule":
+        text = f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}\n\nГрафік буде опубліковано при наступній перевірці."
+        has_channel = bool(user.channel_config and user.channel_config.channel_id)
+        channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_main_menu(has_channel=has_channel, channel_paused=channel_paused),
+        )
+    else:
+        await callback.message.edit_text(
+            f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",
+            reply_markup=get_main_menu(
+                has_channel=bool(user.channel_config and user.channel_config.channel_id),
+                channel_paused=bool(user.channel_config and user.channel_config.channel_paused),
+            ),
+        )
