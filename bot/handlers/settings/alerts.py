@@ -40,6 +40,13 @@ async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> Non
             text,
             reply_markup=get_notification_main_keyboard(
                 schedule_changes=ns.notify_schedule_changes,
+                remind_off=ns.notify_remind_off,
+                fact_off=ns.notify_fact_off,
+                remind_on=ns.notify_remind_on,
+                fact_on=ns.notify_fact_on,
+                remind_15m=ns.remind_15m,
+                remind_30m=ns.remind_30m,
+                remind_1h=ns.remind_1h,
             ),
         )
 
@@ -54,7 +61,16 @@ async def notif_select_bot(callback: CallbackQuery, session: AsyncSession) -> No
     text = build_notification_settings_message(ns)
     await callback.message.edit_text(
         text,
-        reply_markup=get_notification_main_keyboard(schedule_changes=ns.notify_schedule_changes),
+        reply_markup=get_notification_main_keyboard(
+            schedule_changes=ns.notify_schedule_changes,
+            remind_off=ns.notify_remind_off,
+            fact_off=ns.notify_fact_off,
+            remind_on=ns.notify_remind_on,
+            fact_on=ns.notify_fact_on,
+            remind_15m=ns.remind_15m,
+            remind_30m=ns.remind_30m,
+            remind_1h=ns.remind_1h,
+        ),
     )
 
 
@@ -90,7 +106,16 @@ async def notif_toggle_schedule(callback: CallbackQuery, session: AsyncSession) 
         text = build_notification_settings_message(ns)
         await callback.message.edit_text(
             text,
-            reply_markup=get_notification_main_keyboard(schedule_changes=ns.notify_schedule_changes),
+            reply_markup=get_notification_main_keyboard(
+                schedule_changes=ns.notify_schedule_changes,
+                remind_off=ns.notify_remind_off,
+                fact_off=ns.notify_fact_off,
+                remind_on=ns.notify_remind_on,
+                fact_on=ns.notify_fact_on,
+                remind_15m=ns.remind_15m,
+                remind_30m=ns.remind_30m,
+                remind_1h=ns.remind_1h,
+            ),
         )
     await callback.answer()
 
@@ -132,9 +157,18 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     }
     attr = field_map.get(field)
     if attr:
-        setattr(ns, attr, not getattr(ns, attr))
-    await callback.message.edit_reply_markup(
-        reply_markup=get_notification_reminders_keyboard(
+        new_val = not getattr(ns, attr)
+        setattr(ns, attr, new_val)
+        # Keep fact_off and fact_on in sync — both represent IP-based detection
+        if field == "fact_off":
+            ns.notify_fact_on = new_val
+        elif field == "fact_on":
+            ns.notify_fact_off = new_val
+    text = build_notification_settings_message(ns)
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_notification_main_keyboard(
+            schedule_changes=ns.notify_schedule_changes,
             remind_off=ns.notify_remind_off,
             fact_off=ns.notify_fact_off,
             remind_on=ns.notify_remind_on,
@@ -142,7 +176,7 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
-        )
+        ),
     )
     await callback.answer()
 
@@ -161,8 +195,11 @@ async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
         ns.remind_30m = not ns.remind_30m
     elif minutes == 60:
         ns.remind_1h = not ns.remind_1h
-    await callback.message.edit_reply_markup(
-        reply_markup=get_notification_reminders_keyboard(
+    text = build_notification_settings_message(ns)
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_notification_main_keyboard(
+            schedule_changes=ns.notify_schedule_changes,
             remind_off=ns.notify_remind_off,
             fact_off=ns.notify_fact_off,
             remind_on=ns.notify_remind_on,
@@ -170,7 +207,7 @@ async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
-        )
+        ),
     )
     await callback.answer()
 
