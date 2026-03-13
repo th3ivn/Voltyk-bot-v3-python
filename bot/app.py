@@ -106,6 +106,12 @@ async def main() -> None:
             logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application()
+
+            async def health_handler(_request: web.Request) -> web.Response:
+                return web.json_response({"status": "ok"})
+
+            app.router.add_get("/health", health_handler)
+
             handler = SimpleRequestHandler(
                 dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,
             )
