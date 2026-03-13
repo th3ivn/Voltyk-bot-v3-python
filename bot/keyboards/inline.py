@@ -33,10 +33,18 @@ E_BELL = "5262598817626234330"
 E_HOURGLASS = "5451732530048802485"
 
 
-def _btn(text: str, callback_data: str, emoji_id: str | None = None, **kwargs) -> InlineKeyboardButton:
+def _btn(
+    text: str,
+    callback_data: str,
+    emoji_id: str | None = None,
+    style: str | None = None,
+    **kwargs,
+) -> InlineKeyboardButton:
     params: dict = {"text": text, "callback_data": callback_data, **kwargs}
     if emoji_id:
         params["icon_custom_emoji_id"] = emoji_id
+    if style:
+        params["style"] = style
     return InlineKeyboardButton(**params)
 
 
@@ -191,17 +199,17 @@ def _notif_keyboard(
     remind_15m: bool, remind_30m: bool, remind_1h: bool,
     back_cb: str, done_cb: str | None = None,
 ) -> InlineKeyboardMarkup:
-    def _c(v: bool) -> str:
-        return "✅" if v else "❌"
+    def _s(v: bool) -> str:
+        return "success" if v else "default"
 
     rows = [
-        [_btn(f"Оновлення графіків {_c(schedule_changes)}", f"{prefix}_toggle_schedule", E_SCHEDULE_CHANGES)],
+        [_btn("📊 Оновлення графіків", f"{prefix}_toggle_schedule", E_SCHEDULE_CHANGES, style=_s(schedule_changes))],
         [
-            _btn(f"1 год {_c(remind_1h)}", f"{prefix}_time_60"),
-            _btn(f"30 хв {_c(remind_30m)}", f"{prefix}_time_30"),
-            _btn(f"15 хв {_c(remind_15m)}", f"{prefix}_time_15"),
+            _btn("1 год", f"{prefix}_time_60", style=_s(remind_1h)),
+            _btn("30 хв", f"{prefix}_time_30", style=_s(remind_30m)),
+            _btn("15 хв", f"{prefix}_time_15", style=_s(remind_15m)),
         ],
-        [_btn(f"Фактично за IP-адресою {_c(fact_off)}", f"{prefix}_toggle_fact", E_FACT)],
+        [_btn("⏱ Фактично за IP-адресою", f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
     ]
     last_row = [_btn("← Назад", back_cb)]
     if done_cb:
@@ -222,17 +230,32 @@ def get_wizard_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
                            "wizard_channel_back", "wizard_channel_done")
 
 
-def get_notification_main_keyboard(schedule_changes: bool = True, has_channel: bool = False) -> InlineKeyboardMarkup:
-    def _c(v: bool) -> str:
-        return "✅" if v else "❌"
+def get_notification_main_keyboard(
+    schedule_changes: bool = True,
+    remind_off: bool = True,
+    fact_off: bool = True,
+    remind_on: bool = True,
+    fact_on: bool = True,
+    remind_15m: bool = True,
+    remind_30m: bool = False,
+    remind_1h: bool = False,
+    has_channel: bool = False,
+) -> InlineKeyboardMarkup:
+    def _s(v: bool) -> str:
+        return "success" if v else "default"
 
     rows = [
-        [_btn(f"📊 Зміни графіка  {_c(schedule_changes)}", "notif_toggle_schedule")],
-        [_btn("⏰ Нагадування  →", "notif_reminders")],
+        [_btn("📊 Оновлення графіків", "notif_toggle_schedule", style=_s(schedule_changes))],
+        [
+            _btn("1 год", "notif_time_60", style=_s(remind_1h)),
+            _btn("30 хв", "notif_time_30", style=_s(remind_30m)),
+            _btn("15 хв", "notif_time_15", style=_s(remind_15m)),
+        ],
+        [_btn("⏱ Фактично за IP-адресою", "notif_toggle_fact_off", style=_s(fact_off))],
     ]
     if has_channel:
         rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
-    rows.append([_btn("← Назад", "back_to_settings")])
+    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

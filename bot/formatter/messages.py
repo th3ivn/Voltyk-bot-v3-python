@@ -79,7 +79,8 @@ def build_notification_settings_message(ns) -> str:
         f"├ За 1 год — {_c(ns.remind_1h)}\n"
         f"├ За 30 хв — {_c(ns.remind_30m)}\n"
         f"├ За 15 хв — {_c(ns.remind_15m)}\n"
-        f"└ Фактично за IP-адресою — {_c(ns.notify_fact_off)}\n"
+        f"└ Фактично за IP-адресою — {_c(ns.notify_fact_off)}\n\n"
+        f"<i>Нагадування перед відкл. — {_c(ns.notify_remind_off)} · перед вкл. — {_c(ns.notify_remind_on)}</i>\n"
     )
 
 
