@@ -4,7 +4,8 @@ import logging
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +13,7 @@ from bot.db.models import (
     AdminRouter,
     PauseLog,
     PendingChannel,
+    PowerHistory,
     ScheduleCheck,
     Setting,
     Ticket,
@@ -20,6 +22,7 @@ from bot.db.models import (
     UserChannelConfig,
     UserMessageTracking,
     UserNotificationSettings,
+    UserPowerState,
     UserPowerTracking,
 )
 
@@ -412,4 +415,88 @@ async def update_schedule_check_time(session: AsyncSession, region: str, queue: 
         check.last_checked_at = datetime.now(UTC)
     else:
         session.add(ScheduleCheck(region=region, queue=queue, last_checked_at=datetime.now(UTC)))
+    await session.flush()
+
+
+# ─── Power Monitor ────────────────────────────────────────────────────────
+
+
+async def change_power_state_and_get_duration(
+    session: AsyncSession, telegram_id: int | str, new_state: str
+) -> dict | None:
+    """Atomically update power_state in user_power_tracking and return duration_minutes + power_changed_at."""
+    tid = str(telegram_id)
+    result = await session.execute(
+        text("""
+            WITH old AS (
+                SELECT
+                    upt.user_id,
+                    upt.power_changed_at AS old_changed_at,
+                    COALESCE(upt.pending_power_change_at, NOW()) AS new_changed_at
+                FROM user_power_tracking upt
+                JOIN users u ON u.id = upt.user_id
+                WHERE u.telegram_id = :tid
+            ),
+            upd AS (
+                UPDATE user_power_tracking upt
+                SET
+                    power_state = :new_state,
+                    power_changed_at = old.new_changed_at,
+                    pending_power_state = NULL,
+                    pending_power_change_at = NULL
+                FROM old
+                WHERE upt.user_id = old.user_id
+                RETURNING upt.power_changed_at
+            )
+            SELECT
+                upd.power_changed_at,
+                EXTRACT(EPOCH FROM (upd.power_changed_at - old.old_changed_at)) / 60 AS duration_minutes
+            FROM upd
+            CROSS JOIN old
+        """),
+        {"tid": tid, "new_state": new_state},
+    )
+    row = result.fetchone()
+    if row:
+        return {"power_changed_at": row[0], "duration_minutes": row[1]}
+    return None
+
+
+async def upsert_user_power_state(
+    session: AsyncSession, telegram_id: int | str, **kwargs
+) -> None:
+    """Upsert a row in user_power_states."""
+    tid = str(telegram_id)
+    stmt = pg_insert(UserPowerState).values(telegram_id=tid, **kwargs)
+    update_cols = {k: stmt.excluded[k] for k in kwargs}
+    stmt = stmt.on_conflict_do_update(index_elements=["telegram_id"], set_=update_cols)
+    await session.execute(stmt)
+
+
+async def get_recent_user_power_states(
+    session: AsyncSession,
+) -> list[UserPowerState]:
+    """Return UserPowerState rows updated within the last hour."""
+    from datetime import timedelta
+    cutoff = datetime.now(UTC) - timedelta(hours=1)
+    result = await session.execute(
+        select(UserPowerState).where(UserPowerState.updated_at > cutoff)
+    )
+    return list(result.scalars().all())
+
+
+async def add_power_history(
+    session: AsyncSession,
+    user_id: int,
+    event_type: str,
+    timestamp: int,
+    duration_seconds: int | None,
+) -> None:
+    """Insert a record into power_history."""
+    session.add(PowerHistory(
+        user_id=user_id,
+        event_type=event_type,
+        timestamp=timestamp,
+        duration_seconds=duration_seconds,
+    ))
     await session.flush()
