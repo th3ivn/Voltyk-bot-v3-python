@@ -211,8 +211,11 @@ async def _handle_power_state_change(
         except Exception as e:
             logger.error("DB error updating power state for user %s: %s", telegram_id, e)
 
-        # Use original_change_time as fallback so the message shows the real detection time
-        # even when the DB update fails or returns no result
+        # Time for the notification header — always use the real detection time
+        event_time = original_change_time or now
+        time_str = event_time.strftime("%H:%M")
+
+        # changed_at — used only for bookkeeping (last_stable_at etc.)
         changed_at = original_change_time or now
         if power_result and power_result["power_changed_at"]:
             raw = power_result["power_changed_at"]
@@ -276,7 +279,6 @@ async def _handle_power_state_change(
                     schedule_text = f"\n🗓 Наступне планове: <b>{start_str}</b>"
 
         # ── Build message text ────────────────────────────────────────
-        time_str = changed_at.strftime("%H:%M")
         if new_state == "off":
             message = f"🔴 <b>{time_str} Світло зникло</b>\n"
             message += f"🕓 Воно було {duration_text or '—'}"
