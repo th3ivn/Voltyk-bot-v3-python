@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -16,6 +17,8 @@ from bot.middlewares.maintenance import MaintenanceMiddleware
 from bot.middlewares.throttle import ThrottleMiddleware
 
 logger = logging.getLogger(__name__)
+
+_bg_tasks: list[asyncio.Task] = []
 
 
 def create_bot() -> Bot:
@@ -45,9 +48,18 @@ def create_dispatcher() -> Dispatcher:
 async def on_startup(bot: Bot) -> None:
     logger.info("🚀 Запуск СвітлоБот v4...")
     await init_db()
+    logger.info("✅ База даних ініціалізована")
 
     me = await bot.get_me()
     logger.info("✨ Бот @%s успішно запущено!", me.username)
+
+    from bot.services.power_monitor import power_monitor_loop
+    from bot.services.scheduler import schedule_checker_loop
+
+    _bg_tasks.extend([
+        asyncio.create_task(schedule_checker_loop()),
+        asyncio.create_task(power_monitor_loop()),
+    ])
 
 
 async def on_shutdown(bot: Bot) -> None:
@@ -58,19 +70,12 @@ async def on_shutdown(bot: Bot) -> None:
     stop_scheduler()
     stop_power_monitor()
 
+    for task in _bg_tasks:
+        task.cancel()
+    _bg_tasks.clear()
+
     await engine.dispose()
     logger.info("Bye!")
-
-
-async def start_background_services(bot: Bot) -> list[asyncio.Task]:
-    from bot.services.power_monitor import power_monitor_loop
-    from bot.services.scheduler import schedule_checker_loop
-
-    tasks = [
-        asyncio.create_task(schedule_checker_loop()),
-        asyncio.create_task(power_monitor_loop()),
-    ]
-    return tasks
 
 
 async def main() -> None:
@@ -87,36 +92,35 @@ async def main() -> None:
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    bg_tasks = await start_background_services(bot)
-
     try:
         if settings.USE_WEBHOOK:
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
             from aiohttp import web
 
+            webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
             await bot.set_webhook(
-                f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}",
-                secret_token=settings.WEBHOOK_SECRET,
+                webhook_url,
+                secret_token=settings.WEBHOOK_SECRET or None,
                 max_connections=settings.WEBHOOK_MAX_CONNECTIONS,
             )
+            logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application()
             handler = SimpleRequestHandler(
-                dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET
+                dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,
             )
             handler.register(app, path=settings.WEBHOOK_PATH)
             setup_application(app, dp, bot=bot)
 
+            port = int(os.getenv("PORT", settings.WEBHOOK_PORT))
             runner = web.AppRunner(app)
             await runner.setup()
-            site = web.TCPSite(runner, "0.0.0.0", settings.WEBHOOK_PORT)
+            site = web.TCPSite(runner, "0.0.0.0", port)
             await site.start()
-            logger.info("Webhook server started on port %d", settings.WEBHOOK_PORT)
+            logger.info("Webhook server listening on 0.0.0.0:%d", port)
 
             await asyncio.Event().wait()
         else:
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        for task in bg_tasks:
-            task.cancel()
         await bot.session.close()
