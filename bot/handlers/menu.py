@@ -115,7 +115,10 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
 
     if image_bytes:
         photo = BufferedInputFile(image_bytes, filename="schedule.png")
-        if edit_photo and callback.message.photo:
+
+        if edit_photo:
+            # Always try editMessageMedia first to avoid delete+send flicker
+            # (matches old JS bot behavior in handleMenuSchedule)
             try:
                 media = InputMediaPhoto(media=photo, caption=plain_text, caption_entities=entities)
                 await callback.message.edit_media(media=media, reply_markup=kb)
@@ -123,13 +126,32 @@ async def _send_schedule_photo(callback: CallbackQuery, user, edit_photo: bool =
             except Exception as e:
                 if _MSG_NOT_MODIFIED in str(e):
                     return
-                logger.warning("edit_media failed: %s", e)
+                logger.warning("edit_media failed, falling back to delete+send: %s", e)
+                await _safe_delete(callback.message)
+                await callback.message.answer_photo(
+                    photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
+                )
+                return
 
+        # edit_photo=False: direct delete+send
         await _safe_delete(callback.message)
         await callback.message.answer_photo(
             photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb
         )
     else:
+        if edit_photo:
+            try:
+                await callback.message.edit_text(plain_text, entities=entities, reply_markup=kb)
+                return
+            except Exception as e:
+                if _MSG_NOT_MODIFIED in str(e):
+                    return
+                logger.warning("edit_text failed, falling back to delete+send: %s", e)
+                await _safe_delete(callback.message)
+                await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
+                return
+
+        # edit_photo=False: direct delete+send
         await _safe_delete(callback.message)
         await callback.message.answer(plain_text, entities=entities, reply_markup=kb)
 

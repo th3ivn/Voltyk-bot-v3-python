@@ -28,6 +28,7 @@
 
 **Історія змін (агент дописує сюди):**
 - [x] PR-1: Повний rewrite з нуля (12 березня 2026)
+- [x] PR-2: Виправлення UTF-16 offsets, edit_media, animated emoji (13 березня 2026)
 
 ---
 
@@ -82,3 +83,21 @@
 - ✅ Правило №1: жодного рядка скопійовано, всі тексти/кнопки/flows ідентичні
 - ✅ Правило №2: професійний код, best practices (aiogram 3, SQLAlchemy 2.0, Celery 5)
 - ✅ Правило №3: канали перевіряються тільки о 03:00, Celery queue з retry, розділені сповіщення
+
+---
+
+## PR-2: Виправлення критичних багів (13 березня 2026)
+
+### Що зроблено:
+1. **`bot/utils/html_to_entities.py`** — Додана функція `_utf16_len(s)` яка повертає `len(s.encode("utf-16-le")) // 2`. Виправлені всі entity offset/length обчислення: `len(text)` → `_utf16_len(text)`. Причина: Telegram Bot API вимагає UTF-16 code unit offsets, а Python `len()` повертає Unicode codepoints. Емодзі (💡, ✅, 🔄, 🪫 тощо) = 2 UTF-16 code units але 1 Python codepoint. Через зсув offset `date_time` entity не застосовувалась і Telegram показував сирий unix timestamp.
+2. **`bot/utils/html_to_entities.py` `append_timestamp`** — Оновлені offsets через `_utf16_len`. `custom_emoji` та `date_time` entities тепер правильно накладаються на 🔄 та timestamp string.
+3. **`bot/handlers/menu.py`** — `_send_schedule_photo` переписана: при `edit_photo=True` завжди спочатку пробує `edit_media` (незалежно від типу поточного повідомлення), при невдачі — fallback delete+send. `menu_schedule` змінено на `edit_photo=True`.
+
+### Рішення і чому:
+- `s.encode("utf-16-le")` — стандартний Python спосіб отримати UTF-16LE bytes, `// 2` дає кількість 16-bit code units
+- `edit_media` always first — відповідає логіці старого JS бота (`handleMenuSchedule` в `src/handlers/menu.js`)
+
+### Відповідність правилам:
+- ✅ Правило №1: UI ідентичний старому боту — "X секунд тому", анімоване emoji, edit замість delete+send
+- ✅ Правило №2: Чистий код без костилів
+- ✅ Правило №3: Без змін у логіці каналів/Celery
