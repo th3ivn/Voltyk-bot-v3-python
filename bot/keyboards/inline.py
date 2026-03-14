@@ -240,6 +240,7 @@ def get_notification_main_keyboard(
     remind_30m: bool = False,
     remind_1h: bool = False,
     has_channel: bool = False,
+    back_cb: str = "back_to_settings",
 ) -> InlineKeyboardMarkup:
     def _s(v: bool) -> str:
         return "success" if v else "default"
@@ -255,7 +256,7 @@ def get_notification_main_keyboard(
     ]
     if has_channel:
         rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
-    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
+    rows.append([_btn("← Назад", back_cb), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -306,14 +307,16 @@ def get_notification_select_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Сповіщення в боті", "notif_select_bot", E_BOT_NOTIF)],
         [_btn("Сповіщення для каналу", "notif_select_channel", E_CHANNEL)],
-        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
+        [_btn("← Назад", "back_to_main")],
     ])
 
 
 def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
-    return _notif_keyboard("ch_notif", kw.get("schedule", True), kw.get("fact_off", True),
-                           kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
-                           "notif_main")
+    kb = _notif_keyboard("ch_notif", kw.get("schedule", True), kw.get("fact_off", True),
+                         kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
+                         "notif_main")
+    kb.inline_keyboard[-1].append(_btn("⤴ Меню", "back_to_main"))
+    return kb
 
 
 # ─── Channel keyboards ────────────────────────────────────────────────────

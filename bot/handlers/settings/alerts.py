@@ -13,6 +13,7 @@ from bot.keyboards.inline import (
     get_notification_select_keyboard,
     get_notification_target_select_keyboard,
     get_notification_targets_keyboard,
+    E_BELL,
 )
 
 router = Router(name="settings_alerts")
@@ -28,8 +29,9 @@ async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> Non
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     if has_channel:
         await callback.message.edit_text(
-            "🔔 Керування сповіщеннями\n\nОберіть, що хочете налаштувати:",
+            f'<tg-emoji emoji-id="{E_BELL}">🔔</tg-emoji> Керування сповіщеннями\n\nОберіть, що хочете налаштувати:',
             reply_markup=get_notification_select_keyboard(),
+            parse_mode="HTML",
         )
     else:
         ns = user.notification_settings
@@ -70,6 +72,7 @@ async def notif_select_bot(callback: CallbackQuery, session: AsyncSession) -> No
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
+            back_cb="settings_alerts",
         ),
     )
 
