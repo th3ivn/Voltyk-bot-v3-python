@@ -67,13 +67,13 @@ async def on_startup(bot: Bot) -> None:
     logger.info("✅ База даних ініціалізована")
 
     me = await bot.get_me()
-    logger.info("✨ Бот @%s успішно запущено!", me.username)
+    logger.info("✨ Бот @%%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import power_monitor_loop
     from bot.services.scheduler import schedule_checker_loop
 
     _bg_tasks.extend([
-        asyncio.create_task(schedule_checker_loop()),
+        asyncio.create_task(schedule_checker_loop(bot)),
         asyncio.create_task(power_monitor_loop(bot)),
     ])
 
@@ -119,7 +119,7 @@ async def main() -> None:
                 secret_token=settings.WEBHOOK_SECRET or None,
                 max_connections=settings.WEBHOOK_MAX_CONNECTIONS,
             )
-            logger.info("Webhook set: %s", webhook_url)
+            logger.info("Webhook set: %%s", webhook_url)
 
             app = web.Application()
 
@@ -139,7 +139,7 @@ async def main() -> None:
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", port)
             await site.start()
-            logger.info("Webhook server listening on 0.0.0.0:%d", port)
+            logger.info("Webhook server listening on 0.0.0.0:%%d", port)
 
             await asyncio.Event().wait()
         else:
