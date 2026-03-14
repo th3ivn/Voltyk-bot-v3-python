@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -95,9 +96,11 @@ async def on_shutdown(bot: Bot) -> None:
 
 
 async def main() -> None:
+    # Use stdout so Railway shows logs in white instead of red
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        stream=sys.stdout,
     )
     logging.getLogger("aiogram").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
