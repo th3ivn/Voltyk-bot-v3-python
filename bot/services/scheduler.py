@@ -148,7 +148,7 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
 
         image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
 
-        async def _send_formatted(chat_id) -> None:
+        async def _send_to_bot(chat_id) -> None:
             if image_bytes:
                 photo = BufferedInputFile(image_bytes, filename="schedule.png")
                 await bot.send_photo(
@@ -160,10 +160,21 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
                     chat_id, plain_text, entities=entities, reply_markup=kb, parse_mode=None,
                 )
 
+        async def _send_to_channel(chat_id) -> None:
+            if image_bytes:
+                photo = BufferedInputFile(image_bytes, filename="schedule.png")
+                await bot.send_photo(
+                    chat_id, photo=photo, caption=html_text, parse_mode="HTML",
+                )
+            else:
+                await bot.send_message(
+                    chat_id, html_text, parse_mode="HTML",
+                )
+
         # Send to user's bot chat
         if ns is None or ns.notify_schedule_target != "channel":
             try:
-                await _send_formatted(int(fresh_user.telegram_id))
+                await _send_to_bot(int(fresh_user.telegram_id))
             except TelegramForbiddenError:
                 logger.warning("User %s blocked the bot, skipping schedule notification", fresh_user.telegram_id)
             except Exception as e:
@@ -174,7 +185,7 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
         if cc and cc.channel_id and cc.channel_status == "active" and not cc.channel_paused:
             if cc.ch_notify_schedule:
                 try:
-                    await _send_formatted(cc.channel_id)
+                    await _send_to_channel(cc.channel_id)
                 except TelegramForbiddenError:
                     logger.warning("Bot lost access to channel %s, skipping schedule notification", cc.channel_id)
                 except Exception as e:
