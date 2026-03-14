@@ -42,6 +42,7 @@ def format_schedule_message(
     next_event: dict | None = None,
     changes: dict | None = None,
     update_type: dict | None = None,
+    is_daily_planned: bool = False,
 ) -> str:
     if not region or not queue:
         return "⚠️ Помилка: відсутні дані про регіон або чергу"
@@ -59,9 +60,12 @@ def format_schedule_message(
     events = schedule_data.get("events", [])
     has_data = schedule_data.get("hasData", False)
 
+    # Choose the base emoji: 📅 for daily planned messages, 💡 for change notifications
+    base_emoji = "📅" if is_daily_planned else "💡"
+
     if not has_data:
         lines.append(
-            f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
+            f"<i>{base_emoji} Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         )
         lines.append("")
         lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
@@ -118,13 +122,13 @@ def format_schedule_message(
 
     if today_events:
         if update_type and update_type.get("todayUnchanged") and tomorrow_events:
-            header = "<i>💡 Графік на сьогодні <b>без змін:</b></i>"
+            header = f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> без змін:</i>"
         elif update_type and update_type.get("todayUpdated") and update_type.get("tomorrowAppeared"):
             header = "<i>💡 Оновлено графік <b>на сьогодні:</b></i>"
         elif update_type and update_type.get("todayUpdated"):
             header = f"<i>💡 Оновлено графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         else:
-            header = f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
+            header = f"<i>{base_emoji} Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         lines.append(header)
         lines.append("")
         for ev in today_events:
@@ -140,7 +144,7 @@ def format_schedule_message(
         lines.append(f"Загалом без світла:<b> ~{_total_str(today_total)}</b>")
     else:
         lines.append(
-            f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
+            f"<i>{base_emoji} Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
         )
         lines.append("")
         lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')

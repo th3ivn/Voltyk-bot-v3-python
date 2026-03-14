@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
 import time
 from datetime import UTC, datetime
 
@@ -13,8 +12,10 @@ from bot.db.models import (
     AdminRouter,
     PauseLog,
     PendingChannel,
+    PendingNotification,
     PowerHistory,
     ScheduleCheck,
+    ScheduleDailySnapshot,
     Setting,
     Ticket,
     TicketMessage,
@@ -25,6 +26,7 @@ from bot.db.models import (
     UserPowerState,
     UserPowerTracking,
 )
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -531,3 +533,115 @@ async def add_power_history(
         duration_seconds=duration_seconds,
     ))
     await session.flush()
+
+
+# ─── Schedule Daily Snapshots ─────────────────────────────────────────────
+
+
+async def get_daily_snapshot(
+    session: AsyncSession, region: str, queue: str, date: str
+) -> ScheduleDailySnapshot | None:
+    """Return the daily snapshot for a given region/queue/date (YYYY-MM-DD), or None."""
+    result = await session.execute(
+        select(ScheduleDailySnapshot).where(
+            ScheduleDailySnapshot.region == region,
+            ScheduleDailySnapshot.queue == queue,
+            ScheduleDailySnapshot.date == date,
+        )
+    )
+    return result.scalars().first()
+
+
+async def upsert_daily_snapshot(
+    session: AsyncSession,
+    region: str,
+    queue: str,
+    date: str,
+    schedule_data: str,
+    today_hash: str | None,
+    tomorrow_hash: str | None,
+) -> ScheduleDailySnapshot:
+    """Create or update the daily snapshot for a given region/queue/date."""
+    snapshot = await get_daily_snapshot(session, region, queue, date)
+    if snapshot:
+        snapshot.schedule_data = schedule_data
+        snapshot.today_hash = today_hash
+        snapshot.tomorrow_hash = tomorrow_hash
+        snapshot.updated_at = datetime.now(UTC)
+    else:
+        snapshot = ScheduleDailySnapshot(
+            region=region,
+            queue=queue,
+            date=date,
+            schedule_data=schedule_data,
+            today_hash=today_hash,
+            tomorrow_hash=tomorrow_hash,
+        )
+        session.add(snapshot)
+    await session.flush()
+    return snapshot
+
+
+# ─── Pending Notifications ────────────────────────────────────────────────
+
+
+async def save_pending_notification(
+    session: AsyncSession,
+    region: str,
+    queue: str,
+    schedule_data: str,
+    update_type: str | None,
+    changes: str | None,
+) -> PendingNotification:
+    """Queue a schedule notification for the 06:00 flush."""
+    notif = PendingNotification(
+        region=region,
+        queue=queue,
+        schedule_data=schedule_data,
+        update_type=update_type,
+        changes=changes,
+        status="pending",
+    )
+    session.add(notif)
+    await session.flush()
+    return notif
+
+
+async def get_latest_pending_notification(
+    session: AsyncSession, region: str, queue: str
+) -> PendingNotification | None:
+    """Return the most recently queued pending notification for a region/queue."""
+    result = await session.execute(
+        select(PendingNotification)
+        .where(
+            PendingNotification.region == region,
+            PendingNotification.queue == queue,
+            PendingNotification.status == "pending",
+        )
+        .order_by(PendingNotification.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+async def get_all_pending_region_queue_pairs(session: AsyncSession) -> list[tuple[str, str]]:
+    """Return distinct (region, queue) pairs that have pending notifications."""
+    result = await session.execute(
+        select(PendingNotification.region, PendingNotification.queue)
+        .where(PendingNotification.status == "pending")
+        .distinct()
+    )
+    return list(result.all())
+
+
+async def mark_pending_notifications_sent(session: AsyncSession, region: str, queue: str) -> None:
+    """Mark all pending notifications for a region/queue as sent."""
+    await session.execute(
+        update(PendingNotification)
+        .where(
+            PendingNotification.region == region,
+            PendingNotification.queue == queue,
+            PendingNotification.status == "pending",
+        )
+        .values(status="sent")
+    )

@@ -22,8 +22,9 @@ _bg_tasks: list[asyncio.Task] = []
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     def _upgrade() -> None:
         cfg = Config("alembic.ini")
@@ -66,11 +67,12 @@ async def on_startup(bot: Bot) -> None:
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import power_monitor_loop
-    from bot.services.scheduler import schedule_checker_loop
+    from bot.services.scheduler import daily_flush_loop, schedule_checker_loop
 
     _bg_tasks.extend([
         asyncio.create_task(schedule_checker_loop(bot)),
         asyncio.create_task(power_monitor_loop(bot)),
+        asyncio.create_task(daily_flush_loop(bot)),
     ])
 
 async def on_shutdown(bot: Bot) -> None:
