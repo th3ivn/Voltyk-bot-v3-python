@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Settings(BaseSettings):

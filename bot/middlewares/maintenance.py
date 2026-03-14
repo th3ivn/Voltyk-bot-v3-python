@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _maintenance_mode = False
 _maintenance_message = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."

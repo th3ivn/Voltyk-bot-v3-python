@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 import time
 from datetime import UTC, datetime
 
@@ -26,7 +26,7 @@ from bot.db.models import (
     UserPowerTracking,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _user_with_relations():
