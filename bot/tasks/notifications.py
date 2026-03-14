@@ -19,16 +19,23 @@ logger = logging.getLogger(__name__)
 def send_bot_notification(self, telegram_id: int, text: str, parse_mode: str = "HTML"):
     """Send notification to user's bot chat. Retry with exponential backoff."""
     try:
-        asyncio.get_event_loop().run_until_complete(
-            _send_notification(telegram_id, text, parse_mode)
-        )
+        asyncio.run(_send_notification(telegram_id, text, parse_mode))
     except Exception as exc:
         logger.error("Bot notification failed for %d: %s", telegram_id, exc)
         raise self.retry(exc=exc)
 
 
-async def _send_notification(telegram_id: int, text: str, parse_mode: str):
+async def _send_notification(telegram_id: int, text: str, parse_mode: str) -> None:
+    from aiogram import Bot
+    from bot.config import settings
+
     logger.info("Sending notification to %d", telegram_id)
+    async with Bot(token=settings.BOT_TOKEN) as bot:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=text,
+            parse_mode=parse_mode or None,
+        )
 
 
 @celery_app.task(
@@ -42,16 +49,23 @@ async def _send_notification(telegram_id: int, text: str, parse_mode: str):
 def send_channel_notification(self, channel_id: str, text: str, parse_mode: str = "HTML"):
     """Send notification to channel. Retry with exponential backoff."""
     try:
-        asyncio.get_event_loop().run_until_complete(
-            _send_channel_notification(channel_id, text, parse_mode)
-        )
+        asyncio.run(_send_channel_notification(channel_id, text, parse_mode))
     except Exception as exc:
         logger.error("Channel notification failed for %s: %s", channel_id, exc)
         raise self.retry(exc=exc)
 
 
-async def _send_channel_notification(channel_id: str, text: str, parse_mode: str):
+async def _send_channel_notification(channel_id: str, text: str, parse_mode: str) -> None:
+    from aiogram import Bot
+    from bot.config import settings
+
     logger.info("Sending channel notification to %s", channel_id)
+    async with Bot(token=settings.BOT_TOKEN) as bot:
+        await bot.send_message(
+            chat_id=channel_id,
+            text=text,
+            parse_mode=parse_mode or None,
+        )
 
 
 @celery_app.task(
@@ -65,26 +79,36 @@ async def _send_channel_notification(channel_id: str, text: str, parse_mode: str
 def broadcast_message(self, text: str, parse_mode: str = "HTML"):
     """Broadcast message to all active users via Celery queue."""
     try:
-        asyncio.get_event_loop().run_until_complete(_broadcast(text, parse_mode))
+        asyncio.run(_broadcast(text, parse_mode))
     except Exception as exc:
         logger.error("Broadcast failed: %s", exc)
         raise self.retry(exc=exc)
 
 
-async def _broadcast(text: str, parse_mode: str):
+async def _broadcast(text: str, parse_mode: str) -> None:
+    from aiogram import Bot
+    from bot.config import settings
     from bot.db.queries import get_active_users_paginated
     from bot.db.session import async_session
 
     BATCH = 500
     offset = 0
     total = 0
-    while True:
-        async with async_session() as session:
-            batch = await get_active_users_paginated(session, limit=BATCH, offset=offset)
-        if not batch:
-            break
-        total += len(batch)
-        for user in batch:
-            logger.debug("Broadcasting to user %s", user.telegram_id)
-        offset += BATCH
+    async with Bot(token=settings.BOT_TOKEN) as bot:
+        while True:
+            async with async_session() as session:
+                batch = await get_active_users_paginated(session, limit=BATCH, offset=offset)
+            if not batch:
+                break
+            for user in batch:
+                try:
+                    await bot.send_message(
+                        chat_id=int(user.telegram_id),
+                        text=text,
+                        parse_mode=parse_mode or None,
+                    )
+                    total += 1
+                except Exception as e:
+                    logger.debug("Broadcast to user %s failed: %s", user.telegram_id, e)
+            offset += BATCH
     logger.info("Broadcast complete: %d users notified", total)

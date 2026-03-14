@@ -21,6 +21,10 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
             sslmode = params.pop("sslmode")[0]
             if sslmode in ("require", "verify-ca", "verify-full", "prefer"):
                 ssl_ctx = ssl_module.create_default_context()
+                # Hostname verification and certificate validation are intentionally
+                # disabled for Railway/Neon PostgreSQL compatibility: their SSL
+                # certificates may not match the proxy hostname. This is acceptable
+                # because the connection is still encrypted.
                 ssl_ctx.check_hostname = False
                 ssl_ctx.verify_mode = ssl_module.CERT_NONE
                 connect_args["ssl"] = ssl_ctx

@@ -755,7 +755,7 @@ async def power_monitor_loop(bot: Bot) -> None:
     # First check immediately
     await _check_all_ips(bot)
 
-    last_save_at = asyncio.get_event_loop().time()
+    last_save_at = asyncio.get_running_loop().time()
     save_interval_s = 5 * 60  # 5 minutes
 
     while _running:
@@ -777,7 +777,7 @@ async def power_monitor_loop(bot: Bot) -> None:
             logger.error("Power monitor check error: %s", e)
 
         # Periodic state save (every 5 minutes)
-        now_t = asyncio.get_event_loop().time()
+        now_t = asyncio.get_running_loop().time()
         if now_t - last_save_at >= save_interval_s:
             await _save_all_user_states()
             last_save_at = now_t

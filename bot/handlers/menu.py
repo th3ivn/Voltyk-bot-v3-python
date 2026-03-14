@@ -4,7 +4,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, MessageEntity
+from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
@@ -23,32 +23,12 @@ from bot.keyboards.inline import (
 )
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import WizardSG
-from bot.utils.html_to_entities import append_timestamp
+from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 
 logger = logging.getLogger(__name__)
 router = Router(name="menu")
 
 _MSG_NOT_MODIFIED = "message is not modified"
-
-
-def _to_aiogram_entities(raw_entities: list[dict]) -> list[MessageEntity]:
-    result = []
-    for e in raw_entities:
-        params = {
-            "type": e["type"],
-            "offset": e["offset"],
-            "length": e["length"],
-        }
-        if "url" in e:
-            params["url"] = e["url"]
-        if "custom_emoji_id" in e:
-            params["custom_emoji_id"] = e["custom_emoji_id"]
-        if "unix_time" in e:
-            params["unix_time"] = e["unix_time"]
-        if "date_time_format" in e:
-            params["date_time_format"] = e["date_time_format"]
-        result.append(MessageEntity(**params))
-    return result
 
 
 async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTML") -> bool:
@@ -119,7 +99,7 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
 
     last_check = await get_schedule_check_time(session, user.region, user.queue)
     plain_text, raw_entities = append_timestamp(html_text, last_check)
-    entities = _to_aiogram_entities(raw_entities)
+    entities = to_aiogram_entities(raw_entities)
 
     image_bytes = await fetch_schedule_image(user.region, user.queue)
 

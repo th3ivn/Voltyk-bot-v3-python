@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -81,3 +85,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
+    logger.warning(
+        "⚠️  USE_WEBHOOK=True but WEBHOOK_SECRET is empty — "
+        "the webhook endpoint has no authentication. "
+        "Set WEBHOOK_SECRET in your environment to protect it."
+    )

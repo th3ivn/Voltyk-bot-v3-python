@@ -4,7 +4,7 @@ import logging
 
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, Message, MessageEntity
+from aiogram.types import BufferedInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
@@ -12,21 +12,10 @@ from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_next_event_message, format_timer_message
 from bot.keyboards.inline import get_main_menu, get_schedule_view_keyboard
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
-from bot.utils.html_to_entities import append_timestamp
+from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 
 logger = logging.getLogger(__name__)
 router = Router(name="schedule")
-
-
-def _to_aiogram_entities(raw: list[dict]) -> list[MessageEntity]:
-    result = []
-    for e in raw:
-        params = {"type": e["type"], "offset": e["offset"], "length": e["length"]}
-        for key in ("url", "custom_emoji_id", "unix_time", "date_time_format"):
-            if key in e:
-                params[key] = e[key]
-        result.append(MessageEntity(**params))
-    return result
 
 
 @router.message(Command("schedule"))
@@ -48,7 +37,7 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
 
     now_unix = await get_schedule_check_time(session, user.region, user.queue)
     plain_text, raw_entities = append_timestamp(html_text, now_unix)
-    entities = _to_aiogram_entities(raw_entities)
+    entities = to_aiogram_entities(raw_entities)
 
     image_bytes = await fetch_schedule_image(user.region, user.queue)
     if image_bytes:

@@ -128,3 +128,17 @@ def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list
     })
 
     return full_text, entities
+
+
+def to_aiogram_entities(raw_entities: list[dict]):
+    """Convert raw entity dicts (from html_to_entities/append_timestamp) to aiogram MessageEntity objects."""
+    from aiogram.types import MessageEntity
+
+    result = []
+    for e in raw_entities:
+        params = {"type": e["type"], "offset": e["offset"], "length": e["length"]}
+        for key in ("url", "custom_emoji_id", "unix_time", "date_time_format"):
+            if key in e:
+                params[key] = e[key]
+        result.append(MessageEntity(**params))
+    return result
