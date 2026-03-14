@@ -5,17 +5,22 @@ from bot.utils.logger import get_logger
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
+from aiogram.types import BufferedInputFile
 
 from bot.config import settings
+
 from bot.db.queries import (
     get_active_users_by_region,
     get_active_users_paginated,
+    get_schedule_check_time,
     get_schedule_hash,
     get_user_by_telegram_id,
     update_schedule_check_time,
 )
 from bot.db.session import async_session
-from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
+from bot.keyboards.inline import get_schedule_view_keyboard
+from bot.services.api import calculate_schedule_hash, fetch_schedule_data, fetch_schedule_image, parse_schedule_for_queue
+from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 
 logger = get_logger(__name__)
 
@@ -121,28 +126,44 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
     """Send a schedule-change notification to the user's chat and/or channel."""
     from bot.formatter.schedule import format_schedule_message
     from bot.services.api import find_next_event
-    from bot.utils.html_to_entities import html_to_entities
 
     try:
         async with async_session() as session:
             fresh_user = await get_user_by_telegram_id(session, str(user.telegram_id))
+            if not fresh_user:
+                return
 
-        if not fresh_user:
-            return
+            ns = fresh_user.notification_settings
+            if ns is not None and not ns.notify_schedule_changes:
+                return
 
-        ns = fresh_user.notification_settings
-        if ns is not None and not ns.notify_schedule_changes:
-            return
+            last_check = await get_schedule_check_time(session, fresh_user.region, fresh_user.queue)
 
         next_event = find_next_event(sched_data)
         html_text = format_schedule_message(fresh_user.region, fresh_user.queue, sched_data, next_event)
-        plain_text, _ = html_to_entities(html_text)
-        text = f"📅 Графік змінився!\n\n{plain_text}"
+        kb = get_schedule_view_keyboard()
+
+        plain_text, raw_entities = append_timestamp(html_text, last_check)
+        entities = to_aiogram_entities(raw_entities)
+
+        image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
+
+        async def _send_formatted(chat_id) -> None:
+            if image_bytes:
+                photo = BufferedInputFile(image_bytes, filename="schedule.png")
+                await bot.send_photo(
+                    chat_id, photo=photo, caption=plain_text, caption_entities=entities,
+                    reply_markup=kb, parse_mode=None,
+                )
+            else:
+                await bot.send_message(
+                    chat_id, plain_text, entities=entities, reply_markup=kb, parse_mode=None,
+                )
 
         # Send to user's bot chat
         if ns is None or ns.notify_schedule_target != "channel":
             try:
-                await bot.send_message(int(fresh_user.telegram_id), text)
+                await _send_formatted(int(fresh_user.telegram_id))
             except TelegramForbiddenError:
                 logger.warning("User %s blocked the bot, skipping schedule notification", fresh_user.telegram_id)
             except Exception as e:
@@ -153,7 +174,7 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
         if cc and cc.channel_id and cc.channel_status == "active" and not cc.channel_paused:
             if cc.ch_notify_schedule:
                 try:
-                    await bot.send_message(cc.channel_id, text)
+                    await _send_formatted(cc.channel_id)
                 except TelegramForbiddenError:
                     logger.warning("Bot lost access to channel %s, skipping schedule notification", cc.channel_id)
                 except Exception as e:
