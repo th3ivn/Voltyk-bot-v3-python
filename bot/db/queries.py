@@ -417,17 +417,36 @@ async def get_schedule_check_time(session: AsyncSession, region: str, queue: str
     return int(time.time())
 
 
-async def update_schedule_check_time(session: AsyncSession, region: str, queue: str) -> None:
-    """Upsert last_checked_at = now() for the given region/queue in schedule_checks."""
+async def update_schedule_check_time(
+    session: AsyncSession, region: str, queue: str, last_hash: str | None = None
+) -> None:
+    """Upsert last_checked_at = now() (and optionally last_hash) for the given region/queue."""
     result = await session.execute(
         select(ScheduleCheck).where(ScheduleCheck.region == region, ScheduleCheck.queue == queue)
     )
     check = result.scalars().first()
     if check:
         check.last_checked_at = datetime.now(UTC)
+        if last_hash is not None:
+            check.last_hash = last_hash
     else:
-        session.add(ScheduleCheck(region=region, queue=queue, last_checked_at=datetime.now(UTC)))
+        session.add(ScheduleCheck(
+            region=region,
+            queue=queue,
+            last_checked_at=datetime.now(UTC),
+            last_hash=last_hash,
+        ))
     await session.flush()
+
+
+async def get_schedule_hash(session: AsyncSession, region: str, queue: str) -> str | None:
+    """Return the stored last_hash for the given region/queue, or None."""
+    result = await session.execute(
+        select(ScheduleCheck.last_hash).where(
+            ScheduleCheck.region == region, ScheduleCheck.queue == queue
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 # ─── Power Monitor ────────────────────────────────────────────────────────

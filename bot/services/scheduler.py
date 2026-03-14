@@ -7,7 +7,13 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 
 from bot.config import settings
-from bot.db.queries import get_active_users_paginated, get_user_by_telegram_id, update_schedule_check_time
+from bot.db.queries import (
+    get_active_users_by_region,
+    get_active_users_paginated,
+    get_schedule_hash,
+    get_user_by_telegram_id,
+    update_schedule_check_time,
+)
 from bot.db.session import async_session
 from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
 
@@ -30,77 +36,64 @@ async def schedule_checker_loop(bot: Bot) -> None:
 
 
 async def _check_all_schedules(bot: Bot) -> None:
+    """
+    Fetch schedule for each unique region/queue pair.
+    If the hash changed since last check → notify all users of that queue.
+    Hash is stored in schedule_checks.last_hash (one row per region/queue).
+    """
+    # Collect unique region/queue pairs from active users
+    region_queue_pairs: set[tuple[str, str]] = set()
     BATCH_SIZE = 1000
-    # Store (hash, schedule_data) per region/queue key
-    checked: dict[str, tuple[str, dict[str, object]]] = {}
-
-    # First pass: collect unique region/queue hashes across all users
-    async with async_session() as session:
-        sample = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=0)
-    for user in sample:
-        key = f"{user.region}_{user.queue}"
-        if key not in checked:
-            data = await fetch_schedule_data(user.region)
-            if data:
-                sched = parse_schedule_for_queue(data, user.queue)
-                h = calculate_schedule_hash(sched.get("events", []))
-                checked[key] = (h, sched)
-
-    # If there are more users beyond the first batch, collect remaining region/queue keys
-    if len(sample) == BATCH_SIZE:
-        offset = BATCH_SIZE
-        while True:
-            async with async_session() as session:
-                batch = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=offset)
-            if not batch:
-                break
-            for user in batch:
-                key = f"{user.region}_{user.queue}"
-                if key not in checked:
-                    data = await fetch_schedule_data(user.region)
-                    if data:
-                        sched = parse_schedule_for_queue(data, user.queue)
-                        h = calculate_schedule_hash(sched.get("events", []))
-                        checked[key] = (h, sched)
-            offset += BATCH_SIZE
-
-    # Second pass: update last_hash for users whose schedule changed, committing per batch
     offset = 0
     while True:
         async with async_session() as session:
             batch = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=offset)
-            if not batch:
-                break
-
-            changed_users: list[tuple] = []
-            for user in batch:
-                key = f"{user.region}_{user.queue}"
-                entry = checked.get(key)
-                if entry:
-                    new_hash, sched_data = entry
-                    if user.last_hash != new_hash:
-                        user.last_hash = new_hash
-                        changed_users.append((user, sched_data))
-                        logger.info(
-                            "Schedule changed: user=%s region=%s queue=%s",
-                            user.telegram_id,
-                            user.region,
-                            user.queue,
-                        )
-
-            await session.commit()
-
-        for user, sched_data in changed_users:
-            await _send_schedule_notification(bot, user, sched_data)
-
+        if not batch:
+            break
+        for user in batch:
+            region_queue_pairs.add((user.region, user.queue))
+        if len(batch) < BATCH_SIZE:
+            break
         offset += BATCH_SIZE
 
-    # Update check timestamps for all visited region/queue pairs
+    # For each unique pair: fetch, hash, compare, notify if changed
+    for region, queue in region_queue_pairs:
+        try:
+            await _check_single_queue(bot, region, queue)
+        except Exception as e:
+            logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
+
+
+async def _check_single_queue(bot: Bot, region: str, queue: str) -> None:
+    data = await fetch_schedule_data(region)
+    if not data:
+        return
+
+    sched = parse_schedule_for_queue(data, queue)
+    new_hash = calculate_schedule_hash(sched.get("events", []))
+
     async with async_session() as session:
-        for key in checked:
-            region, queue = key.split("_", 1)
+        stored_hash = await get_schedule_hash(session, region, queue)
+
+        if stored_hash == new_hash:
+            # No change — just update timestamp
             await update_schedule_check_time(session, region, queue)
+            await session.commit()
+            return
+
+        # Hash changed — update and notify
+        logger.info("Schedule changed for region=%s queue=%s", region, queue)
+        await update_schedule_check_time(session, region, queue, last_hash=new_hash)
         await session.commit()
+
+    # Notify all active users in this region/queue
+    async with async_session() as session:
+        users = await get_active_users_by_region(session, region)
+
+    for user in users:
+        if user.queue != queue:
+            continue
+        await _send_schedule_notification(bot, user, sched)
 
 
 async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
@@ -149,6 +142,6 @@ async def _send_schedule_notification(bot: Bot, user, sched_data: dict) -> None:
         logger.error("Error in _send_schedule_notification for user %s: %s", user.telegram_id, e)
 
 
-def stop_scheduler():
+def stop_scheduler() -> None:
     global _running
     _running = False
