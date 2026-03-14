@@ -31,7 +31,7 @@ async def _run_migrations() -> None:
         cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
         command.upgrade(cfg, "head")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _upgrade)
     logger.info("✅ Alembic migrations applied")
 

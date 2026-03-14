@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 )
 def check_all_schedules(self):
     try:
-        asyncio.get_event_loop().run_until_complete(_check_schedules())
+        asyncio.run(_check_schedules())
     except Exception as exc:
         logger.error("Schedule check failed: %s", exc)
         raise self.retry(exc=exc)
@@ -69,7 +69,7 @@ async def _check_schedules():
 def publish_schedule(self, user_id: int, region: str, queue: str):
     """Publish schedule to user's channel via Celery queue with exponential backoff."""
     try:
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             _publish_schedule(user_id, region, queue)
         )
     except Exception as exc:

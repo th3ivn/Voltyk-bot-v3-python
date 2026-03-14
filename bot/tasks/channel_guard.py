@@ -21,7 +21,7 @@ def validate_all_channels(self):
     Per Rule #3: no auto-blocking on name/photo/description changes.
     """
     try:
-        asyncio.get_event_loop().run_until_complete(_validate_channels())
+        asyncio.run(_validate_channels())
     except Exception as exc:
         logger.error("Channel validation failed: %s", exc)
         raise self.retry(exc=exc)
