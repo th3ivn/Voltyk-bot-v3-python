@@ -251,6 +251,7 @@ class ScheduleCheck(Base):
     region: Mapped[str] = mapped_column(String(50), primary_key=True)
     queue: Mapped[str] = mapped_column(String(10), primary_key=True)
     last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class UserState(Base):
