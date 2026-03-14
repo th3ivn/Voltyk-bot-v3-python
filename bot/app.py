@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 _bg_tasks: list[asyncio.Task] = []
 
-
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
     from alembic import command
@@ -34,15 +33,13 @@ async def _run_migrations() -> None:
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _upgrade)
-    logger.info("✅ Alembic migrations applied")
-
+    logger.info("Alembic migrations applied")
 
 def create_bot() -> Bot:
     return Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-
 
 def create_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
@@ -60,15 +57,14 @@ def create_dispatcher() -> Dispatcher:
 
     return dp
 
-
 async def on_startup(bot: Bot) -> None:
-    logger.info("🚀 Запуск СвітлоБот v4...")
+    logger.info("Запуск СвітлоБот v4...")
     await _run_migrations()
     await init_db()
-    logger.info("✅ База даних ініційована")
+    logger.info("База даних ініційована")
 
     me = await bot.get_me()
-    logger.info("✨ Бот @%%s успішно запущено!", me.username)
+    logger.info("Бот @%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import power_monitor_loop
     from bot.services.scheduler import schedule_checker_loop
@@ -77,7 +73,6 @@ async def on_startup(bot: Bot) -> None:
         asyncio.create_task(schedule_checker_loop(bot)),
         asyncio.create_task(power_monitor_loop(bot)),
     ])
-
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
@@ -93,7 +88,6 @@ async def on_shutdown(bot: Bot) -> None:
 
     await engine.dispose()
     logger.info("Bye!")
-
 
 async def main() -> None:
     # Route ALL loggers (including alembic) to stdout so Railway shows white, not red
@@ -126,7 +120,7 @@ async def main() -> None:
                 secret_token=settings.WEBHOOK_SECRET or None,
                 max_connections=settings.WEBHOOK_MAX_CONNECTIONS,
             )
-            logger.info("Webhook set: %%s", webhook_url)
+            logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application()
 
