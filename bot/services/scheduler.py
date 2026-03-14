@@ -7,7 +7,7 @@ import time
 from aiogram import Bot
 
 from bot.config import settings
-from bot.db.queries import get_all_active_users, update_schedule_check_time
+from bot.db.queries import get_active_users_paginated, update_schedule_check_time
 from bot.db.session import async_session
 from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
 
@@ -30,34 +30,79 @@ async def schedule_checker_loop(bot: Bot):
 
 
 async def _check_all_schedules(bot: Bot):
+    BATCH_SIZE = 1000
+    checked: dict[str, tuple[str, dict]] = {}  # key → (hash, schedule_data)
+
+    # First pass: collect unique region/queue hashes across all users
     async with async_session() as session:
-        users = await get_all_active_users(session)
-        checked: dict[str, tuple[str, dict]] = {}
+        sample = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=0)
+    for user in sample:
+        key = f"{user.region}_{user.queue}"
+        if key not in checked:
+            data = await fetch_schedule_data(user.region)
+            if data:
+                sched = parse_schedule_for_queue(data, user.queue)
+                h = calculate_schedule_hash(sched.get("events", []))
+                checked[key] = (h, sched)
 
-        for user in users:
-            key = f"{user.region}_{user.queue}"
-            if key not in checked:
-                data = await fetch_schedule_data(user.region)
-                if data:
-                    sched = parse_schedule_for_queue(data, user.queue)
-                    h = calculate_schedule_hash(sched.get("events", []))
-                    checked[key] = (h, sched)
+    if len(sample) == BATCH_SIZE:
+        offset = BATCH_SIZE
+        while True:
+            async with async_session() as session:
+                batch = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=offset)
+            if not batch:
+                break
+            for user in batch:
+                key = f"{user.region}_{user.queue}"
+                if key not in checked:
+                    data = await fetch_schedule_data(user.region)
+                    if data:
+                        sched = parse_schedule_for_queue(data, user.queue)
+                        h = calculate_schedule_hash(sched.get("events", []))
+                        checked[key] = (h, sched)
+            offset += BATCH_SIZE
 
-            if key in checked:
-                new_hash, sched_data = checked[key]
-                if new_hash and user.last_hash != new_hash:
-                    user.last_hash = new_hash
-                    logger.info("Schedule changed: user=%s region=%s queue=%s", user.telegram_id, user.region, user.queue)
-                    asyncio.create_task(_send_schedule_notification(bot, user, sched_data))
+    # Second pass: update last_hash for users whose schedule changed, committing per batch.
+    # Collect changed users after each batch commit so notifications fire after DB is persisted.
+    offset = 0
+    changed_users: list[tuple[str, dict]] = []  # (telegram_id, sched_data)
+    while True:
+        async with async_session() as session:
+            batch = await get_active_users_paginated(session, limit=BATCH_SIZE, offset=offset)
+            if not batch:
+                break
 
+            for user in batch:
+                key = f"{user.region}_{user.queue}"
+                if key in checked:
+                    new_hash, sched_data = checked[key]
+                    if new_hash and user.last_hash != new_hash:
+                        user.last_hash = new_hash
+                        logger.info(
+                            "Schedule changed: user=%s region=%s queue=%s",
+                            user.telegram_id,
+                            user.region,
+                            user.queue,
+                        )
+                        changed_users.append((str(user.telegram_id), sched_data))
+
+            await session.commit()
+
+        offset += BATCH_SIZE
+
+    # Update check timestamps for all visited region/queue pairs
+    async with async_session() as session:
         for key in checked:
             region, queue = key.split("_", 1)
             await update_schedule_check_time(session, region, queue)
-
         await session.commit()
 
+    # Dispatch notifications after all DB changes are committed to avoid repeat sends on crash
+    for telegram_id, sched_data in changed_users:
+        asyncio.create_task(_send_schedule_notification(bot, telegram_id, sched_data))
 
-async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> None:
+
+async def _send_schedule_notification(bot: Bot, telegram_id: str, schedule_data: dict) -> None:
     """Send schedule change notification to bot chat and/or channel."""
     from aiogram.exceptions import TelegramForbiddenError
     from aiogram.types import BufferedInputFile, MessageEntity
@@ -70,8 +115,6 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
     from bot.utils.html_to_entities import append_timestamp
 
     try:
-        telegram_id = str(user.telegram_id)
-
         async with async_session() as session:
             fresh_user = await get_user_by_telegram_id(session, telegram_id)
         if not fresh_user:
@@ -81,6 +124,9 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
         cc = fresh_user.channel_config
 
         next_event = find_next_event(schedule_data)
+
+        # Fetch image once and reuse for both bot chat and channel notifications
+        image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
 
         # ── Send to bot chat ──────────────────────────────────────────
         if ns and ns.notify_schedule_changes:
@@ -98,7 +144,6 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
                     entities.append(MessageEntity(**params))
 
                 kb = get_schedule_view_keyboard()
-                image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
 
                 if image_bytes:
                     photo = BufferedInputFile(image_bytes, filename="schedule.png")
@@ -107,6 +152,7 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
                         photo=photo,
                         caption=plain_text,
                         caption_entities=entities,
+                        parse_mode=None,
                         reply_markup=kb,
                     )
                 else:
@@ -114,6 +160,7 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
                         int(telegram_id),
                         plain_text,
                         entities=entities,
+                        parse_mode=None,
                         reply_markup=kb,
                     )
                 logger.info("📅 Schedule notification sent to user %s", telegram_id)
@@ -134,7 +181,6 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
 
             try:
                 channel_text = format_schedule_for_channel(fresh_user.region, fresh_user.queue, schedule_data)
-                image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
                 try:
                     ch_id: int | str = int(cc.channel_id)
                 except (ValueError, TypeError):
@@ -152,7 +198,7 @@ async def _send_schedule_notification(bot: Bot, user, schedule_data: dict) -> No
                 logger.error("Error sending schedule to channel %s: %s", cc.channel_id, e)
 
     except Exception as e:
-        logger.error("Unexpected error in _send_schedule_notification for user %s: %s", getattr(user, "telegram_id", "?"), e)
+        logger.error("Unexpected error in _send_schedule_notification for user %s: %s", telegram_id, e)
 
 
 def stop_scheduler():

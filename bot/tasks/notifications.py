@@ -72,9 +72,19 @@ def broadcast_message(self, text: str, parse_mode: str = "HTML"):
 
 
 async def _broadcast(text: str, parse_mode: str):
-    from bot.db.queries import get_all_active_users
+    from bot.db.queries import get_active_users_paginated
     from bot.db.session import async_session
 
-    async with async_session() as session:
-        users = await get_all_active_users(session)
-        logger.info("Broadcasting to %d users", len(users))
+    BATCH = 500
+    offset = 0
+    total = 0
+    while True:
+        async with async_session() as session:
+            batch = await get_active_users_paginated(session, limit=BATCH, offset=offset)
+        if not batch:
+            break
+        total += len(batch)
+        for user in batch:
+            logger.debug("Broadcasting to user %s", user.telegram_id)
+        offset += BATCH
+    logger.info("Broadcast complete: %d users notified", total)

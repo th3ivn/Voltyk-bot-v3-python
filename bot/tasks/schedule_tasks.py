@@ -39,6 +39,9 @@ async def _check_schedules():
             token=settings.BOT_TOKEN,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
+
+        changed_users: list[tuple[str, dict]] = []  # (telegram_id, sched_data)
+
         async with async_session() as session:
             users = await get_all_active_users(session)
             checked_regions: dict[str, dict] = {}
@@ -60,8 +63,7 @@ async def _check_schedules():
                     if user.last_hash != new_hash:
                         user.last_hash = new_hash
                         logger.info("Schedule changed for user %s (%s/%s)", user.telegram_id, region, queue)
-                        sched_data = checked_regions[cache_key]["data"]
-                        await _send_schedule_notification(bot, user, sched_data)
+                        changed_users.append((str(user.telegram_id), checked_regions[cache_key]["data"]))
 
             for cache_key in checked_regions:
                 region, queue = cache_key.split("_", 1)
@@ -70,6 +72,11 @@ async def _check_schedules():
             await session.commit()
 
         logger.debug("Schedule check complete for %d users", len(users))
+
+        # Dispatch notifications after commit so last_hash is persisted before sending
+        for telegram_id, sched_data in changed_users:
+            await _send_schedule_notification(bot, telegram_id, sched_data)
+
     finally:
         if bot is not None:
             await bot.session.close()
