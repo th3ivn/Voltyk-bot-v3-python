@@ -19,12 +19,15 @@ CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
 
-async def fetch_schedule_data(region: str) -> dict | None:
+async def fetch_schedule_data(region: str, cache_ttl_s: int | None = None) -> dict | None:
+    # TTL = interval minus 5s buffer (minimum 10s). Falls back to settings if not provided.
+    effective_ttl = timedelta(seconds=max((cache_ttl_s or settings.SCHEDULE_CHECK_INTERVAL_S) - 5, 10))
+
     cache_key = region
     now = datetime.now()
     if cache_key in _schedule_cache:
         cached_at, data = _schedule_cache[cache_key]
-        if now - cached_at < CACHE_TTL:
+        if now - cached_at < effective_ttl:
             return data
 
     url = settings.DATA_URL_TEMPLATE.replace("{region}", region)
