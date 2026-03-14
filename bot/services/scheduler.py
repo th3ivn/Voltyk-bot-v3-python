@@ -202,8 +202,9 @@ async def _check_single_queue(
                 await session.commit()
         return
 
-        # Hash changed — update check time and hash
-        logger.info("Schedule changed for region=%s queue=%s", region, queue)
+    # Hash changed — update check time and hash
+    logger.info("Schedule changed for region=%s queue=%s", region, queue)
+    async with async_session() as session:
         await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
         await session.commit()
 
