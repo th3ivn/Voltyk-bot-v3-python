@@ -21,21 +21,42 @@ logger = logging.getLogger(__name__)
 
 _running = False
 
+DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
+
+
+async def _get_schedule_interval() -> int:
+    """Read schedule check interval from DB (set via admin panel). Falls back to settings."""
+    from bot.db.queries import get_setting
+
+    try:
+        async with async_session() as session:
+            val = await get_setting(session, "schedule_check_interval")
+        if val:
+            n = int(val)
+            if n > 0:
+                return n
+    except Exception:
+        pass
+    return settings.SCHEDULE_CHECK_INTERVAL_S
+
 
 async def schedule_checker_loop(bot: Bot) -> None:
     global _running
     _running = True
-    logger.info("Schedule checker started (interval: %ds)", settings.SCHEDULE_CHECK_INTERVAL_S)
+    logger.info("Schedule checker started")
 
     while _running:
+        interval = await _get_schedule_interval()
         try:
-            await _check_all_schedules(bot)
+            await _check_all_schedules(bot, interval)
         except Exception as e:
             logger.error("Schedule check error: %s", e)
-        await asyncio.sleep(settings.SCHEDULE_CHECK_INTERVAL_S)
+
+        logger.debug("Next schedule check in %ds", interval)
+        await asyncio.sleep(interval)
 
 
-async def _check_all_schedules(bot: Bot) -> None:
+async def _check_all_schedules(bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S) -> None:
     """
     Fetch schedule for each unique region/queue pair.
     If the hash changed since last check → notify all users of that queue.
@@ -59,13 +80,13 @@ async def _check_all_schedules(bot: Bot) -> None:
     # For each unique pair: fetch, hash, compare, notify if changed
     for region, queue in region_queue_pairs:
         try:
-            await _check_single_queue(bot, region, queue)
+            await _check_single_queue(bot, region, queue, interval_s=interval)
         except Exception as e:
             logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
 
 
-async def _check_single_queue(bot: Bot, region: str, queue: str) -> None:
-    data = await fetch_schedule_data(region)
+async def _check_single_queue(bot: Bot, region: str, queue: str, interval_s: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S) -> None:
+    data = await fetch_schedule_data(region, cache_ttl_s=interval_s)
     if not data:
         return
 
