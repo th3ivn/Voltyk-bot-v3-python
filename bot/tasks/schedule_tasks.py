@@ -23,39 +23,56 @@ def check_all_schedules(self):
 
 
 async def _check_schedules():
+    from aiogram import Bot
+    from aiogram.client.default import DefaultBotProperties
+    from aiogram.enums import ParseMode
+
+    from bot.config import settings
     from bot.db.queries import get_all_active_users, update_schedule_check_time
     from bot.db.session import async_session
     from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
+    from bot.services.scheduler import _send_schedule_notification
 
-    async with async_session() as session:
-        users = await get_all_active_users(session)
-        checked_regions: dict[str, dict] = {}
+    bot = None
+    try:
+        bot = Bot(
+            token=settings.BOT_TOKEN,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        async with async_session() as session:
+            users = await get_all_active_users(session)
+            checked_regions: dict[str, dict] = {}
 
-        for user in users:
-            region = user.region
-            queue = user.queue
-            cache_key = f"{region}_{queue}"
+            for user in users:
+                region = user.region
+                queue = user.queue
+                cache_key = f"{region}_{queue}"
 
-            if cache_key not in checked_regions:
-                data = await fetch_schedule_data(region)
-                if data:
-                    schedule_data = parse_schedule_for_queue(data, queue)
-                    new_hash = calculate_schedule_hash(schedule_data.get("events", []))
-                    checked_regions[cache_key] = {"data": schedule_data, "hash": new_hash}
+                if cache_key not in checked_regions:
+                    data = await fetch_schedule_data(region)
+                    if data:
+                        schedule_data = parse_schedule_for_queue(data, queue)
+                        new_hash = calculate_schedule_hash(schedule_data.get("events", []))
+                        checked_regions[cache_key] = {"data": schedule_data, "hash": new_hash}
 
-            if cache_key in checked_regions:
-                new_hash = checked_regions[cache_key]["hash"]
-                if user.last_hash != new_hash:
-                    user.last_hash = new_hash
-                    logger.info("Schedule changed for user %s (%s/%s)", user.telegram_id, region, queue)
+                if cache_key in checked_regions:
+                    new_hash = checked_regions[cache_key]["hash"]
+                    if user.last_hash != new_hash:
+                        user.last_hash = new_hash
+                        logger.info("Schedule changed for user %s (%s/%s)", user.telegram_id, region, queue)
+                        sched_data = checked_regions[cache_key]["data"]
+                        await _send_schedule_notification(bot, user, sched_data)
 
-        for cache_key in checked_regions:
-            region, queue = cache_key.split("_", 1)
-            await update_schedule_check_time(session, region, queue)
+            for cache_key in checked_regions:
+                region, queue = cache_key.split("_", 1)
+                await update_schedule_check_time(session, region, queue)
 
-        await session.commit()
+            await session.commit()
 
-    logger.debug("Schedule check complete for %d users", len(users))
+        logger.debug("Schedule check complete for %d users", len(users))
+    finally:
+        if bot is not None:
+            await bot.session.close()
 
 
 @celery_app.task(
