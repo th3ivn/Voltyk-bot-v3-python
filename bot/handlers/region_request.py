@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -12,7 +12,7 @@ from bot.db.queries import add_ticket_message, create_ticket
 from bot.keyboards.inline import get_broadcast_cancel_keyboard, get_region_request_confirm_keyboard
 from bot.states.fsm import RegionRequestSG
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="region_request")
 
 

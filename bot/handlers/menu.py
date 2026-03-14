@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -25,7 +25,7 @@ from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_nex
 from bot.states.fsm import WizardSG
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="menu")
 
 _MSG_NOT_MODIFIED = "message is not modified"

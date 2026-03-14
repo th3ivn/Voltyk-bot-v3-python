@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -12,7 +12,7 @@ from bot.db.queries import get_all_active_users
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="admin_broadcast")
 
 BROADCAST_HEADER = '📢 <b>Повідомлення від адміністрації:</b>\n\n'

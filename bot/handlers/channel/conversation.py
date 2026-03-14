@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
@@ -11,7 +11,7 @@ from bot.db.queries import get_user_by_telegram_id
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.helpers import CHANNEL_NAME_PREFIX
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="channel_conversation")
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
@@ -17,7 +17,7 @@ from bot.db.queries import (
 from bot.db.session import async_session
 from bot.services.api import calculate_schedule_hash, fetch_schedule_data, parse_schedule_for_queue
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _running = False
 

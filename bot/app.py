@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
-import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -16,8 +14,9 @@ from bot.handlers import register_all_handlers
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware
 from bot.middlewares.throttle import ThrottleMiddleware
+from bot.utils.logger import get_logger, setup_logging
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _bg_tasks: list[asyncio.Task] = []
 
@@ -58,13 +57,13 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot) -> None:
-    logger.info("Запуск СвітлоБот v4...")
+    logger.info("🚀 Запуск СвітлоБот v4...")
     await _run_migrations()
     await init_db()
-    logger.info("База даних ініційована")
+    logger.info("✅ База даних ініційована")
 
     me = await bot.get_me()
-    logger.info("Бот @%s успішно запущено!", me.username)
+    logger.info("✨ Бот @%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import power_monitor_loop
     from bot.services.scheduler import schedule_checker_loop
@@ -90,18 +89,7 @@ async def on_shutdown(bot: Bot) -> None:
     logger.info("Bye!")
 
 async def main() -> None:
-    # Route ALL loggers (including alembic) to stdout so Railway shows white, not red
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(
-        logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
-    )
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    root_logger.handlers.clear()
-    root_logger.addHandler(stdout_handler)
-
-    logging.getLogger("aiogram").setLevel(logging.WARNING)
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    setup_logging()
 
     bot = create_bot()
     dp = create_dispatcher()

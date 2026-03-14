@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -13,7 +13,7 @@ from bot.keyboards.inline import get_test_publication_keyboard
 from bot.services.api import fetch_schedule_data, parse_schedule_for_queue
 from bot.states.fsm import ChannelConversationSG
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="channel_test")
 
 

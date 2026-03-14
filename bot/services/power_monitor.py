@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+from bot.utils.logger import get_logger
 import re
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -27,7 +27,7 @@ from bot.db.queries import (
 from bot.db.session import async_session
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 

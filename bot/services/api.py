@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
+from bot.utils.logger import get_logger
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -11,7 +11,7 @@ import aiohttp
 
 from bot.config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _schedule_cache: dict[str, tuple[datetime, Any]] = {}
 _image_cache: dict[str, tuple[datetime, bytes]] = {}

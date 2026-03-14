@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,7 +13,7 @@ from bot.db.queries import (
     save_pending_channel,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="chat_member")
 
 

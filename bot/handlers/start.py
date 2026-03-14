@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from bot.utils.logger import get_logger
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
@@ -22,7 +22,7 @@ from bot.keyboards.inline import (
 )
 from bot.states.fsm import WizardSG
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = Router(name="start")
 
 DEVELOPMENT_WARNING = (
