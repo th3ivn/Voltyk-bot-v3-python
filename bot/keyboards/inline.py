@@ -62,8 +62,8 @@ def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> In
             _btn("Допомога", "menu_help", E_HELP),
         ],
         [
-            _btn("Статистика", "menu_stats", E_STATS),
-            _btn("Таймер", "menu_timer", E_TIMER),
+            _btn("Сповіщення", "settings_alerts", E_ALERTS),
+            _btn("Канал", "settings_channel", E_CHANNEL),
         ],
         [_btn("Налаштування", "menu_settings", E_SETTINGS)],
     ]
