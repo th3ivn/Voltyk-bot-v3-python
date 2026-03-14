@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     TELEGRAM_RATE_LIMIT_PER_SEC: int = 25
     TELEGRAM_MAX_RETRIES: int = 3
 
-    SCHEDULER_BATCH_SIZE: int = 5
-    SCHEDULER_STAGGER_MS: int = 50
+    SCHEDULER_BATCH_SIZE: int = 50
+    SCHEDULER_STAGGER_MS: int = 20
 
     DATA_URL_TEMPLATE: str = (
         "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/{region}.json"
