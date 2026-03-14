@@ -164,6 +164,7 @@ class UserMessageTracking(Base):
     last_start_message_id: Mapped[int | None] = mapped_column(Integer)
     last_settings_message_id: Mapped[int | None] = mapped_column(Integer)
     last_timer_message_id: Mapped[int | None] = mapped_column(Integer)
+    last_schedule_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -329,3 +330,55 @@ class UserPowerState(Base):
     switch_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_notification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ScheduleDailySnapshot(Base):
+    """Stores a daily snapshot of the schedule for each region/queue.
+
+    Used to compare today's and tomorrow's events across checks and determine
+    update_type (todayUpdated, tomorrowAppeared, etc.) and compute 🆕 markers.
+    Bot and channel message IDs are tracked separately in UserMessageTracking
+    and UserChannelConfig respectively.
+    """
+
+    __tablename__ = "schedule_daily_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    queue: Mapped[str] = mapped_column(String(16), nullable=False)
+    date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD in Kyiv TZ
+    schedule_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON-encoded sched dict
+    today_hash: Mapped[str | None] = mapped_column(String(128))
+    tomorrow_hash: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("region", "queue", "date", name="uq_schedule_daily_snapshot"),
+        Index("idx_sds_region_queue_date", "region", "queue", "date"),
+    )
+
+
+class PendingNotification(Base):
+    """Queue for schedule notifications during quiet hours (00:00–05:59 Kyiv).
+
+    At 06:00 the flush job processes all pending rows: for each (region, queue)
+    the latest pending row is sent to all subscribed users, then all rows are
+    marked 'sent'.  If no pending row exists at 06:00, a fresh daily-planned
+    message is sent instead.
+    """
+
+    __tablename__ = "pending_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    queue: Mapped[str] = mapped_column(String(16), nullable=False)
+    schedule_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    update_type: Mapped[str | None] = mapped_column(Text)  # JSON
+    changes: Mapped[str | None] = mapped_column(Text)  # JSON
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_pn_region_queue_status", "region", "queue", "status"),
+    )

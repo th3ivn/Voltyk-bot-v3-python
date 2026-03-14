@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
-from bot.formatter.schedule import format_schedule_for_channel
+from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_test_publication_keyboard
-from bot.services.api import fetch_schedule_data, parse_schedule_for_queue
+from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import ChannelConversationSG
+from bot.utils.html_to_entities import html_to_entities, to_aiogram_entities
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="channel_test")
@@ -39,12 +39,32 @@ async def test_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     schedule_data = parse_schedule_for_queue(data, user.queue)
-    text = format_schedule_for_channel(user.region, user.queue, schedule_data)
+    next_event = find_next_event(schedule_data)
+
+    # Channel format: same as format_schedule_message but without timestamp and without keyboard
+    html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    plain_text, raw_entities = html_to_entities(html_text)
+    entities = to_aiogram_entities(raw_entities)
+
+    image_bytes = await fetch_schedule_image(user.region, user.queue)
 
     try:
-        await callback.bot.send_message(
-            user.channel_config.channel_id, text, parse_mode="HTML"
-        )
+        if image_bytes:
+            photo = BufferedInputFile(image_bytes, filename="schedule.png")
+            await callback.bot.send_photo(
+                user.channel_config.channel_id,
+                photo=photo,
+                caption=plain_text,
+                caption_entities=entities,
+                parse_mode=None,
+            )
+        else:
+            await callback.bot.send_message(
+                user.channel_config.channel_id,
+                plain_text,
+                entities=entities,
+                parse_mode=None,
+            )
         await callback.answer("✅ Графік опубліковано в канал!")
     except Exception as e:
         await callback.answer(f"❌ Помилка публікації: {e}")
