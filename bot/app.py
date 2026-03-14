@@ -65,10 +65,10 @@ async def on_startup(bot: Bot) -> None:
     logger.info("🚀 Запуск СвітлоБот v4...")
     await _run_migrations()
     await init_db()
-    logger.info("✅ База даних ініціалізована")
+    logger.info("✅ База даних ініційована")
 
     me = await bot.get_me()
-    logger.info("✨ Бот @%s успішно запущено!", me.username)
+    logger.info("✨ Бот @%%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import power_monitor_loop
     from bot.services.scheduler import schedule_checker_loop
@@ -96,12 +96,16 @@ async def on_shutdown(bot: Bot) -> None:
 
 
 async def main() -> None:
-    # Use stdout so Railway shows logs in white instead of red
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        stream=sys.stdout,
+    # Route ALL loggers (including alembic) to stdout so Railway shows white, not red
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
     )
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(stdout_handler)
+
     logging.getLogger("aiogram").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
@@ -122,7 +126,7 @@ async def main() -> None:
                 secret_token=settings.WEBHOOK_SECRET or None,
                 max_connections=settings.WEBHOOK_MAX_CONNECTIONS,
             )
-            logger.info("Webhook set: %s", webhook_url)
+            logger.info("Webhook set: %%s", webhook_url)
 
             app = web.Application()
 
