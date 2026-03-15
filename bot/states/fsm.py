@@ -29,6 +29,10 @@ class IpSetupSG(StatesGroup):
     waiting_for_ip = State()
 
 
+class IpSupportSG(StatesGroup):
+    waiting_for_message = State()
+
+
 class FeedbackSG(StatesGroup):
     choosing_type = State()
     waiting_for_message = State()

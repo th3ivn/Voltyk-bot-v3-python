@@ -32,6 +32,22 @@ E_QUEUE = "5390854796011906616"
 E_BELL = "5262598817626234330"
 E_HOURGLASS = "5451732530048802485"
 
+E_BACK = "5309932763137218146"
+E_MENU = "5312355936440988577"
+E_IP_SETTINGS = "5312532335042794821"
+E_IP_ADDR = "5312283536177273995"
+E_ONLINE = "5309771882252243514"
+E_OFFLINE = "5312380297495484470"
+E_CHANGE_IP = "5312336892555990307"
+E_DELETE_IP = "5312141591803109522"
+E_PING_CHECK = "5312535839736111416"
+E_PING_LOADING = "5312428465553709555"
+E_SUCCESS = "5264973221576349285"
+E_ERROR_PING = "5312438206539536342"
+E_PING_FAIL = "5264933407229517572"
+E_SUPPORT = "5310296757320586255"
+E_REPLY = "5312237842020209022"
+
 
 def _btn(
     text: str,
@@ -347,18 +363,117 @@ def get_channel_menu_keyboard(
 # ─── IP keyboards ─────────────────────────────────────────────────────────
 
 
+def get_ip_monitoring_keyboard_no_ip() -> InlineKeyboardMarkup:
+    """Екран 1А — IP не підключено: кнопка Скасувати (червона)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Скасувати", "ip_cancel", style="destructive")],
+    ])
+
+
+def get_ip_management_keyboard() -> InlineKeyboardMarkup:
+    """Екран 1Б — IP підключено: кнопки керування."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Змінити IP", "ip_change_confirm", E_CHANGE_IP),
+            _btn("Видалити IP", "ip_delete_confirm", E_DELETE_IP),
+        ],
+        [_btn("Перевірити пінг", "ip_ping_check", E_PING_CHECK)],
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_change_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Екран 2 — Підтвердження зміни IP."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Так", "ip_change_do", style="positive"),
+            _btn("Скасувати", "ip_cancel_to_management", style="destructive"),
+        ],
+    ])
+
+
+def get_ip_delete_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Екран 3 — Підтвердження видалення IP."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Видалити", "ip_delete_do", style="destructive"),
+            _btn("Скасувати", "ip_cancel_to_management", style="positive"),
+        ],
+    ])
+
+
+def get_ip_deleted_keyboard() -> InlineKeyboardMarkup:
+    """Екран 4 — Після видалення IP."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_saved_keyboard() -> InlineKeyboardMarkup:
+    """Екран 5 — Після збереження IP."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
+    """Екран 6 — Після перевірки пінгу."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_ping_error_keyboard() -> InlineKeyboardMarkup:
+    """Щоденне повідомлення про помилку пінгу — кнопка Підтримка."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Підтримка", "ip_ping_support", E_SUPPORT)],
+    ])
+
+
+def get_ip_support_cancel_keyboard() -> InlineKeyboardMarkup:
+    """Під повідомленням 'Служба підтримки' — червона кнопка Скасувати дію."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Скасувати дію", "ip_support_cancel", style="destructive")],
+    ])
+
+
+def get_ip_support_admin_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            _btn("Відповісти", f"admin_ticket_reply_{ticket_id}", E_REPLY),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_support_sent_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Меню", "back_to_main", E_MENU)],
+    ])
+
+
 def get_ip_monitoring_keyboard(has_ip: bool = False) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [_btn("ℹ️ Інструкція", "ip_instruction"), _btn("✚ Підключити IP", "ip_setup")],
-    ]
+    """Legacy keyboard kept for backwards compatibility."""
     if has_ip:
-        rows.append([_btn("📋 Показати поточний", "ip_show"), _btn("🗑️ Видалити IP", "ip_delete")])
-    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        return get_ip_management_keyboard()
+    return get_ip_monitoring_keyboard_no_ip()
 
 
 def get_ip_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[_btn("✕ Скасувати", "ip_cancel")]])
+    """Legacy keyboard kept for backwards compatibility."""
+    return get_ip_monitoring_keyboard_no_ip()
 
 
 # ─── Cleanup / Data deletion ──────────────────────────────────────────────

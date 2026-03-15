@@ -10,6 +10,7 @@ import aiohttp
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
@@ -17,11 +18,14 @@ from bot.db.models import User as UserModel
 from bot.db.queries import (
     add_power_history,
     change_power_state_and_get_duration,
+    deactivate_ping_error_alert,
     deactivate_user,
+    get_active_ping_error_alerts,
     get_recent_user_power_states,
     get_setting,
     get_user_by_telegram_id,
     get_users_with_ip,
+    update_ping_error_alert_time,
     upsert_user_power_state,
 )
 from bot.db.session import async_session
@@ -265,10 +269,10 @@ async def _handle_power_state_change(
         # ── Build schedule text ───────────────────────────────────────
         schedule_text = ""
         if new_state == "off":
-            if is_scheduled_outage and next_event:
+            if is_scheduled_outage and next_event and next_event.get("time"):
                 schedule_text = f"\n🗓 Світло має з'явитися: <b>{_format_time(next_event['time'])}</b>"
             else:
-                schedule_text = "\n⚠️ Позапланове відключення"
+                schedule_text = "\n🔍 Графік не передбачав це відключення"
         else:
             if next_event and next_event["type"] == "power_off":
                 start_str = _format_time(next_event["time"])
@@ -303,8 +307,22 @@ async def _handle_power_state_change(
 
             if send_to_bot:
                 try:
-                    await bot.send_message(int(telegram_id), message, parse_mode="HTML")
+                    sent = await bot.send_message(int(telegram_id), message, parse_mode="HTML")
                     logger.info("📱 Power notification sent to user %s (%s)", telegram_id, new_state)
+                    try:
+                        async with async_session() as session:
+                            r = await session.execute(
+                                select(UserModel).where(UserModel.telegram_id == telegram_id)
+                            )
+                            db_user = r.scalars().first()
+                            if db_user and db_user.power_tracking:
+                                if new_state == "off":
+                                    db_user.power_tracking.alert_off_message_id = sent.message_id
+                                else:
+                                    db_user.power_tracking.alert_on_message_id = sent.message_id
+                                await session.commit()
+                    except Exception as e:
+                        logger.warning("Could not save alert message_id for user %s: %s", telegram_id, e)
                 except TelegramForbiddenError:
                     logger.info("User %s blocked the bot — deactivating", telegram_id)
                     async with async_session() as session:
@@ -330,14 +348,36 @@ async def _handle_power_state_change(
                             ch_id = int(cc.channel_id)
                         except (ValueError, TypeError):
                             ch_id = cc.channel_id
-                        await bot.send_message(ch_id, message, parse_mode="HTML")
+                        ch_sent = await bot.send_message(ch_id, message, parse_mode="HTML")
                         logger.info("📢 Power notification sent to channel %s", cc.channel_id)
+                        try:
+                            async with async_session() as session:
+                                r = await session.execute(
+                                    select(UserModel).where(UserModel.telegram_id == telegram_id)
+                                )
+                                db_user = r.scalars().first()
+                                if db_user and db_user.channel_config:
+                                    db_user.channel_config.last_power_message_id = ch_sent.message_id
+                                    await session.commit()
+                        except Exception as e:
+                            logger.warning(
+                                "Could not save channel alert message_id for user %s: %s", telegram_id, e
+                            )
                     except TelegramForbiddenError:
                         logger.warning("Channel %s is not accessible", cc.channel_id)
                     except Exception as e:
                         logger.error("Error sending to channel %s: %s", cc.channel_id, e)
 
             user_state["last_notification_at"] = now.isoformat()
+
+        # ── Deactivate ping error alert when power is restored ────────
+        if new_state == "on":
+            try:
+                async with async_session() as session:
+                    await deactivate_ping_error_alert(session, telegram_id)
+                    await session.commit()
+            except Exception as e:
+                logger.debug("Could not deactivate ping error alert for user %s: %s", telegram_id, e)
 
         # ── Update stable state bookkeeping ──────────────────────────
         user_state["last_stable_at"] = changed_at.isoformat()
@@ -782,6 +822,12 @@ async def power_monitor_loop(bot: Bot) -> None:
             await _save_all_user_states()
             last_save_at = now_t
 
+        # Daily ping-error alerts (runs every cycle; function checks 24h internally)
+        try:
+            await _send_daily_ping_error_alerts(bot)
+        except Exception as e:
+            logger.error("Error in daily ping error alerts: %s", e)
+
 
 def stop_power_monitor() -> None:
     """Stop the power monitor loop and cancel all pending debounce tasks."""
@@ -792,3 +838,258 @@ def stop_power_monitor() -> None:
         if task and not task.done():
             task.cancel()
     logger.info("⚡ Power monitor stopped")
+
+
+# ─── Daily ping-error alerts ──────────────────────────────────────────────
+
+
+async def _send_daily_ping_error_alerts(bot: Bot) -> None:
+    """Send daily ping-error messages to users whose router hasn't responded in 24h."""
+    from datetime import timedelta
+
+    from bot.keyboards.inline import get_ip_ping_error_keyboard
+
+    try:
+        async with async_session() as session:
+            alerts = await get_active_ping_error_alerts(session)
+    except Exception as e:
+        logger.error("Could not fetch ping error alerts: %s", e)
+        return
+
+    now = datetime.now(UTC)
+    for alert in alerts:
+        try:
+            last_at = alert.last_alert_at
+            if last_at is not None:
+                if last_at.tzinfo is None:
+                    last_at = last_at.replace(tzinfo=UTC)
+                if (now - last_at).total_seconds() < 86400:
+                    continue
+
+            is_alive = await _check_router_http(alert.router_ip)
+            if is_alive:
+                async with async_session() as session:
+                    await deactivate_ping_error_alert(session, alert.telegram_id)
+                    await session.commit()
+                logger.info("Ping restored for user %s — deactivating alert", alert.telegram_id)
+                continue
+
+            text = (
+                '<tg-emoji emoji-id="5312438206539536342">⚠️</tg-emoji> Моніторинг світла не працює\n\n'
+                "Протягом 24 годин бот не зміг з'єднатися з вашим\n"
+                f"роутером за адресою {alert.router_ip}\n\n"
+                "Можливі причини:\n"
+                "• Введена адреса неправильна\n"
+                "• IP-адреса не є статичною (білою)\n"
+                "• Роутер не налаштований на зовнішні підключення\n\n"
+                "Що можна зробити:\n"
+                "• Перевірити доступність IP або DDNS:\n"
+                '  <a href="https://2ip.ua/ua/services/ip-service/ping-traceroute">'
+                "https://2ip.ua/ua/services/ip-service/ping-traceroute</a>\n"
+                "• Увімкнути \"пінг через WAN-порт\" в налаштуваннях роутера\n"
+                "• Якщо використовуєте Port Forwarding — перевірити\n"
+                "  доступність порту:\n"
+                '  <a href="https://2ip.ua/ua/services/ip-service/port-check">'
+                "https://2ip.ua/ua/services/ip-service/port-check</a>\n\n"
+                "Якщо все налаштовано правильно — можливо, просто\n"
+                'не було світла весь цей час <tg-emoji emoji-id="5312230866993322219">🕯</tg-emoji>\n\n'
+                "Якщо проблема залишається — зверніться до підтримки,\n"
+                "адміністратор допоможе вам розібратися."
+            )
+            try:
+                await bot.send_message(
+                    int(alert.telegram_id),
+                    text,
+                    reply_markup=get_ip_ping_error_keyboard(),
+                    parse_mode="HTML",
+                )
+                async with async_session() as session:
+                    await update_ping_error_alert_time(session, alert.telegram_id)
+                    await session.commit()
+                logger.info("📡 Ping error alert sent to user %s", alert.telegram_id)
+            except TelegramForbiddenError:
+                logger.info("User %s blocked the bot — deactivating ping alert", alert.telegram_id)
+                async with async_session() as session:
+                    await deactivate_ping_error_alert(session, alert.telegram_id)
+                    await session.commit()
+            except Exception as e:
+                logger.error("Error sending ping error alert to user %s: %s", alert.telegram_id, e)
+        except Exception as e:
+            logger.error("Error processing ping error alert for user %s: %s", alert.telegram_id, e)
+
+
+# ─── Schedule change notification update ─────────────────────────────────
+
+
+async def update_power_notifications_on_schedule_change(
+    bot: Bot, region: str, queue: str
+) -> None:
+    """Update existing power notifications when the schedule changes for a region/queue.
+
+    Edits the last power-off or power-on message for each affected user,
+    replacing the schedule line to reflect the updated timetable.
+    """
+    from aiogram.exceptions import TelegramBadRequest
+
+    from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+
+    try:
+        schedule_raw = await fetch_schedule_data(region)
+        if not schedule_raw:
+            return
+        parsed = parse_schedule_for_queue(schedule_raw, queue)
+        next_event = find_next_event(parsed)
+    except Exception as e:
+        logger.warning("Could not fetch schedule for %s/%s: %s", region, queue, e)
+        return
+
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                select(UserModel)
+                .options(
+                    selectinload(UserModel.power_tracking),
+                    selectinload(UserModel.channel_config),
+                )
+                .where(
+                    UserModel.is_active.is_(True),
+                    UserModel.region == region,
+                    UserModel.queue == queue,
+                    UserModel.router_ip.isnot(None),
+                )
+            )
+            users = list(result.scalars().all())
+    except Exception as e:
+        logger.error("Error fetching users for schedule update %s/%s: %s", region, queue, e)
+        return
+
+    for user in users:
+        telegram_id = str(user.telegram_id)
+        pt = user.power_tracking
+        cc = user.channel_config
+
+        if not pt:
+            continue
+
+        current_state = pt.power_state
+        if current_state == "off":
+            bot_msg_id = pt.alert_off_message_id
+        elif current_state == "on":
+            bot_msg_id = pt.alert_on_message_id
+        else:
+            continue
+
+        if next_event and next_event["type"] == "power_off" and current_state == "on":
+            start_str = _format_time(next_event["time"])
+            if next_event.get("endTime"):
+                end_str = _format_time(next_event["endTime"])
+                new_schedule_line = f"\n🗓 Наступне планове: <b>{start_str} - {end_str}</b>"
+            else:
+                new_schedule_line = f"\n🗓 Наступне планове: <b>{start_str}</b>"
+        elif next_event and next_event["type"] == "power_on" and current_state == "off":
+            new_schedule_line = (
+                f"\n🗓 Світло має з'явитися: <b>{_format_time(next_event['time'])}</b>"
+            )
+        else:
+            new_schedule_line = None
+
+        if bot_msg_id and new_schedule_line is not None:
+            try:
+                duration_text = ""
+                if pt.last_power_change:
+                    duration_text = str(pt.last_power_change)
+                if current_state == "off":
+                    base = (
+                        f"🔴 <b>Світло зникло</b>\n"
+                        f"🕓 Воно було {duration_text or '—'}"
+                        f"{new_schedule_line}"
+                    )
+                else:
+                    base = (
+                        f"🟢 <b>Світло з'явилося</b>\n"
+                        f"🕓 Його не було {duration_text or '—'}"
+                        f"{new_schedule_line}"
+                    )
+
+                await bot.edit_message_text(
+                    text=base,
+                    chat_id=int(telegram_id),
+                    message_id=bot_msg_id,
+                    parse_mode="HTML",
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" in str(e):
+                    pass
+                elif "message to edit not found" in str(e):
+                    try:
+                        async with async_session() as session:
+                            r = await session.execute(
+                                select(UserModel).where(UserModel.telegram_id == telegram_id)
+                            )
+                            db_user = r.scalars().first()
+                            if db_user and db_user.power_tracking:
+                                if current_state == "off":
+                                    db_user.power_tracking.alert_off_message_id = None
+                                else:
+                                    db_user.power_tracking.alert_on_message_id = None
+                                await session.commit()
+                    except Exception:
+                        pass
+                else:
+                    logger.debug(
+                        "Could not edit power message for user %s: %s", telegram_id, e
+                    )
+            except Exception as e:
+                logger.debug("Error updating power message for user %s: %s", telegram_id, e)
+
+        if cc and cc.channel_id and cc.last_power_message_id and new_schedule_line is not None:
+            try:
+                ch_id: int | str
+                try:
+                    ch_id = int(cc.channel_id)
+                except (ValueError, TypeError):
+                    ch_id = cc.channel_id
+
+                duration_text = str(pt.last_power_change) if pt.last_power_change else "—"
+                if current_state == "off":
+                    base_ch = (
+                        f"🔴 <b>Світло зникло</b>\n"
+                        f"🕓 Воно було {duration_text}"
+                        f"{new_schedule_line}"
+                    )
+                else:
+                    base_ch = (
+                        f"🟢 <b>Світло з'явилося</b>\n"
+                        f"🕓 Його не було {duration_text}"
+                        f"{new_schedule_line}"
+                    )
+
+                await bot.edit_message_text(
+                    text=base_ch,
+                    chat_id=ch_id,
+                    message_id=cc.last_power_message_id,
+                    parse_mode="HTML",
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" in str(e):
+                    pass
+                elif "message to edit not found" in str(e):
+                    try:
+                        async with async_session() as session:
+                            r = await session.execute(
+                                select(UserModel).where(UserModel.telegram_id == telegram_id)
+                            )
+                            db_user = r.scalars().first()
+                            if db_user and db_user.channel_config:
+                                db_user.channel_config.last_power_message_id = None
+                                await session.commit()
+                    except Exception:
+                        pass
+                else:
+                    logger.debug(
+                        "Could not edit channel power message for user %s: %s", telegram_id, e
+                    )
+            except Exception as e:
+                logger.debug(
+                    "Error updating channel power message for user %s: %s", telegram_id, e
+                )

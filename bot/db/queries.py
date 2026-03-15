@@ -10,9 +10,11 @@ from sqlalchemy.orm import selectinload
 
 from bot.db.models import (
     AdminRouter,
+    AdminTicketReminder,
     PauseLog,
     PendingChannel,
     PendingNotification,
+    PingErrorAlert,
     PowerHistory,
     ScheduleCheck,
     ScheduleDailySnapshot,
@@ -644,4 +646,96 @@ async def mark_pending_notifications_sent(session: AsyncSession, region: str, qu
             PendingNotification.status == "pending",
         )
         .values(status="sent")
+    )
+
+
+# ─── Ping Error Alerts ────────────────────────────────────────────────────
+
+
+async def upsert_ping_error_alert(
+    session: AsyncSession, telegram_id: str, router_ip: str
+) -> None:
+    """Create or update a ping-error alert record for a user."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = pg_insert(PingErrorAlert).values(
+        telegram_id=telegram_id,
+        router_ip=router_ip,
+        is_active=True,
+    )
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_ping_error_alert_user",
+        set_={"router_ip": stmt.excluded.router_ip, "is_active": True},
+    )
+    await session.execute(stmt)
+
+
+async def get_active_ping_error_alerts(session: AsyncSession) -> list[PingErrorAlert]:
+    """Return all active ping-error alert records."""
+    result = await session.execute(
+        select(PingErrorAlert).where(PingErrorAlert.is_active.is_(True))
+    )
+    return list(result.scalars().all())
+
+
+async def deactivate_ping_error_alert(session: AsyncSession, telegram_id: str) -> None:
+    """Deactivate ping-error alert (when IP is deleted or ping succeeds)."""
+    await session.execute(
+        update(PingErrorAlert)
+        .where(PingErrorAlert.telegram_id == telegram_id)
+        .values(is_active=False)
+    )
+
+
+async def update_ping_error_alert_time(
+    session: AsyncSession, telegram_id: str
+) -> None:
+    """Update last_alert_at to now for a user."""
+    await session.execute(
+        update(PingErrorAlert)
+        .where(PingErrorAlert.telegram_id == telegram_id)
+        .values(last_alert_at=datetime.now(UTC))
+    )
+
+
+# ─── Admin Ticket Reminders ───────────────────────────────────────────────
+
+
+async def create_admin_ticket_reminder(
+    session: AsyncSession, ticket_id: int, admin_telegram_id: str
+) -> AdminTicketReminder:
+    """Create an admin reminder for a support ticket."""
+    reminder = AdminTicketReminder(
+        ticket_id=ticket_id,
+        admin_telegram_id=admin_telegram_id,
+    )
+    session.add(reminder)
+    await session.flush()
+    return reminder
+
+
+async def get_pending_admin_reminders(
+    session: AsyncSession,
+) -> list[AdminTicketReminder]:
+    """Return unresolved reminders where last_reminder_at is older than 24 hours."""
+    from datetime import timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    result = await session.execute(
+        select(AdminTicketReminder).where(
+            AdminTicketReminder.is_resolved.is_(False),
+            AdminTicketReminder.last_reminder_at <= cutoff,
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def resolve_admin_ticket_reminder(
+    session: AsyncSession, ticket_id: int
+) -> None:
+    """Mark all reminders for a ticket as resolved."""
+    await session.execute(
+        update(AdminTicketReminder)
+        .where(AdminTicketReminder.ticket_id == ticket_id)
+        .values(is_resolved=True)
     )

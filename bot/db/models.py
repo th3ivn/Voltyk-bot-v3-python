@@ -104,6 +104,7 @@ class UserChannelConfig(Base):
     last_published_hash: Mapped[str | None] = mapped_column(String(128))
     last_post_id: Mapped[int | None] = mapped_column(Integer)
     last_schedule_message_id: Mapped[int | None] = mapped_column(Integer)
+    last_power_message_id: Mapped[int | None] = mapped_column(Integer)
 
     schedule_caption: Mapped[str | None] = mapped_column(Text)
     period_format: Mapped[str | None] = mapped_column(Text)
@@ -382,3 +383,40 @@ class PendingNotification(Base):
     __table_args__ = (
         Index("idx_pn_region_queue_status", "region", "queue", "status"),
     )
+
+
+class PingErrorAlert(Base):
+    """Tracking daily ping-error alerts per user."""
+
+    __tablename__ = "ping_error_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    router_ip: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("telegram_id", name="uq_ping_error_alert_user"),
+    )
+
+
+class AdminTicketReminder(Base):
+    """Admin reminder for unanswered support tickets."""
+
+    __tablename__ = "admin_ticket_reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    admin_telegram_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_reminder_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

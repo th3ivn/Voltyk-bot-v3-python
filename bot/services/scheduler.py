@@ -127,12 +127,25 @@ async def schedule_checker_loop(bot: Bot) -> None:
     _running = True
     logger.info("Schedule checker started")
 
+    last_reminder_check_at: float = 0.0
+    reminder_interval_s = 3600.0  # Check reminders once per hour
+
     while _running:
         interval = await _get_schedule_interval()
         try:
             await _check_all_schedules(bot, interval)
         except Exception as e:
             logger.error("Schedule check error: %s", e)
+
+        # Hourly admin ticket reminder check
+        import time as _time
+        now_t = _time.monotonic()
+        if now_t - last_reminder_check_at >= reminder_interval_s:
+            try:
+                await _send_admin_ticket_reminders(bot)
+            except Exception as e:
+                logger.error("Admin reminder check error: %s", e)
+            last_reminder_check_at = _time.monotonic()
 
         logger.debug("Next schedule check in %ds", interval)
         await asyncio.sleep(interval)
@@ -297,6 +310,13 @@ async def _check_single_queue(
     await _send_notifications_to_users(
         bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
     )
+
+    # Update existing power notifications to reflect new schedule
+    try:
+        from bot.services.power_monitor import update_power_notifications_on_schedule_change
+        await update_power_notifications_on_schedule_change(bot, region, queue)
+    except Exception as e:
+        logger.warning("Error updating power notifications on schedule change for %s/%s: %s", region, queue, e)
 
 
 # ─── 06:00 daily flush ────────────────────────────────────────────────────
@@ -588,3 +608,86 @@ async def _send_schedule_notification(
 def stop_scheduler() -> None:
     global _running
     _running = False
+
+
+# ─── Admin ticket reminders ───────────────────────────────────────────────
+
+
+async def _send_admin_ticket_reminders(bot: Bot) -> None:
+    """Send reminders to admins for unanswered ip_support tickets older than 24h."""
+    from bot.db.queries import (
+        add_ticket_message,
+        create_admin_ticket_reminder,
+        get_pending_admin_reminders,
+        get_ticket_by_id,
+        resolve_admin_ticket_reminder,
+        update_ping_error_alert_time,
+    )
+    from bot.keyboards.inline import get_ip_support_admin_keyboard
+
+    try:
+        async with async_session() as session:
+            reminders = await get_pending_admin_reminders(session)
+    except Exception as e:
+        logger.error("Could not fetch admin ticket reminders: %s", e)
+        return
+
+    for reminder in reminders:
+        try:
+            async with async_session() as session:
+                ticket = await get_ticket_by_id(session, reminder.ticket_id)
+            if not ticket or ticket.status != "open":
+                async with async_session() as session:
+                    await resolve_admin_ticket_reminder(session, reminder.ticket_id)
+                    await session.commit()
+                continue
+
+            has_admin_reply = any(
+                m.sender_type == "admin" for m in (ticket.messages or [])
+            )
+            if has_admin_reply:
+                async with async_session() as session:
+                    await resolve_admin_ticket_reminder(session, reminder.ticket_id)
+                    await session.commit()
+                continue
+
+            last_msg = ticket.messages[-1] if ticket.messages else None
+            msg_text = last_msg.content if last_msg else "(без тексту)"
+
+            from datetime import datetime as _dt
+            now_str = _dt.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+            admin_text = (
+                f"🔔 Нагадування: відкрите звернення #{ticket.id}\n\n"
+                f"📅 Дата: {now_str}\n"
+                f"💬 {msg_text}"
+            )
+            try:
+                await bot.send_message(
+                    int(reminder.admin_telegram_id),
+                    admin_text,
+                    reply_markup=get_ip_support_admin_keyboard(ticket.id),
+                    parse_mode="HTML",
+                )
+                async with async_session() as session:
+                    from sqlalchemy import update as sa_update
+                    from bot.db.models import AdminTicketReminder
+                    from datetime import datetime as _dt2
+                    from datetime import timezone
+
+                    await session.execute(
+                        sa_update(AdminTicketReminder)
+                        .where(AdminTicketReminder.id == reminder.id)
+                        .values(last_reminder_at=_dt2.now(timezone.utc))
+                    )
+                    await session.commit()
+                logger.info(
+                    "Admin reminder sent to %s for ticket #%d",
+                    reminder.admin_telegram_id,
+                    ticket.id,
+                )
+            except Exception as e:
+                logger.error(
+                    "Error sending admin reminder to %s: %s", reminder.admin_telegram_id, e
+                )
+        except Exception as e:
+            logger.error("Error processing admin reminder %s: %s", reminder.id, e)

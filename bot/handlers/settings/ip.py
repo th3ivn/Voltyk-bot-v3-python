@@ -1,71 +1,257 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.queries import get_user_by_telegram_id
-from bot.keyboards.inline import get_ip_cancel_keyboard, get_ip_monitoring_keyboard
-from bot.states.fsm import IpSetupSG
+from bot.config import settings as app_settings
+from bot.db.queries import (
+    add_ticket_message,
+    create_admin_ticket_reminder,
+    create_ticket,
+    deactivate_ping_error_alert,
+    get_user_by_telegram_id,
+    upsert_ping_error_alert,
+)
+from bot.db.session import async_session as _async_session
+from bot.keyboards.inline import (
+    get_ip_change_confirm_keyboard,
+    get_ip_delete_confirm_keyboard,
+    get_ip_deleted_keyboard,
+    get_ip_management_keyboard,
+    get_ip_monitoring_keyboard_no_ip,
+    get_ip_ping_error_keyboard,
+    get_ip_ping_result_keyboard,
+    get_ip_saved_keyboard,
+    get_ip_support_admin_keyboard,
+    get_ip_support_cancel_keyboard,
+    get_ip_support_sent_keyboard,
+    get_settings_keyboard,
+)
+from bot.states.fsm import IpSetupSG, IpSupportSG
 from bot.utils.helpers import is_valid_ip_or_domain
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 router = Router(name="settings_ip")
 
+_INSTRUCTION_TEXT = (
+    '<tg-emoji emoji-id="5312532335042794821">⚙️</tg-emoji> Налаштування моніторингу світла\n\n'
+    "Бот визначає статус світла у вас вдома — пінгуючи\n"
+    "ваш роутер. Для цього потрібно вказати адресу\n"
+    "вашого роутера.\n\n"
+    "Переконайтесь що ваш роутер вимикається при\n"
+    "відключенні світла. Якщо роутер підключений до\n"
+    "безперебійника або павербанку — вкажіть інший\n"
+    "пристрій, який живиться напряму від мережі.\n\n"
+    "Варіант 1 — Статична (біла) IP-адреса\n"
+    "Зверніться до провайдера (~30–50 грн/місяць).\n"
+    '<a href="https://2ip.ua/ua/services/ip-service/ping-traceroute">Перевірити доступність IP ззовні</a>\n'
+    '<a href="https://2ip.ua/ua/services/ip-service/port-check">Перевірити доступність порту (Port Forwarding)</a>\n\n'
+    "Варіант 2 — DDNS (якщо немає статичного IP)\n"
+    "Налаштовується в налаштуваннях роутера.\n"
+    "Інструкції для роутерів:\n"
+    '<a href="https://www.asus.com/ua-ua/support/FAQ/1011725/">ASUS</a> · '
+    '<a href="https://help-wifi.com/tp-link/nastrojka-ddns-dinamicheskij-dns-na-routere-tp-link/">TP-Link</a> · '
+    '<a href="https://www.youtube.com/watch?v=Q97_8XVyBuo">TP-Link відео</a> · '
+    '<a href="https://www.hardreset.info/uk/devices/netgear/netgear-dgnd3700v2/faq/dns-settings/how-to-change-dns/">NETGEAR</a> · '
+    '<a href="https://yesondd.com/361-dlinkddns-com-remote-access-to-d-link-wifi-router-via-internet-via-ddns">D-Link</a> · '
+    '<a href="https://xn----7sba7aachdbqfnhtigrl.xn--j1amh/nastrojka-mikrotik-cloud-sobstvennyj-ddns/">MikroTik</a> · '
+    '<a href="https://www.hardreset.info/ru/devices/xiaomi/xiaomi-mi-router-4a/nastroyki-dns/">Xiaomi</a>\n\n'
+    "Приклади вводу:\n"
+    "89.267.32.1\n"
+    "89.267.32.1:80\n"
+    "myhome.ddns.net\n\n"
+    "Введіть вашу IP-адресу або DDNS:"
+)
+
+
+async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Helper: show main settings screen (replicates back_to_settings logic)."""
+    from bot.formatter.messages import format_live_status_message
+
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    is_admin = app_settings.is_admin(callback.from_user.id)
+    text = format_live_status_message(user)
+    await callback.message.edit_text(
+        text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML"
+    )
+
+
+async def _show_management_screen(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Helper: show IP management screen (Екран 1Б)."""
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user or not user.router_ip:
+        return
+    if user.power_tracking and user.power_tracking.power_state == "on":
+        status_line = (
+            '\nСтатус: <tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> Онлайн'
+        )
+    elif user.power_tracking and user.power_tracking.power_state == "off":
+        status_line = (
+            '\nСтатус: <tg-emoji emoji-id="5312380297495484470">🔴</tg-emoji> Офлайн'
+        )
+    else:
+        status_line = ""
+    text = (
+        '<tg-emoji emoji-id="5312532335042794821">⚙️</tg-emoji> IP моніторинг\n\n'
+        f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {user.router_ip}'
+        f"{status_line}"
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_ip_management_keyboard(), parse_mode="HTML"
+    )
+
+
+async def _show_input_screen(callback: CallbackQuery, state: FSMContext) -> None:
+    """Helper: show instruction + IP input screen (Екран 1А)."""
+    await callback.message.edit_text(
+        _INSTRUCTION_TEXT,
+        reply_markup=get_ip_monitoring_keyboard_no_ip(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+    await state.set_state(IpSetupSG.waiting_for_ip)
+
+
+# ─── Screen 1A / 1B ───────────────────────────────────────────────────────
+
 
 @router.callback_query(F.data == "settings_ip")
-async def settings_ip(callback: CallbackQuery, session: AsyncSession) -> None:
+async def settings_ip(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         return
-    has_ip = bool(user.router_ip)
-    ip_text = f"\n📡 Поточна IP: {user.router_ip}" if has_ip else ""
-    await callback.message.edit_text(
-        f"🌐 IP моніторинг{ip_text}",
-        reply_markup=get_ip_monitoring_keyboard(has_ip=has_ip),
-    )
+    if user.router_ip:
+        await _show_management_screen(callback, session)
+    else:
+        await _show_input_screen(callback, state)
 
 
-@router.callback_query(F.data == "ip_instruction")
-async def ip_instruction(callback: CallbackQuery) -> None:
-    await callback.answer()
-    text = (
-        "ℹ️ Налаштування моніторингу через IP\n\n"
-        "Бот може пінгувати ваш роутер, щоб визначити,\n"
-        "чи є у вас світло.\n\n"
-        "Для цього потрібно:\n"
-        "1. Знати IP-адресу роутера (зовнішню)\n"
-        "2. Роутер має відповідати на ICMP ping\n\n"
-        "Підтримуються формати:\n"
-        "• 203.0.113.1\n"
-        "• 203.0.113.1:8080\n"
-        "• router.example.com\n"
-        "• router.example.com:8080"
-    )
-    from bot.keyboards.inline import get_ip_monitoring_keyboard
-
-    await callback.message.edit_text(text, reply_markup=get_ip_monitoring_keyboard())
+# ─── Screen 2 — Change confirm ────────────────────────────────────────────
 
 
-@router.callback_query(F.data == "ip_setup")
-async def ip_setup(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+@router.callback_query(F.data == "ip_change_confirm")
+async def ip_change_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if user and user.router_ip:
-        await callback.message.edit_text(
-            f"⚠️ У вас вже додана IP-адреса: {user.router_ip}\n\nВведіть нову або скасуйте:",
-            reply_markup=get_ip_cancel_keyboard(),
-        )
+    if not user:
+        return
+    text = (
+        "Зміна IP-адреси\n\n"
+        f"Поточна IP-адреса: {user.router_ip}\n\n"
+        "Ви впевнені що хочете змінити IP-адресу?"
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
+    )
+
+
+# ─── Screen 3 — Delete confirm ────────────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_delete_confirm")
+async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    text = (
+        "Видалення IP-адреси\n\n"
+        f"Ви впевнені що хочете видалити IP-адресу\n{user.router_ip}?\n\n"
+        "Моніторинг світла буде вимкнено."
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_ip_delete_confirm_keyboard(), parse_mode="HTML"
+    )
+
+
+# ─── Screen 4 — After delete ──────────────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_delete_do")
+async def ip_delete_do(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if user:
+        user.router_ip = None
+        await session.flush()
+        try:
+            await deactivate_ping_error_alert(session, str(user.telegram_id))
+        except Exception:
+            pass
+    text = (
+        '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
+        "Моніторинг світла вимкнено."
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_ip_deleted_keyboard(), parse_mode="HTML"
+    )
+
+
+# ─── ip_change_do — go to input screen ────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_change_do")
+async def ip_change_do(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _show_input_screen(callback, state)
+
+
+# ─── ip_cancel — return to settings ──────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_cancel")
+async def ip_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await callback.answer()
+    await state.clear()
+    await _show_settings(callback, session)
+
+
+# ─── ip_cancel_to_management — return to Screen 1Б ───────────────────────
+
+
+@router.callback_query(F.data == "ip_cancel_to_management")
+async def ip_cancel_to_management(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await _show_management_screen(callback, session)
+
+
+# ─── ip_ping_check — Screen 6 ─────────────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_ping_check")
+async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user or not user.router_ip:
+        return
+    router_ip = user.router_ip
+    loading_text = (
+        '<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP-моніторинг\n'
+        f"{router_ip}\n"
+        'Перевіряю <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>'
+    )
+    await callback.message.edit_text(loading_text, parse_mode="HTML")
+    from bot.services.power_monitor import _check_router_http
+    is_alive = await _check_router_http(router_ip)
+    if is_alive:
+        result_text = '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Пінг пройшов успішно'
     else:
-        await callback.message.edit_text(
-            "🌐 Налаштування IP\n\n"
-            "Введіть IP-адресу або домен вашого роутера.\n\n"
-            "Приклади:\n• 203.0.113.1\n• router.example.com\n\n"
-            "⏰ Час очікування введення: 5 хвилин",
-            reply_markup=get_ip_cancel_keyboard(),
-        )
-    await state.set_state(IpSetupSG.waiting_for_ip)
+        result_text = '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> Пінг не пройшов'
+    await callback.message.edit_text(
+        result_text, reply_markup=get_ip_ping_result_keyboard(), parse_mode="HTML"
+    )
+
+
+# ─── IP input handler (Screen 5) ──────────────────────────────────────────
 
 
 @router.message(IpSetupSG.waiting_for_ip)
@@ -82,22 +268,158 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user:
         user.router_ip = result["address"]
+        await session.flush()
+
+    status_msg = await message.answer(
+        '<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> '
+        'Перевіряю IP-адресу <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>',
+        parse_mode="HTML",
+    )
+
+    from bot.services.power_monitor import _check_router_http
+    is_alive = await _check_router_http(result["address"])
+
+    if is_alive:
+        result_text = (
+            '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> '
+            "IP збережено. Пінг пройшов успішно, моніторинг увімкнено."
+        )
+    else:
+        result_text = (
+            '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> '
+            "IP збережено. Пінг наразі не проходить — можливо, зараз немає світла. "
+            "Моніторинг почнеться автоматично коли з'єднання відновиться."
+        )
+        if user:
+            try:
+                await upsert_ping_error_alert(session, str(user.telegram_id), result["address"])
+            except Exception:
+                pass
 
     await state.clear()
-    await message.answer(
-        f"✅ IP-адресу збережено: {result['address']}",
-        reply_markup=get_ip_monitoring_keyboard(has_ip=True),
+    await status_msg.edit_text(
+        result_text, reply_markup=get_ip_saved_keyboard(), parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data == "ip_cancel")
-async def ip_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+# ─── ip_ping_support — Support ticket flow ───────────────────────────────
+
+
+@router.callback_query(F.data == "ip_ping_support")
+async def ip_ping_support(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    text = (
+        '<tg-emoji emoji-id="5310296757320586255">💬</tg-emoji> Служба підтримки\n\n'
+        "Напишіть ваше повідомлення, і адміністратор\n"
+        "відповість вам найближчим часом."
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_ip_support_cancel_keyboard(), parse_mode="HTML"
+    )
+    await state.set_state(IpSupportSG.waiting_for_message)
+
+
+@router.message(IpSupportSG.waiting_for_message)
+async def ip_support_message(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not message.text:
+        await message.reply("❌ Будь ласка, надішліть текстове повідомлення.")
+        return
+
+    user = await get_user_by_telegram_id(session, message.from_user.id)
+    if not user:
+        await state.clear()
+        return
+
+    ticket = await create_ticket(
+        session,
+        telegram_id=user.telegram_id,
+        ticket_type="ip_support",
+        subject="IP підтримка",
+    )
+    await add_ticket_message(
+        session,
+        ticket_id=ticket.id,
+        sender_type="user",
+        sender_id=user.telegram_id,
+        content=message.text,
+    )
+    await session.commit()
+
+    await state.clear()
+
+    await message.answer(
+        '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Ваше повідомлення надіслано\n\n'
+        "Адміністратор відповість вам найближчим часом.",
+        reply_markup=get_ip_support_sent_keyboard(),
+        parse_mode="HTML",
+    )
+
+    now_str = datetime.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+    username = f"@{user.username}" if user.username else "(без username)"
+    ip_line = f"\n📡 IP: {user.router_ip}" if user.router_ip else ""
+    admin_text = (
+        "📩 Нове звернення від користувача\n\n"
+        f"👤 {username} (ID: {user.telegram_id})\n"
+        f"🌍 Регіон: {user.region} | Черга: {user.queue}"
+        f"{ip_line}\n"
+        f"📅 Дата: {now_str}\n"
+        f"💬 {message.text}"
+    )
+    for admin_id in app_settings.all_admin_ids:
+        try:
+            await message.bot.send_message(
+                admin_id,
+                admin_text,
+                reply_markup=get_ip_support_admin_keyboard(ticket.id),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    for admin_id in app_settings.all_admin_ids:
+        try:
+            async with _async_session() as s:
+                await create_admin_ticket_reminder(s, ticket.id, str(admin_id))
+                await s.commit()
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data == "ip_support_cancel")
+async def ip_support_cancel(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+) -> None:
     await callback.answer()
     await state.clear()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    from bot.formatter.messages import format_main_menu_message
+    from bot.keyboards.inline import get_main_menu
+
+    has_channel = bool(user.channel_config and user.channel_config.channel_id)
+    channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
+    text = format_main_menu_message(user)
     await callback.message.edit_text(
-        "❌ Налаштування IP скасовано.",
-        reply_markup=get_ip_monitoring_keyboard(),
+        text,
+        reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
+        parse_mode="HTML",
     )
+
+
+# ─── Legacy callbacks ─────────────────────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_instruction")
+async def ip_instruction(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _show_input_screen(callback, state)
+
+
+@router.callback_query(F.data == "ip_setup")
+async def ip_setup(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _show_input_screen(callback, state)
 
 
 @router.callback_query(F.data == "ip_show")
@@ -106,8 +428,8 @@ async def ip_show(callback: CallbackQuery, session: AsyncSession) -> None:
     if user and user.router_ip:
         text = f"📡 Поточна IP: {user.router_ip}"
         if user.power_tracking and user.power_tracking.power_state:
-            state = "🟢 Онлайн" if user.power_tracking.power_state == "on" else "🔴 Офлайн"
-            text += f"\nСтатус: {state}"
+            state_text = "🟢 Онлайн" if user.power_tracking.power_state == "on" else "🔴 Офлайн"
+            text += f"\nСтатус: {state_text}"
         await callback.answer(text, show_alert=True)
     else:
         await callback.answer("📡 IP не налаштовано")
@@ -115,11 +437,19 @@ async def ip_show(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "ip_delete")
 async def ip_delete(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if user:
         user.router_ip = None
-    await callback.answer()
+        await session.flush()
+        try:
+            await deactivate_ping_error_alert(session, str(user.telegram_id))
+        except Exception:
+            pass
+    from bot.keyboards.inline import get_ip_deleted_keyboard
     await callback.message.edit_text(
-        "✅ IP-адресу видалено.",
-        reply_markup=get_ip_monitoring_keyboard(has_ip=False),
+        '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
+        "Моніторинг світла вимкнено.",
+        reply_markup=get_ip_deleted_keyboard(),
+        parse_mode="HTML",
     )
