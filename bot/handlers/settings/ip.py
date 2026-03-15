@@ -138,7 +138,7 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
     # Step 2: Perform a fresh ping
     is_alive = await _check_router_http(router_ip)
 
-    # Step 3: Update only the text (edit_text WITHOUT reply_markup to preserve keyboard)
+    # Step 3: Update only the text, preserving the existing keyboard
     if is_alive:
         status_line = '\nСтатус: <tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> Онлайн'
     else:
@@ -149,14 +149,15 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {router_ip}'
         f'{status_line}'
     )
-    # Edit only text, not reply_markup — keyboard stays unchanged
+    # Edit text AND preserve the existing keyboard by passing reply_markup=callback.message.reply_markup
+    existing_keyboard = callback.message.reply_markup
     try:
-        await callback.message.edit_text(result_text, parse_mode="HTML")
+        await callback.message.edit_text(result_text, parse_mode="HTML", reply_markup=existing_keyboard)
     except Exception as e:
         logger.warning("_show_management_screen: could not update status text: %s", e)
         clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', result_text)
         try:
-            await callback.message.edit_text(clean, parse_mode="HTML")
+            await callback.message.edit_text(clean, parse_mode="HTML", reply_markup=existing_keyboard)
         except Exception as e2:
             logger.warning("_show_management_screen: fallback also failed: %s", e2)
 
