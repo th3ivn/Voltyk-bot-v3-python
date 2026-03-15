@@ -32,8 +32,8 @@ E_QUEUE = "5390854796011906616"
 E_BELL = "5262598817626234330"
 E_HOURGLASS = "5451732530048802485"
 
-E_BACK = "5309932763137218146"
-E_MENU = "5312355936440988577"
+E_BACK = None
+E_MENU = None
 E_IP_SETTINGS = "5312532335042794821"
 E_IP_ADDR = "5312283536177273995"
 E_ONLINE = "5309771882252243514"
@@ -97,7 +97,7 @@ def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
             _btn("Замінити", "my_queues", E_REGION),
             _btn("Оновити", "schedule_refresh", E_REFRESH),
         ],
-        [_btn("Меню", "back_to_main", E_MENU)],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -118,7 +118,7 @@ def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
         for i in range(0, len(queues), 3):
             row = [_btn(q, f"queue_{q}") for q in queues[i : i + 3]]
             rows.append(row)
-        rows.append([_btn("Назад", "back_to_region", E_BACK)])
+        rows.append([_btn("← Назад", "back_to_region")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     pages: dict[int, list[str]] = {1: STANDARD_QUEUES}
@@ -137,10 +137,10 @@ def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
 
     if page == 1:
         rows.append([_btn("Інші черги →", "queue_page_2")])
-        rows.append([_btn("Назад", "back_to_region", E_BACK)])
+        rows.append([_btn("← Назад", "back_to_region")])
     else:
         nav: list[InlineKeyboardButton] = []
-        nav.append(_btn("Назад", f"queue_page_{page - 1}", E_BACK))
+        nav.append(_btn("← Назад", f"queue_page_{page - 1}"))
         if page < total_pages:
             nav.append(_btn("Далі →", f"queue_page_{page + 1}"))
         rows.append(nav)
@@ -152,7 +152,7 @@ def get_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("✓ Підтвердити", "confirm_setup")],
         [_btn("🔄 Змінити регіон", "back_to_region")],
-        [_btn("Меню", "back_to_main", E_MENU)],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -165,7 +165,7 @@ def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     if is_admin:
         rows.append([_btn("Адмін-панель", "settings_admin", E_ADMIN)])
     rows.append([_btn("Видалити мої дані", "settings_delete_data", E_DELETE_DATA)])
-    rows.append([_btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -174,7 +174,7 @@ def get_statistics_keyboard() -> InlineKeyboardMarkup:
         [_btn("⚡ Відключення за тиждень", "stats_week")],
         [_btn("📡 Статус пристрою", "stats_device")],
         [_btn("⚙️ Мої налаштування", "stats_settings")],
-        [_btn("Меню", "back_to_main", E_MENU)],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -188,7 +188,7 @@ def get_help_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
         row1,
         [_url_btn("📢 Новини", "https://t.me/Voltyk_news"), _url_btn("💬 Обговорення", "https://t.me/voltyk_chat")],
         [_btn("🏙 Запропонувати регіон", "region_request_start")],
-        [_btn("Меню", "back_to_main", E_MENU)],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -227,7 +227,7 @@ def _notif_keyboard(
         ],
         [_btn("⏱ Фактично за IP-адресою", f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
     ]
-    last_row = [_btn("Назад", back_cb, E_BACK)]
+    last_row = [_btn("← Назад", back_cb)]
     if done_cb:
         last_row.append(_btn("✓ Готово!", done_cb))
     rows.append(last_row)
@@ -272,7 +272,7 @@ def get_notification_main_keyboard(
     ]
     if has_channel:
         rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
-    rows.append([_btn("Назад", back_cb, E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", back_cb), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -290,7 +290,7 @@ def get_notification_reminders_keyboard(**kw) -> InlineKeyboardMarkup:
             _btn(f"30 хв {'✅' if kw.get('remind_30m', False) else ''}", "notif_time_30"),
             _btn(f"1 год {'✅' if kw.get('remind_1h', False) else ''}", "notif_time_60"),
         ],
-        [_btn("Назад", "notif_main", E_BACK)],
+        [_btn("← Назад", "notif_main")],
     ])
 
 
@@ -303,7 +303,7 @@ def get_notification_targets_keyboard(has_ip: bool = False) -> InlineKeyboardMar
         rows.append([_btn("⚡ Факт. стан (IP)  →", "notif_target_type_power")])
     else:
         rows.append([_btn("📡 Налаштувати IP моніторинг", "settings_ip")])
-    rows.append([_btn("Назад", "notif_main", E_BACK)])
+    rows.append([_btn("← Назад", "notif_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -315,7 +315,7 @@ def get_notification_target_select_keyboard(target_type: str, current_target: st
         [_btn(f"{_m('bot')}📱 В бот", f"notif_target_set_{target_type}_bot")],
         [_btn(f"{_m('channel')}📺 В канал", f"notif_target_set_{target_type}_channel")],
         [_btn(f"{_m('both')}📱📺 Обидва", f"notif_target_set_{target_type}_both")],
-        [_btn("Назад", "notif_targets", E_BACK)],
+        [_btn("← Назад", "notif_targets")],
     ])
 
 
@@ -323,7 +323,7 @@ def get_notification_select_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Сповіщення в боті", "notif_select_bot", E_BOT_NOTIF)],
         [_btn("Сповіщення для каналу", "notif_select_channel", E_CHANNEL)],
-        [_btn("Назад", "back_to_main", E_BACK)],
+        [_btn("← Назад", "back_to_main")],
     ])
 
 
@@ -331,7 +331,7 @@ def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
     kb = _notif_keyboard("ch_notif", kw.get("schedule", True), kw.get("fact_off", True),
                          kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
                          "notif_main")
-    kb.inline_keyboard[-1].append(_btn("Меню", "back_to_main", E_MENU))
+    kb.inline_keyboard[-1].append(_btn("⤴ Меню", "back_to_main"))
     return kb
 
 
@@ -356,7 +356,7 @@ def get_channel_menu_keyboard(
             else _btn("🔴 Вимкнути", "channel_disable"),
         ])
         rows.append([_btn("🔔 Сповіщення", "channel_notifications")])
-    rows.append([_btn("Назад", "back_to_settings", E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -379,8 +379,8 @@ def get_ip_management_keyboard() -> InlineKeyboardMarkup:
         ],
         [_btn("Перевірити пінг", "ip_ping_check", E_PING_CHECK)],
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -409,8 +409,8 @@ def get_ip_deleted_keyboard() -> InlineKeyboardMarkup:
     """Екран 4 — Після видалення IP."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -419,8 +419,8 @@ def get_ip_saved_keyboard() -> InlineKeyboardMarkup:
     """Екран 5 — Після збереження IP (legacy, backward compatibility)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -430,8 +430,8 @@ def get_ip_saved_success_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Налаштування IP", "settings_ip", E_IP_SETTINGS)],
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -441,8 +441,8 @@ def get_ip_saved_fail_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -452,8 +452,8 @@ def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Налаштування IP", "settings_ip", E_IP_SETTINGS)],
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -463,8 +463,8 @@ def get_ip_ping_fail_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
         [
-            _btn("Назад", "back_to_settings", E_BACK),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("← Назад", "back_to_settings"),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
@@ -487,14 +487,14 @@ def get_ip_support_admin_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             _btn("Відповісти", f"admin_ticket_reply_{ticket_id}", E_REPLY),
-            _btn("Меню", "back_to_main", E_MENU),
+            _btn("⤴ Меню", "back_to_main"),
         ],
     ])
 
 
 def get_ip_support_sent_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Меню", "back_to_main", E_MENU)],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -519,7 +519,7 @@ def get_cleanup_keyboard(auto_delete_commands: bool = False, auto_delete_bot_mes
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn(cmd, "cleanup_toggle_commands")],
         [_btn(msg, "cleanup_toggle_messages")],
-        [_btn("Назад", "back_to_settings", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -549,7 +549,7 @@ def get_format_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("📊 Графік відключень", "format_schedule_settings")],
         [_btn("⚡ Фактичний стан", "format_power_settings")],
-        [_btn("Назад", "settings_channel", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "settings_channel"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -560,7 +560,7 @@ def get_format_schedule_keyboard(delete_old: bool = False, picture_only: bool = 
         [_btn("📝 Налаштувати текст графіка", "format_schedule_text")],
         [_btn(f"{d} Видаляти старий графік", "format_toggle_delete")],
         [_btn(f"{p} Без тексту (тільки картинка)", "format_toggle_piconly")],
-        [_btn("Назад", "format_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "format_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -569,7 +569,7 @@ def get_format_power_keyboard() -> InlineKeyboardMarkup:
         [_btn('🔴 Повідомлення "Світло зникло"', "format_power_off")],
         [_btn('🟢 Повідомлення "Світло є"', "format_power_on")],
         [_btn("🔄 Скинути все до стандартних", "format_reset_all_power")],
-        [_btn("Назад", "format_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "format_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -579,7 +579,7 @@ def get_test_publication_keyboard() -> InlineKeyboardMarkup:
         [_btn("⚡ Фактичний стан (світло є)", "test_power_on")],
         [_btn("📴 Фактичний стан (світла немає)", "test_power_off")],
         [_btn("✏️ Своє повідомлення", "test_custom")],
-        [_btn("Назад", "settings_channel", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "settings_channel"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -597,7 +597,7 @@ def get_feedback_type_keyboard() -> InlineKeyboardMarkup:
         [_btn("🐛 Баг", "feedback_type_bug")],
         [_btn("💡 Ідея", "feedback_type_idea")],
         [_btn("💬 Інше", "feedback_type_other")],
-        [_btn("Назад", "back_to_main", E_BACK)],
+        [_btn("← Назад", "back_to_main")],
     ])
 
 
@@ -627,7 +627,7 @@ def get_admin_keyboard(open_tickets_count: int = 0) -> InlineKeyboardMarkup:
         [_btn(t, "admin_tickets"), _btn("📢 Розсилка", "admin_broadcast")],
         [_btn("⚙️ Налаштування", "admin_settings_menu"), _btn("📡 Роутер", "admin_router")],
         [_btn("🔧 Тех. роботи", "admin_maintenance"), _btn("📞 Підтримка", "admin_support")],
-        [_btn("Назад", "back_to_settings", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -635,7 +635,7 @@ def get_admin_analytics_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("📊 Загальна статистика", "admin_stats")],
         [_btn("📈 Ріст / Growth", "admin_growth")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -644,7 +644,7 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
         [_btn("💻 Система", "admin_system"), _btn("⏱ Інтервали", "admin_intervals")],
         [_btn("⏸ Debounce", "admin_debounce"), _btn("⏸️ Режим паузи", "admin_pause")],
         [_btn("🗑 Очистити базу", "admin_clear_db"), _btn("🔄 Перезапуск", "admin_restart")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -653,7 +653,7 @@ def get_maintenance_keyboard(enabled: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn(t, "maintenance_toggle")],
         [_btn("✏️ Змінити повідомлення", "maintenance_edit_message")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -661,7 +661,7 @@ def get_admin_intervals_keyboard(schedule_interval: int = 60, ip_interval: int =
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn(f"⏱ Графіки: {schedule_interval // 60} хв", "admin_interval_schedule")],
         [_btn(f"📡 IP: {ip_interval}", "admin_interval_ip")],
-        [_btn("Назад", "admin_settings_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -669,7 +669,7 @@ def get_schedule_interval_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("1 хв", "admin_schedule_1"), _btn("5 хв", "admin_schedule_5"),
          _btn("10 хв", "admin_schedule_10"), _btn("15 хв", "admin_schedule_15")],
-        [_btn("Назад", "admin_intervals", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -678,7 +678,7 @@ def get_ip_interval_keyboard() -> InlineKeyboardMarkup:
         [_btn("10 сек", "admin_ip_10"), _btn("30 сек", "admin_ip_30"),
          _btn("1 хв", "admin_ip_60"), _btn("2 хв", "admin_ip_120")],
         [_btn("🔄 Динамічний", "admin_ip_0")],
-        [_btn("Назад", "admin_intervals", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -692,7 +692,7 @@ def get_debounce_keyboard(current_value: int = 0) -> InlineKeyboardMarkup:
         [_btn(row0_text, "debounce_set_0")],
         [_d(1, "1 хв"), _d(2, "2 хв"), _d(3, "3 хв")],
         [_d(5, "5 хв"), _d(10, "10 хв"), _d(15, "15 хв")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -707,7 +707,7 @@ def get_pause_menu_keyboard(is_paused: bool = False) -> InlineKeyboardMarkup:
     if is_paused:
         rows.append([_btn("🏷 Тип паузи", "pause_type_select")])
     rows.append([_btn("📜 Лог паузи", "pause_log")])
-    rows.append([_btn("Назад", "admin_settings_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -718,7 +718,7 @@ def get_pause_type_keyboard(current_type: str = "update") -> InlineKeyboardMarku
     for text, t in types:
         mark = "✓ " if t == current_type else ""
         rows.append([_btn(f"{mark}{text}", f"pause_type_{t}")])
-    rows.append([_btn("Назад", "admin_pause", E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -732,7 +732,7 @@ def get_pause_message_keyboard(show_support_button: bool = False) -> InlineKeybo
         [_btn("🚧 Технічні роботи. Дякуємо за розуміння.", "pause_template_5")],
         [_btn("✏️ Свій текст...", "pause_custom_message")],
         [_btn(f'{s} Показувати кнопку "Обговорення/Підтримка"', "pause_toggle_support")],
-        [_btn("Назад", "admin_pause", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -742,7 +742,7 @@ def get_growth_keyboard() -> InlineKeyboardMarkup:
         [_btn("🎯 Етап росту", "growth_stage")],
         [_btn("🔐 Реєстрація", "growth_registration")],
         [_btn("📝 Події", "growth_events")],
-        [_btn("Назад", "admin_analytics", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_analytics"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -754,7 +754,7 @@ def get_growth_stage_keyboard(current_stage: int = 0) -> InlineKeyboardMarkup:
     for text, s in stages:
         mark = "✓ " if s == current_stage else ""
         rows.append([_btn(f"{mark}{text}", f"growth_stage_{s}")])
-    rows.append([_btn("Назад", "admin_growth", E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", "admin_growth"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -764,7 +764,7 @@ def get_growth_registration_keyboard(enabled: bool = True) -> InlineKeyboardMark
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn(st, "growth_reg_status")],
         [_btn(tg, "growth_reg_toggle")],
-        [_btn("Назад", "admin_growth", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_growth"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -779,7 +779,7 @@ def get_users_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("📊 Статистика користувачів", "admin_users_stats")],
         [_btn("📋 Список користувачів", "admin_users_list_1")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -789,7 +789,7 @@ def get_admin_ticket_keyboard(ticket_id: int, status: str = "open") -> InlineKey
         rows.append([_btn("✅ Закрити", f"admin_ticket_close_{ticket_id}")])
     else:
         rows.append([_btn("🔄 Відкрити знову", f"admin_ticket_reopen_{ticket_id}")])
-    rows.append([_btn("Назад до списку", "admin_tickets", E_BACK)])
+    rows.append([_btn("← Назад до списку", "admin_tickets")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -805,13 +805,13 @@ def get_admin_tickets_list_keyboard(tickets: list, page: int = 1, per_page: int 
         rows.append([_btn(text, f"admin_ticket_view_{t.id}")])
     nav: list[InlineKeyboardButton] = []
     if page > 1:
-        nav.append(_btn("Попередня", f"admin_tickets_page_{page - 1}", E_BACK))
+        nav.append(_btn("Попередня", f"admin_tickets_page_{page - 1}"))
     total_pages = max(1, (len(tickets) + per_page - 1) // per_page)
     if page < total_pages:
         nav.append(_btn("Наступна →", f"admin_tickets_page_{page + 1}"))
     if nav:
         rows.append(nav)
-    rows.append([_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)])
+    rows.append([_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -819,13 +819,13 @@ def get_admin_router_keyboard(has_ip: bool = False, notifications_on: bool = Tru
     if not has_ip:
         return InlineKeyboardMarkup(inline_keyboard=[
             [_btn("✏️ Налаштувати IP", "admin_router_set_ip")],
-            [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+            [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
         ])
     n = "✓ Сповіщення" if notifications_on else "✗ Сповіщення"
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("✏️ Змінити IP", "admin_router_set_ip"), _btn(n, "admin_router_toggle_notify")],
         [_btn("📊 Статистика", "admin_router_stats"), _btn("🔄 Оновити", "admin_router_refresh")],
-        [_btn("Назад", "admin_menu", E_BACK), _btn("Меню", "back_to_main", E_MENU)],
+        [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -836,6 +836,6 @@ def get_admin_support_keyboard(current_mode: str = "bot", support_url: str | Non
         [_btn(f"{cm} Через канал (листування)", "admin_support_channel")],
         [_btn(f"{bm} Через бот (тікети)", "admin_support_bot")],
         [_btn("✏️ Змінити посилання", "admin_support_edit_url")],
-        [_btn("Назад", "admin_menu", E_BACK)],
+        [_btn("← Назад", "admin_menu")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
