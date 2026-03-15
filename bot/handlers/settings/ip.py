@@ -63,8 +63,8 @@ _INSTRUCTION_TEXT = (
     '<a href="https://xn----7sba7aachdbqfnhtigrl.xn--j1amh/nastrojka-mikrotik-cloud-sobstvennyj-ddns/">MikroTik</a> · '
     '<a href="https://www.hardreset.info/ru/devices/xiaomi/xiaomi-mi-router-4a/nastroyki-dns/">Xiaomi</a>\n\n'
     "Приклади вводу:\n"
-    "89.267.32.1\n"
-    "89.267.32.1:80\n"
+    "192.168.1.1\n"
+    "192.168.1.1:80\n"
     "myhome.ddns.net\n\n"
     "Введіть вашу IP-адресу або DDNS:"
 )

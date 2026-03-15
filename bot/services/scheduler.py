@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+import time as _time
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
@@ -138,7 +139,6 @@ async def schedule_checker_loop(bot: Bot) -> None:
             logger.error("Schedule check error: %s", e)
 
         # Hourly admin ticket reminder check
-        import time as _time
         now_t = _time.monotonic()
         if now_t - last_reminder_check_at >= reminder_interval_s:
             try:
@@ -654,8 +654,7 @@ async def _send_admin_ticket_reminders(bot: Bot) -> None:
             last_msg = ticket.messages[-1] if ticket.messages else None
             msg_text = last_msg.content if last_msg else "(без тексту)"
 
-            from datetime import datetime as _dt
-            now_str = _dt.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+            now_str = datetime.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
             admin_text = (
                 f"🔔 Нагадування: відкрите звернення #{ticket.id}\n\n"
                 f"📅 Дата: {now_str}\n"
@@ -671,13 +670,11 @@ async def _send_admin_ticket_reminders(bot: Bot) -> None:
                 async with async_session() as session:
                     from sqlalchemy import update as sa_update
                     from bot.db.models import AdminTicketReminder
-                    from datetime import datetime as _dt2
-                    from datetime import timezone
 
                     await session.execute(
                         sa_update(AdminTicketReminder)
                         .where(AdminTicketReminder.id == reminder.id)
-                        .values(last_reminder_at=_dt2.now(timezone.utc))
+                        .values(last_reminder_at=datetime.now(timezone.utc))
                     )
                     await session.commit()
                 logger.info(
