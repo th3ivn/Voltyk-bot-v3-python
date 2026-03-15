@@ -833,11 +833,7 @@ async def power_monitor_loop(bot: Bot) -> None:
             await _save_all_user_states()
             last_save_at = now_t
 
-        # Daily ping-error alerts (runs every cycle; function checks 24h internally)
-        try:
-            await _send_daily_ping_error_alerts(bot)
-        except Exception as e:
-            logger.error("Error in daily ping error alerts: %s", e)
+
 
 
 def stop_power_monitor() -> None:
@@ -852,6 +848,22 @@ def stop_power_monitor() -> None:
 
 
 # ─── Daily ping-error alerts ──────────────────────────────────────────────
+
+
+async def daily_ping_error_loop(bot: Bot) -> None:
+    """Щодня надсилає повідомлення про помилку пінгу користувачам де пінг не проходить."""
+    global _running
+    while _running:
+        try:
+            await asyncio.sleep(3600)
+            if not _running:
+                break
+            await _send_daily_ping_error_alerts(bot)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("daily_ping_error_loop error: %s", e)
+            await asyncio.sleep(60)
 
 
 async def _send_daily_ping_error_alerts(bot: Bot) -> None:
