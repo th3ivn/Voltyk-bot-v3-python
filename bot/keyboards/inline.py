@@ -416,7 +416,7 @@ def get_ip_deleted_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_ip_saved_keyboard() -> InlineKeyboardMarkup:
-    """Екран 5 — Після збереження IP."""
+    """Екран 5 — Після збереження IP (legacy, backward compatibility)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             _btn("Назад", "back_to_settings", E_BACK),
@@ -425,9 +425,43 @@ def get_ip_saved_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
-    """Екран 6 — Після перевірки пінгу."""
+def get_ip_saved_success_keyboard() -> InlineKeyboardMarkup:
+    """Екран 5 — Після збереження IP, пінг успішний."""
     return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Налаштування IP", "settings_ip", E_IP_SETTINGS)],
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_saved_fail_keyboard() -> InlineKeyboardMarkup:
+    """Екран 5 — Після збереження IP, пінг не пройшов."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
+    """Екран 6 — Після перевірки пінгу (успіх)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Налаштування IP", "settings_ip", E_IP_SETTINGS)],
+        [
+            _btn("Назад", "back_to_settings", E_BACK),
+            _btn("Меню", "back_to_main", E_MENU),
+        ],
+    ])
+
+
+def get_ip_ping_fail_keyboard() -> InlineKeyboardMarkup:
+    """Екран 6 — Після перевірки пінгу (невдача)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
         [
             _btn("Назад", "back_to_settings", E_BACK),
             _btn("Меню", "back_to_main", E_MENU),

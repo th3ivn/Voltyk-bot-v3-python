@@ -26,8 +26,11 @@ from bot.keyboards.inline import (
     get_ip_management_keyboard,
     get_ip_monitoring_keyboard_no_ip,
     get_ip_ping_error_keyboard,
+    get_ip_ping_fail_keyboard,
     get_ip_ping_result_keyboard,
+    get_ip_saved_fail_keyboard,
     get_ip_saved_keyboard,
+    get_ip_saved_success_keyboard,
     get_ip_support_admin_keyboard,
     get_ip_support_cancel_keyboard,
     get_ip_support_sent_keyboard,
@@ -311,19 +314,13 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     from bot.services.power_monitor import _check_router_http
     is_alive = await _check_router_http(router_ip)
 
-    new_state = "on" if is_alive else "off"
-    try:
-        if user.power_tracking:
-            user.power_tracking.power_state = new_state
-            await session.commit()
-    except Exception as e:
-        logger.warning("ip_ping_check: could not update power state for user %s to %s: %s", user.telegram_id, new_state, e)
-
     if is_alive:
         result_text = '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Пінг пройшов успішно'
+        keyboard = get_ip_ping_result_keyboard()
     else:
         result_text = '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> Пінг не пройшов'
-    await _safe_edit(callback.message, result_text, reply_markup=get_ip_ping_result_keyboard())
+        keyboard = get_ip_ping_fail_keyboard()
+    await _safe_edit(callback.message, result_text, reply_markup=keyboard)
 
 
 # ─── IP input handler (Screen 5) ──────────────────────────────────────────
@@ -346,7 +343,6 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
         await session.flush()
 
     status_msg = await message.answer(
-        '<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> '
         'Перевіряю IP-адресу <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>',
         parse_mode="HTML",
     )
@@ -372,8 +368,9 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
                 pass
 
     await state.clear()
+    keyboard = get_ip_saved_success_keyboard() if is_alive else get_ip_saved_fail_keyboard()
     await status_msg.edit_text(
-        result_text, reply_markup=get_ip_saved_keyboard(), parse_mode="HTML"
+        result_text, reply_markup=keyboard, parse_mode="HTML"
     )
 
 
