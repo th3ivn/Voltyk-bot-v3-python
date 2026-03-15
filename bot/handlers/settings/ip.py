@@ -74,16 +74,25 @@ _INSTRUCTION_TEXT = (
 
 
 async def _safe_edit(message, text: str, **kwargs) -> None:
-    """Edit message with tg-emoji fallback."""
+    """Edit message with tg-emoji fallback and keyboard fallback."""
     try:
         await message.edit_text(text, parse_mode="HTML", **kwargs)
-    except Exception:
+    except Exception as first_err:
+        logger.warning("_safe_edit first attempt failed: %s", first_err)
         clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', text)
         try:
             await message.edit_text(clean, parse_mode="HTML", **kwargs)
-        except Exception as e:
-            logger.error("_safe_edit failed: %s", e)
-            await message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+        except Exception as second_err:
+            logger.warning("_safe_edit second attempt failed: %s", second_err)
+            # Third fallback: strip reply_markup in case keyboard is causing the error
+            try:
+                await message.edit_text(clean, parse_mode="HTML")
+            except Exception as third_err:
+                logger.error("_safe_edit all attempts failed: %s", third_err)
+                try:
+                    await message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+                except Exception as final_err:
+                    logger.error("_safe_edit could not notify user: %s", final_err)
 
 
 async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None:

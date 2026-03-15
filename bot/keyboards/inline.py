@@ -56,11 +56,11 @@ def _btn(
     style: str | None = None,
     **kwargs,
 ) -> InlineKeyboardButton:
+    # `icon_custom_emoji_id` requires Telegram Premium custom emoji access and
+    # causes Bad Request errors when the bot lacks that access.
+    # `style` is not a valid InlineKeyboardButton parameter in aiogram.
+    # Both are intentionally ignored to keep buttons always working.
     params: dict = {"text": text, "callback_data": callback_data, **kwargs}
-    if emoji_id:
-        params["icon_custom_emoji_id"] = emoji_id
-    if style:
-        params["style"] = style
     return InlineKeyboardButton(**params)
 
 
