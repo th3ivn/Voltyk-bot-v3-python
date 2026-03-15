@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time as _time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -128,24 +127,12 @@ async def schedule_checker_loop(bot: Bot) -> None:
     _running = True
     logger.info("Schedule checker started")
 
-    last_reminder_check_at: float = 0.0
-    reminder_interval_s = 3600.0  # Check reminders once per hour
-
     while _running:
         interval = await _get_schedule_interval()
         try:
             await _check_all_schedules(bot, interval)
         except Exception as e:
             logger.error("Schedule check error: %s", e)
-
-        # Hourly admin ticket reminder check
-        now_t = _time.monotonic()
-        if now_t - last_reminder_check_at >= reminder_interval_s:
-            try:
-                await _send_admin_ticket_reminders(bot)
-            except Exception as e:
-                logger.error("Admin reminder check error: %s", e)
-            last_reminder_check_at = _time.monotonic()
 
         logger.debug("Next schedule check in %ds", interval)
         await asyncio.sleep(interval)
@@ -611,6 +598,21 @@ def stop_scheduler() -> None:
 
 
 # ─── Admin ticket reminders ───────────────────────────────────────────────
+
+
+async def admin_ticket_reminder_loop(bot: Bot) -> None:
+    """Щодня нагадує адміну про непрочитані звернення (якщо не відповів за 24 год)."""
+    while _running:
+        try:
+            await asyncio.sleep(3600)
+            if not _running:
+                break
+            await _send_admin_ticket_reminders(bot)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("admin_ticket_reminder_loop error: %s", e)
+            await asyncio.sleep(60)
 
 
 async def _send_admin_ticket_reminders(bot: Bot) -> None:
