@@ -2,10 +2,12 @@ from bot.db.base import Base
 from bot.db.models import (
     AdminRouter,
     AdminRouterHistory,
+    AdminTicketReminder,
     OutageHistory,
     PauseLog,
     PendingChannel,
     PendingNotification,
+    PingErrorAlert,
     PowerHistory,
     ScheduleCheck,
     ScheduleDailySnapshot,
@@ -49,4 +51,6 @@ __all__ = [
     "AdminRouter",
     "AdminRouterHistory",
     "UserPowerState",
+    "PingErrorAlert",
+    "AdminTicketReminder",
 ]

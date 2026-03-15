@@ -12,6 +12,7 @@ from bot.db.queries import (
     get_all_tickets,
     get_ticket_by_id,
     reopen_ticket,
+    resolve_admin_ticket_reminder,
 )
 from bot.keyboards.inline import get_admin_ticket_keyboard, get_admin_tickets_list_keyboard
 from bot.states.fsm import AdminTicketReplySG
@@ -110,6 +111,7 @@ async def admin_ticket_reply_input(message: Message, state: FSMContext, session:
     await add_ticket_message(
         session, ticket_id, "admin", message.from_user.id, content=message.text.strip()
     )
+    await resolve_admin_ticket_reminder(session, ticket_id)
     await state.clear()
 
     try:
