@@ -366,7 +366,7 @@ def get_channel_menu_keyboard(
 def get_ip_monitoring_keyboard_no_ip() -> InlineKeyboardMarkup:
     """Екран 1А — IP не підключено: кнопка Скасувати (червона)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Скасувати", "ip_cancel_to_settings", style="destructive")],
+        [_btn("Скасувати", "ip_cancel_to_settings", style="danger")],
     ])
 
 
@@ -389,8 +389,8 @@ def get_ip_change_confirm_keyboard() -> InlineKeyboardMarkup:
     """Екран 2 — Підтвердження зміни IP."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Так", "ip_change_confirm", style="positive"),
-            _btn("Скасувати", "ip_cancel_to_management", style="destructive"),
+            _btn("Так", "ip_change_confirm", style="primary"),
+            _btn("Скасувати", "ip_cancel_to_management", style="danger"),
         ],
     ])
 
@@ -399,8 +399,8 @@ def get_ip_delete_confirm_keyboard() -> InlineKeyboardMarkup:
     """Екран 3 — Підтвердження видалення IP."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Видалити", "ip_delete_execute", style="destructive"),
-            _btn("Скасувати", "ip_cancel_to_management", style="positive"),
+            _btn("Видалити", "ip_delete_execute", style="danger"),
+            _btn("Скасувати", "ip_cancel_to_management", style="primary"),
         ],
     ])
 
@@ -445,7 +445,7 @@ def get_ip_ping_error_keyboard() -> InlineKeyboardMarkup:
 def get_ip_support_cancel_keyboard() -> InlineKeyboardMarkup:
     """Під повідомленням 'Служба підтримки' — червона кнопка Скасувати дію."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Скасувати дію", "ip_support_cancel", style="destructive")],
+        [_btn("Скасувати дію", "ip_support_cancel", style="danger")],
     ])
 
 
