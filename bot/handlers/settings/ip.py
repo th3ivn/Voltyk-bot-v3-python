@@ -149,15 +149,15 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {router_ip}'
         f'{status_line}'
     )
-    # Edit text AND preserve the existing keyboard by passing reply_markup=callback.message.reply_markup
-    existing_keyboard = callback.message.reply_markup
+    # Step 3: Update text AND keep the keyboard
+    keyboard = get_ip_management_keyboard()
     try:
-        await callback.message.edit_text(result_text, parse_mode="HTML", reply_markup=existing_keyboard)
+        await callback.message.edit_text(result_text, parse_mode="HTML", reply_markup=keyboard)
     except Exception as e:
         logger.warning("_show_management_screen: could not update status text: %s", e)
         clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', result_text)
         try:
-            await callback.message.edit_text(clean, parse_mode="HTML", reply_markup=existing_keyboard)
+            await callback.message.edit_text(clean, parse_mode="HTML", reply_markup=keyboard)
         except Exception as e2:
             logger.warning("_show_management_screen: fallback also failed: %s", e2)
 
