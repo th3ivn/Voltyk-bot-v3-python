@@ -366,7 +366,7 @@ def get_channel_menu_keyboard(
 def get_ip_monitoring_keyboard_no_ip() -> InlineKeyboardMarkup:
     """Екран 1А — IP не підключено: кнопка Скасувати (червона)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Скасувати", "ip_cancel", style="destructive")],
+        [_btn("Скасувати", "ip_cancel_to_settings", style="destructive")],
     ])
 
 
@@ -374,7 +374,7 @@ def get_ip_management_keyboard() -> InlineKeyboardMarkup:
     """Екран 1Б — IP підключено: кнопки керування."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Змінити IP", "ip_change_confirm", E_CHANGE_IP),
+            _btn("Змінити IP", "ip_change", E_CHANGE_IP),
             _btn("Видалити IP", "ip_delete_confirm", E_DELETE_IP),
         ],
         [_btn("Перевірити пінг", "ip_ping_check", E_PING_CHECK)],
@@ -389,8 +389,8 @@ def get_ip_change_confirm_keyboard() -> InlineKeyboardMarkup:
     """Екран 2 — Підтвердження зміни IP."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Так", "ip_change_do", style="positive"),
-            _btn("Скасувати", "ip_cancel_to_management", style="destructive"),
+            _btn("Так", "ip_change_confirm", style="positive"),
+            _btn("Скасувати", "settings_ip", style="destructive"),
         ],
     ])
 
@@ -399,8 +399,8 @@ def get_ip_delete_confirm_keyboard() -> InlineKeyboardMarkup:
     """Екран 3 — Підтвердження видалення IP."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            _btn("Видалити", "ip_delete_do", style="destructive"),
-            _btn("Скасувати", "ip_cancel_to_management", style="positive"),
+            _btn("Видалити", "ip_delete_execute", style="destructive"),
+            _btn("Скасувати", "settings_ip", style="positive"),
         ],
     ])
 
@@ -438,7 +438,7 @@ def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
 def get_ip_ping_error_keyboard() -> InlineKeyboardMarkup:
     """Щоденне повідомлення про помилку пінгу — кнопка Підтримка."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Підтримка", "ip_ping_support", E_SUPPORT)],
+        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
     ])
 
 
