@@ -314,6 +314,15 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     await _safe_edit(callback.message, loading_text)
     from bot.services.power_monitor import _check_router_http
     is_alive = await _check_router_http(router_ip)
+
+    new_state = "on" if is_alive else "off"
+    try:
+        if user.power_tracking:
+            user.power_tracking.power_state = new_state
+            await session.commit()
+    except Exception as e:
+        logger.warning("ip_ping_check: could not update power state for user %s to %s: %s", user.telegram_id, new_state, e)
+
     if is_alive:
         result_text = '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Пінг пройшов успішно'
     else:
