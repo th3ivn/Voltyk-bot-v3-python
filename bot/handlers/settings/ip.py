@@ -16,7 +16,6 @@ from bot.db.queries import (
     create_ticket,
     deactivate_ping_error_alert,
     get_user_by_telegram_id,
-    get_user_power_state,
     upsert_ping_error_alert,
 )
 from bot.db.session import async_session as _async_session
@@ -111,7 +110,13 @@ async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None
 
 
 async def _show_management_screen(callback: CallbackQuery, session: AsyncSession) -> None:
-    """Helper: show IP management screen (Екран 1Б)."""
+    """Helper: show IP management screen (Екран 1Б).
+
+    Immediately shows the screen with "Перевіряю..." status and keyboard,
+    then performs a fresh ping and updates only the text (not the keyboard).
+    """
+    from bot.services.power_monitor import _check_router_http
+
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
@@ -120,26 +125,40 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         await callback.message.edit_text("❌ IP-адреса не налаштована.")
         return
 
-    # Read current_state from user_power_states — updated by the auto-monitor cycle
-    power_state_row = await get_user_power_state(session, callback.from_user.id)
-    current_state = power_state_row.current_state if power_state_row else None
+    router_ip = user.router_ip
 
-    if current_state == "on":
-        status_line = (
-            '\nСтатус: <tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> Онлайн'
-        )
-    elif current_state == "off":
-        status_line = (
-            '\nСтатус: <tg-emoji emoji-id="5312380297495484470">🔴</tg-emoji> Офлайн'
-        )
-    else:
-        status_line = ""
-    text = (
+    # Step 1: Show immediately with "Перевіряю..." status + keyboard (no wait for ping)
+    loading_text = (
         '<tg-emoji emoji-id="5312532335042794821">⚙️</tg-emoji> IP моніторинг\n\n'
-        f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {user.router_ip}'
-        f"{status_line}"
+        f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {router_ip}'
+        f'\nСтатус: Перевіряю <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>'
     )
-    await _safe_edit(callback.message, text, reply_markup=get_ip_management_keyboard())
+    await _safe_edit(callback.message, loading_text, reply_markup=get_ip_management_keyboard())
+
+    # Step 2: Perform a fresh ping
+    is_alive = await _check_router_http(router_ip)
+
+    # Step 3: Update only the text (edit_text WITHOUT reply_markup to preserve keyboard)
+    if is_alive:
+        status_line = '\nСтатус: <tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> Онлайн'
+    else:
+        status_line = '\nСтатус: <tg-emoji emoji-id="5312380297495484470">🔴</tg-emoji> Офлайн'
+
+    result_text = (
+        '<tg-emoji emoji-id="5312532335042794821">⚙️</tg-emoji> IP моніторинг\n\n'
+        f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {router_ip}'
+        f'{status_line}'
+    )
+    # Edit only text, not reply_markup — keyboard stays unchanged
+    try:
+        await callback.message.edit_text(result_text, parse_mode="HTML")
+    except Exception as e:
+        logger.warning("_show_management_screen: could not update status text: %s", e)
+        clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', result_text)
+        try:
+            await callback.message.edit_text(clean, parse_mode="HTML")
+        except Exception as e2:
+            logger.warning("_show_management_screen: fallback also failed: %s", e2)
 
 
 async def _show_input_screen(callback: CallbackQuery, state: FSMContext) -> None:
@@ -314,7 +333,7 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     loading_text = (
         '<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP-моніторинг\n'
         f"{router_ip}\n"
-        'Перевіряю <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>'
+        'Перевіряю <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>'
     )
     await _safe_edit(callback.message, loading_text)
     from bot.services.power_monitor import _check_router_http
@@ -349,7 +368,7 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
         await session.flush()
 
     status_msg = await message.answer(
-        'Перевіряю IP-адресу <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>',
+        'Перевіряю IP-адресу <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>',
         parse_mode="HTML",
     )
 
