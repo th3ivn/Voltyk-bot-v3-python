@@ -282,6 +282,12 @@ async def _handle_power_state_change(
                 else:
                     schedule_text = f"\n🗓 Наступне планове: <b>{start_str}</b>"
 
+        # ── Determine power_message_type ──────────────────────────────
+        if new_state == "off":
+            power_msg_type = "off_scheduled" if is_scheduled_outage else "off_unscheduled"
+        else:
+            power_msg_type = "on_with_next" if (next_event and next_event["type"] == "power_off") else "on_no_next"
+
         # ── Build message text ────────────────────────────────────────
         if new_state == "off":
             message = f"🔴 <b>{time_str} Світло зникло</b>\n"
@@ -320,6 +326,8 @@ async def _handle_power_state_change(
                                     db_user.power_tracking.alert_off_message_id = sent.message_id
                                 else:
                                     db_user.power_tracking.alert_on_message_id = sent.message_id
+                                db_user.power_tracking.bot_power_message_id = sent.message_id
+                                db_user.power_tracking.power_message_type = power_msg_type
                                 await session.commit()
                     except Exception as e:
                         logger.warning("Could not save alert message_id for user %s: %s", telegram_id, e)
@@ -358,6 +366,9 @@ async def _handle_power_state_change(
                                 db_user = r.scalars().first()
                                 if db_user and db_user.channel_config:
                                     db_user.channel_config.last_power_message_id = ch_sent.message_id
+                                if db_user and db_user.power_tracking:
+                                    db_user.power_tracking.ch_power_message_id = ch_sent.message_id
+                                if db_user:
                                     await session.commit()
                         except Exception as e:
                             logger.warning(
@@ -972,11 +983,14 @@ async def update_power_notifications_on_schedule_change(
             continue
 
         current_state = pt.power_state
-        if current_state == "off":
-            bot_msg_id = pt.alert_off_message_id
-        elif current_state == "on":
-            bot_msg_id = pt.alert_on_message_id
-        else:
+        # Prefer the new consolidated field; fall back to per-state legacy fields
+        bot_msg_id = pt.bot_power_message_id
+        if bot_msg_id is None:
+            if current_state == "off":
+                bot_msg_id = pt.alert_off_message_id
+            elif current_state == "on":
+                bot_msg_id = pt.alert_on_message_id
+        if current_state not in ("off", "on"):
             continue
 
         if next_event and next_event["type"] == "power_off" and current_state == "on":
@@ -1032,6 +1046,7 @@ async def update_power_notifications_on_schedule_change(
                                     db_user.power_tracking.alert_off_message_id = None
                                 else:
                                     db_user.power_tracking.alert_on_message_id = None
+                                db_user.power_tracking.bot_power_message_id = None
                                 await session.commit()
                     except Exception:
                         pass
@@ -1042,7 +1057,9 @@ async def update_power_notifications_on_schedule_change(
             except Exception as e:
                 logger.debug("Error updating power message for user %s: %s", telegram_id, e)
 
-        if cc and cc.channel_id and cc.last_power_message_id and new_schedule_line is not None:
+        ch_msg_id = (pt.ch_power_message_id if pt.ch_power_message_id is not None
+                     else (cc.last_power_message_id if cc else None))
+        if cc and cc.channel_id and ch_msg_id and new_schedule_line is not None:
             try:
                 ch_id: int | str
                 try:
@@ -1067,7 +1084,7 @@ async def update_power_notifications_on_schedule_change(
                 await bot.edit_message_text(
                     text=base_ch,
                     chat_id=ch_id,
-                    message_id=cc.last_power_message_id,
+                    message_id=ch_msg_id,
                     parse_mode="HTML",
                 )
             except TelegramBadRequest as e:
@@ -1082,7 +1099,9 @@ async def update_power_notifications_on_schedule_change(
                             db_user = r.scalars().first()
                             if db_user and db_user.channel_config:
                                 db_user.channel_config.last_power_message_id = None
-                                await session.commit()
+                            if db_user and db_user.power_tracking:
+                                db_user.power_tracking.ch_power_message_id = None
+                            await session.commit()
                     except Exception:
                         pass
                 else:

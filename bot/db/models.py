@@ -149,6 +149,11 @@ class UserPowerTracking(Base):
     alert_off_message_id: Mapped[int | None] = mapped_column(Integer)
     alert_on_message_id: Mapped[int | None] = mapped_column(Integer)
 
+    last_ping_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    bot_power_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    ch_power_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    power_message_type: Mapped[str | None] = mapped_column(String(16))
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user: Mapped[User] = relationship(back_populates="power_tracking")

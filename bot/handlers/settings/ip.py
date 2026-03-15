@@ -138,8 +138,8 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
 # ─── Screen 2 — Change confirm ────────────────────────────────────────────
 
 
-@router.callback_query(F.data == "ip_change_confirm")
-async def ip_change_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
+@router.callback_query(F.data == "ip_change")
+async def ip_change(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
@@ -152,6 +152,12 @@ async def ip_change_confirm(callback: CallbackQuery, session: AsyncSession) -> N
     await callback.message.edit_text(
         text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "ip_change_confirm")
+async def ip_change_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _show_input_screen(callback, state)
 
 
 # ─── Screen 3 — Delete confirm ────────────────────────────────────────────
@@ -176,8 +182,8 @@ async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> N
 # ─── Screen 4 — After delete ──────────────────────────────────────────────
 
 
-@router.callback_query(F.data == "ip_delete_do")
-async def ip_delete_do(callback: CallbackQuery, session: AsyncSession) -> None:
+@router.callback_query(F.data == "ip_delete_execute")
+async def ip_delete_execute(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if user:
@@ -196,7 +202,12 @@ async def ip_delete_do(callback: CallbackQuery, session: AsyncSession) -> None:
     )
 
 
-# ─── ip_change_do — go to input screen ────────────────────────────────────
+# ─── Legacy aliases (backward compat) ────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_delete_do")
+async def ip_delete_do(callback: CallbackQuery, session: AsyncSession) -> None:
+    await ip_delete_execute(callback, session)
 
 
 @router.callback_query(F.data == "ip_change_do")
@@ -205,7 +216,19 @@ async def ip_change_do(callback: CallbackQuery, state: FSMContext) -> None:
     await _show_input_screen(callback, state)
 
 
-# ─── ip_cancel — return to settings ──────────────────────────────────────
+# ─── ip_cancel_to_settings — return to settings ───────────────────────────
+
+
+@router.callback_query(F.data == "ip_cancel_to_settings")
+async def ip_cancel_to_settings(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+) -> None:
+    await callback.answer()
+    await state.clear()
+    await _show_settings(callback, session)
+
+
+# ─── ip_cancel — legacy alias ────────────────────────────────────────────
 
 
 @router.callback_query(F.data == "ip_cancel")
@@ -302,11 +325,11 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
     )
 
 
-# ─── ip_ping_support — Support ticket flow ───────────────────────────────
+# ─── ip_ping_error_support — Support ticket flow ─────────────────────────
 
 
-@router.callback_query(F.data == "ip_ping_support")
-async def ip_ping_support(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == "ip_ping_error_support")
+async def ip_ping_error_support(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     text = (
         '<tg-emoji emoji-id="5310296757320586255">💬</tg-emoji> Служба підтримки\n\n'
@@ -317,6 +340,14 @@ async def ip_ping_support(callback: CallbackQuery, state: FSMContext) -> None:
         text, reply_markup=get_ip_support_cancel_keyboard(), parse_mode="HTML"
     )
     await state.set_state(IpSupportSG.waiting_for_message)
+
+
+# ─── ip_ping_support — legacy alias ──────────────────────────────────────
+
+
+@router.callback_query(F.data == "ip_ping_support")
+async def ip_ping_support(callback: CallbackQuery, state: FSMContext) -> None:
+    await ip_ping_error_support(callback, state)
 
 
 @router.message(IpSupportSG.waiting_for_message)
