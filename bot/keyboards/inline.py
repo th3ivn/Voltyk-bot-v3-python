@@ -390,7 +390,7 @@ def get_ip_change_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             _btn("Так", "ip_change_confirm", style="positive"),
-            _btn("Скасувати", "settings_ip", style="destructive"),
+            _btn("Скасувати", "ip_cancel_to_management", style="destructive"),
         ],
     ])
 
@@ -400,7 +400,7 @@ def get_ip_delete_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             _btn("Видалити", "ip_delete_execute", style="destructive"),
-            _btn("Скасувати", "settings_ip", style="positive"),
+            _btn("Скасувати", "ip_cancel_to_management", style="positive"),
         ],
     ])
 
