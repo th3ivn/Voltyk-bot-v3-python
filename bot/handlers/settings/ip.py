@@ -16,6 +16,7 @@ from bot.db.queries import (
     create_ticket,
     deactivate_ping_error_alert,
     get_user_by_telegram_id,
+    get_user_power_state,
     upsert_ping_error_alert,
 )
 from bot.db.session import async_session as _async_session
@@ -118,11 +119,16 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
     if not user.router_ip:
         await callback.message.edit_text("❌ IP-адреса не налаштована.")
         return
-    if user.power_tracking and user.power_tracking.power_state == "on":
+
+    # Read current_state from user_power_states — updated by the auto-monitor cycle
+    power_state_row = await get_user_power_state(session, callback.from_user.id)
+    current_state = power_state_row.current_state if power_state_row else None
+
+    if current_state == "on":
         status_line = (
             '\nСтатус: <tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> Онлайн'
         )
-    elif user.power_tracking and user.power_tracking.power_state == "off":
+    elif current_state == "off":
         status_line = (
             '\nСтатус: <tg-emoji emoji-id="5312380297495484470">🔴</tg-emoji> Офлайн'
         )

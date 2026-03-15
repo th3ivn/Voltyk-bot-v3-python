@@ -508,6 +508,14 @@ async def upsert_user_power_state(
     await session.execute(stmt)
 
 
+async def get_user_power_state(
+    session: AsyncSession, telegram_id: int | str
+) -> UserPowerState | None:
+    """Return the UserPowerState row for a given telegram_id, or None."""
+    tid = str(telegram_id)
+    return await session.scalar(select(UserPowerState).where(UserPowerState.telegram_id == tid))
+
+
 async def get_recent_user_power_states(
     session: AsyncSession,
 ) -> list[UserPowerState]:
