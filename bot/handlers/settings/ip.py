@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -34,10 +35,12 @@ from bot.keyboards.inline import (
 )
 from bot.states.fsm import IpSetupSG, IpSupportSG
 from bot.utils.helpers import is_valid_ip_or_domain
+from bot.utils.logger import get_logger
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 router = Router(name="settings_ip")
+logger = get_logger(__name__)
 
 _INSTRUCTION_TEXT = (
     '<tg-emoji emoji-id="5312532335042794821">⚙️</tg-emoji> Налаштування моніторингу світла\n\n'
@@ -70,24 +73,42 @@ _INSTRUCTION_TEXT = (
 )
 
 
+async def _safe_edit(message, text: str, **kwargs) -> None:
+    """Edit message with tg-emoji fallback."""
+    try:
+        await message.edit_text(text, parse_mode="HTML", **kwargs)
+    except Exception:
+        clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', text)
+        try:
+            await message.edit_text(clean, parse_mode="HTML", **kwargs)
+        except Exception as e:
+            logger.error("_safe_edit failed: %s", e)
+            await message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+
+
 async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None:
     """Helper: show main settings screen (replicates back_to_settings logic)."""
     from bot.formatter.messages import format_live_status_message
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     is_admin = app_settings.is_admin(callback.from_user.id)
     text = format_live_status_message(user)
-    await callback.message.edit_text(
-        text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML"
+    await _safe_edit(
+        callback.message, text, reply_markup=get_settings_keyboard(is_admin=is_admin)
     )
 
 
 async def _show_management_screen(callback: CallbackQuery, session: AsyncSession) -> None:
     """Helper: show IP management screen (Екран 1Б)."""
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user or not user.router_ip:
+    if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        return
+    if not user.router_ip:
+        await callback.message.edit_text("❌ IP-адреса не налаштована.")
         return
     if user.power_tracking and user.power_tracking.power_state == "on":
         status_line = (
@@ -104,17 +125,15 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {user.router_ip}'
         f"{status_line}"
     )
-    await callback.message.edit_text(
-        text, reply_markup=get_ip_management_keyboard(), parse_mode="HTML"
-    )
+    await _safe_edit(callback.message, text, reply_markup=get_ip_management_keyboard())
 
 
 async def _show_input_screen(callback: CallbackQuery, state: FSMContext) -> None:
     """Helper: show instruction + IP input screen (Екран 1А)."""
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         _INSTRUCTION_TEXT,
         reply_markup=get_ip_monitoring_keyboard_no_ip(),
-        parse_mode="HTML",
         disable_web_page_preview=True,
     )
     await state.set_state(IpSetupSG.waiting_for_ip)
@@ -129,11 +148,16 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
     await state.clear()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
-    if user.router_ip:
-        await _show_management_screen(callback, session)
-    else:
-        await _show_input_screen(callback, state)
+    try:
+        if user.router_ip:
+            await _show_management_screen(callback, session)
+        else:
+            await _show_input_screen(callback, state)
+    except Exception as e:
+        logger.error("settings_ip error for user %s: %s", callback.from_user.id, e)
+        await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
 
 
 # ─── Screen 2 — Change confirm ────────────────────────────────────────────
@@ -144,6 +168,7 @@ async def ip_change(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     text = (
         "Зміна IP-адреси\n\n"
@@ -169,6 +194,7 @@ async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> N
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     text = (
         "Видалення IP-адреси\n\n"
@@ -256,6 +282,7 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user or not user.router_ip:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     router_ip = user.router_ip
     loading_text = (
@@ -263,16 +290,14 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
         f"{router_ip}\n"
         'Перевіряю <tg-emoji emoji-id="5312428465553709555">⏳</tg-emoji>'
     )
-    await callback.message.edit_text(loading_text, parse_mode="HTML")
+    await _safe_edit(callback.message, loading_text)
     from bot.services.power_monitor import _check_router_http
     is_alive = await _check_router_http(router_ip)
     if is_alive:
         result_text = '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Пінг пройшов успішно'
     else:
         result_text = '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> Пінг не пройшов'
-    await callback.message.edit_text(
-        result_text, reply_markup=get_ip_ping_result_keyboard(), parse_mode="HTML"
-    )
+    await _safe_edit(callback.message, result_text, reply_markup=get_ip_ping_result_keyboard())
 
 
 # ─── IP input handler (Screen 5) ──────────────────────────────────────────
@@ -425,6 +450,7 @@ async def ip_support_cancel(
     await state.clear()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
+        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     from bot.formatter.messages import format_main_menu_message
     from bot.keyboards.inline import get_main_menu
