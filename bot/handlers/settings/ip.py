@@ -175,18 +175,25 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
 @router.callback_query(F.data == "ip_change")
 async def ip_change(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
-    user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
-        return
-    text = (
-        "Зміна IP-адреси\n\n"
-        f"Поточна IP-адреса: {user.router_ip}\n\n"
-        "Ви впевнені що хочете змінити IP-адресу?"
-    )
-    await callback.message.edit_text(
-        text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
-    )
+    try:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+            return
+        text = (
+            "Зміна IP-адреси\n\n"
+            f"Поточна IP-адреса: {user.router_ip}\n\n"
+            "Ви впевнені що хочете змінити IP-адресу?"
+        )
+        await callback.message.edit_text(
+            text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error("ip_change error for user %s: %s", callback.from_user.id, e)
+        try:
+            await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+        except Exception as notify_err:
+            logger.error("ip_change could not notify user: %s", notify_err)
 
 
 @router.callback_query(F.data == "ip_change_confirm")
@@ -201,18 +208,25 @@ async def ip_change_confirm(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "ip_delete_confirm")
 async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
-    user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
-        return
-    text = (
-        "Видалення IP-адреси\n\n"
-        f"Ви впевнені що хочете видалити IP-адресу\n{user.router_ip}?\n\n"
-        "Моніторинг світла буде вимкнено."
-    )
-    await callback.message.edit_text(
-        text, reply_markup=get_ip_delete_confirm_keyboard(), parse_mode="HTML"
-    )
+    try:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+            return
+        text = (
+            "Видалення IP-адреси\n\n"
+            f"Ви впевнені що хочете видалити IP-адресу\n{user.router_ip}?\n\n"
+            "Моніторинг світла буде вимкнено."
+        )
+        await callback.message.edit_text(
+            text, reply_markup=get_ip_delete_confirm_keyboard(), parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error("ip_delete_confirm error for user %s: %s", callback.from_user.id, e)
+        try:
+            await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+        except Exception as notify_err:
+            logger.error("ip_delete_confirm could not notify user: %s", notify_err)
 
 
 # ─── Screen 4 — After delete ──────────────────────────────────────────────
@@ -233,9 +247,7 @@ async def ip_delete_execute(callback: CallbackQuery, session: AsyncSession) -> N
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено."
     )
-    await callback.message.edit_text(
-        text, reply_markup=get_ip_deleted_keyboard(), parse_mode="HTML"
-    )
+    await _safe_edit(callback.message, text, reply_markup=get_ip_deleted_keyboard())
 
 
 # ─── Legacy aliases (backward compat) ────────────────────────────────────
@@ -371,9 +383,7 @@ async def ip_ping_error_support(callback: CallbackQuery, state: FSMContext) -> N
         "Напишіть ваше повідомлення, і адміністратор\n"
         "відповість вам найближчим часом."
     )
-    await callback.message.edit_text(
-        text, reply_markup=get_ip_support_cancel_keyboard(), parse_mode="HTML"
-    )
+    await _safe_edit(callback.message, text, reply_markup=get_ip_support_cancel_keyboard())
     await state.set_state(IpSupportSG.waiting_for_message)
 
 
