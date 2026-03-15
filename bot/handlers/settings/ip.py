@@ -126,6 +126,7 @@ async def _show_input_screen(callback: CallbackQuery, state: FSMContext) -> None
 @router.callback_query(F.data == "settings_ip")
 async def settings_ip(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
+    await state.clear()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         return
