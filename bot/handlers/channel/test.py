@@ -77,7 +77,7 @@ async def test_power_on(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer("❌ Канал не підключено")
         return
     try:
-        text = user.channel_config.power_on_text or "🟢 <b>Світло з'явилось!</b>"
+        text = user.channel_config.power_on_text or '<tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> <b>Світло з\'явилось!</b>'
         await callback.bot.send_message(
             user.channel_config.channel_id, text, parse_mode="HTML"
         )
