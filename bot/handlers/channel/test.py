@@ -77,9 +77,14 @@ async def test_power_on(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer("❌ Канал не підключено")
         return
     try:
-        text = user.channel_config.power_on_text or '<tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> <b>Світло з\'явилось!</b>'
+        html_text = user.channel_config.power_on_text or '<tg-emoji emoji-id="5309771882252243514">🟢</tg-emoji> <b>Світло з\'явилось!</b>'
+        plain_text, raw_entities = html_to_entities(html_text)
+        entities = to_aiogram_entities(raw_entities)
         await callback.bot.send_message(
-            user.channel_config.channel_id, text, parse_mode="HTML"
+            user.channel_config.channel_id,
+            plain_text,
+            entities=entities,
+            parse_mode=None,
         )
         await callback.answer("✅ Тестове повідомлення опубліковано!")
     except Exception as e:
