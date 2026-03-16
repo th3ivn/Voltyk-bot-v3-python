@@ -25,17 +25,6 @@ def format_live_status_message(user, region_name: str | None = None) -> str:
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     ns = user.notification_settings
     notifications_enabled = has_any_notification_enabled(ns)
-    power_tracking = user.power_tracking
-
-    if has_ip and power_tracking and power_tracking.power_state:
-        power_on = power_tracking.power_state == "on"
-        msg += "🟢 Світло зараз: Є\n" if power_on else "🔴 Світло зараз: Немає\n"
-        if power_tracking.power_changed_at:
-            msg += f"🕓 Оновлено: {power_tracking.power_changed_at.strftime('%H:%M')}\n\n"
-        else:
-            msg += "\n"
-    elif has_ip:
-        msg += "⚪ Світло зараз: Невідомо\n\n"
 
     msg += f"📍 <b>{region_name} · {user.queue}</b>\n\n"
     msg += f"📡 IP: {'підключено ✅' if has_ip else 'не підключено 😕'}\n"
