@@ -22,6 +22,7 @@ from bot.keyboards.inline import (
     get_schedule_view_keyboard,
     get_settings_keyboard,
     get_statistics_keyboard,
+    get_support_keyboard,
 )
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import WizardSG
@@ -237,19 +238,36 @@ async def help_instructions(callback: CallbackQuery) -> None:
     )
 
 
+@router.callback_query(F.data == "help_support")
+async def help_support(callback: CallbackQuery) -> None:
+    await callback.answer()
+    support_url = app_settings.SUPPORT_CHANNEL_URL or None
+    text = (
+        '<tg-emoji emoji-id="5310296757320586255">💬</tg-emoji> Служба підтримки\n\n'
+        "Натисніть кнопку нижче щоб написати\n"
+        "адміністратору напряму в Telegram.\n"
+        "Відповідь надійде найближчим часом."
+    )
+    await _safe_edit_or_resend(
+        callback.message,
+        text,
+        reply_markup=get_support_keyboard(support_url=support_url),
+    )
+
+
 @router.callback_query(F.data == "instr_region")
 async def instr_region(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>Регіон і черга</b>\n\n"
+        '<tg-emoji emoji-id="5319069545850247853">📍</tg-emoji> Регіон і черга\n\n'
         "Для отримання графіку відключень потрібно\n"
         "обрати свій регіон та чергу.\n\n"
         "Як знайти свою чергу — введіть свою адресу\n"
         "на сайті свого обленерго:\n\n"
-        "• Київ — <a href=\"https://www.dtek-kem.com.ua/ua/shutdowns\">dtek-kem.com.ua</a>\n"
-        "• Київська обл. — <a href=\"https://www.dtek-krem.com.ua/ua/shutdowns\">dtek-krem.com.ua</a>\n"
-        "• Дніпропетровська обл. — <a href=\"https://www.dtek-dnem.com.ua/ua/shutdowns\">dtek-dnem.com.ua</a>\n"
-        "• Одеська обл. — <a href=\"https://www.dtek-oem.com.ua/ua/shutdowns\">dtek-oem.com.ua</a>\n\n"
+        '• Київ — <a href="https://www.dtek-kem.com.ua/ua/shutdowns">dtek-kem.com.ua</a>\n'
+        '• Київська обл. — <a href="https://www.dtek-krem.com.ua/ua/shutdowns">dtek-krem.com.ua</a>\n'
+        '• Дніпропетровська обл. — <a href="https://www.dtek-dnem.com.ua/ua/shutdowns">dtek-dnem.com.ua</a>\n'
+        '• Одеська обл. — <a href="https://www.dtek-oem.com.ua/ua/shutdowns">dtek-oem.com.ua</a>\n\n'
         "Як налаштувати в боті:\n"
         "1. Перейдіть в Налаштування → Регіон\n"
         "2. Оберіть свою область\n"
@@ -262,7 +280,7 @@ async def instr_region(callback: CallbackQuery) -> None:
 async def instr_notif(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>Сповіщення</b>\n\n"
+        '<tg-emoji emoji-id="5262598817626234330">🔔</tg-emoji> Сповіщення\n\n'
         "Бот автоматично надсилає сповіщення про:\n"
         "• Зміни в графіку відключень\n"
         "• Появу нового графіку на завтра\n"
@@ -286,7 +304,7 @@ async def instr_notif(callback: CallbackQuery) -> None:
 async def instr_channel(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>Канал</b>\n\n"
+        '<tg-emoji emoji-id="5312374181462055424">📺</tg-emoji> Канал\n\n'
         "Ви можете підключити свій Telegram канал —\n"
         "бот автоматично публікуватиме в ньому\n"
         "графіки відключень та сповіщення.\n\n"
@@ -311,7 +329,7 @@ async def instr_channel(callback: CallbackQuery) -> None:
 async def instr_ip(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>IP моніторинг</b>\n\n"
+        '<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP моніторинг\n\n'
         "Бот може визначати фактичний статус світла\n"
         "у вас вдома — пінгуючи ваш роутер.\n\n"
         "Важливо: роутер має вимикатись при\n"
@@ -342,7 +360,7 @@ async def instr_ip(callback: CallbackQuery) -> None:
 async def instr_schedule(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>Графік відключень</b>\n\n"
+        '<tg-emoji emoji-id="5264999721524562037">📊</tg-emoji> Графік відключень\n\n'
         "Бот показує актуальний графік відключень\n"
         "для вашого регіону та черги.\n\n"
         "Що показує графік:\n"
@@ -369,7 +387,7 @@ async def instr_schedule(callback: CallbackQuery) -> None:
 async def instr_bot_settings(callback: CallbackQuery) -> None:
     await callback.answer()
     text = (
-        "<b>Налаштування бота</b>\n\n"
+        '<tg-emoji emoji-id="5312280340721604022">⚙️</tg-emoji> Налаштування бота\n\n'
         "В налаштуваннях ви можете керувати\n"
         "всіма параметрами бота.\n\n"
         "Що можна налаштувати:\n"

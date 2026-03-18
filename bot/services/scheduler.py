@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
@@ -595,98 +595,3 @@ async def _send_schedule_notification(
 def stop_scheduler() -> None:
     global _running
     _running = False
-
-
-# ─── Admin ticket reminders ───────────────────────────────────────────────
-
-
-async def admin_ticket_reminder_loop(bot: Bot) -> None:
-    """Щодня нагадує адміну про непрочитані звернення (якщо не відповів за 24 год)."""
-    while _running:
-        try:
-            await asyncio.sleep(3600)
-            if not _running:
-                break
-            await _send_admin_ticket_reminders(bot)
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("admin_ticket_reminder_loop error: %s", e)
-            await asyncio.sleep(60)
-
-
-async def _send_admin_ticket_reminders(bot: Bot) -> None:
-    """Send reminders to admins for unanswered ip_support tickets older than 24h."""
-    from bot.db.queries import (
-        add_ticket_message,
-        create_admin_ticket_reminder,
-        get_pending_admin_reminders,
-        get_ticket_by_id,
-        resolve_admin_ticket_reminder,
-        update_ping_error_alert_time,
-    )
-    from bot.keyboards.inline import get_ip_support_admin_keyboard
-
-    try:
-        async with async_session() as session:
-            reminders = await get_pending_admin_reminders(session)
-    except Exception as e:
-        logger.error("Could not fetch admin ticket reminders: %s", e)
-        return
-
-    for reminder in reminders:
-        try:
-            async with async_session() as session:
-                ticket = await get_ticket_by_id(session, reminder.ticket_id)
-            if not ticket or ticket.status != "open":
-                async with async_session() as session:
-                    await resolve_admin_ticket_reminder(session, reminder.ticket_id)
-                    await session.commit()
-                continue
-
-            has_admin_reply = any(
-                m.sender_type == "admin" for m in (ticket.messages or [])
-            )
-            if has_admin_reply:
-                async with async_session() as session:
-                    await resolve_admin_ticket_reminder(session, reminder.ticket_id)
-                    await session.commit()
-                continue
-
-            last_msg = ticket.messages[-1] if ticket.messages else None
-            msg_text = last_msg.content if last_msg else "(без тексту)"
-
-            now_str = datetime.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
-            admin_text = (
-                f"🔔 Нагадування: відкрите звернення #{ticket.id}\n\n"
-                f"📅 Дата: {now_str}\n"
-                f"💬 {msg_text}"
-            )
-            try:
-                await bot.send_message(
-                    int(reminder.admin_telegram_id),
-                    admin_text,
-                    reply_markup=get_ip_support_admin_keyboard(ticket.id),
-                    parse_mode="HTML",
-                )
-                async with async_session() as session:
-                    from sqlalchemy import update as sa_update
-                    from bot.db.models import AdminTicketReminder
-
-                    await session.execute(
-                        sa_update(AdminTicketReminder)
-                        .where(AdminTicketReminder.id == reminder.id)
-                        .values(last_reminder_at=datetime.now(timezone.utc))
-                    )
-                    await session.commit()
-                logger.info(
-                    "Admin reminder sent to %s for ticket #%d",
-                    reminder.admin_telegram_id,
-                    ticket.id,
-                )
-            except Exception as e:
-                logger.error(
-                    "Error sending admin reminder to %s: %s", reminder.admin_telegram_id, e
-                )
-        except Exception as e:
-            logger.error("Error processing admin reminder %s: %s", reminder.id, e)

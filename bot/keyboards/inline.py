@@ -227,6 +227,14 @@ def get_help_keyboard(faq_url: str | None = None, support_url: str | None = None
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def get_support_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if support_url:
+        rows.append([_url_btn_styled("Написати адміністратору", support_url)])
+    rows.append([_btn("← Назад", "menu_help"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def get_instructions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -494,15 +502,16 @@ def get_ip_saved_success_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_ip_saved_fail_keyboard() -> InlineKeyboardMarkup:
+def get_ip_saved_fail_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
     """Екран 5 — Після збереження IP, пінг не пройшов."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
-        [
-            _btn("← Назад", "settings_ip"),
-            _btn("⤴ Меню", "back_to_main"),
-        ],
+    rows: list[list[InlineKeyboardButton]] = []
+    if support_url:
+        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+    rows.append([
+        _btn("← Назад", "settings_ip"),
+        _btn("⤴ Меню", "back_to_main"),
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
@@ -515,44 +524,24 @@ def get_ip_ping_result_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_ip_ping_fail_keyboard() -> InlineKeyboardMarkup:
+def get_ip_ping_fail_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
     """Екран 6 — Після перевірки пінгу (невдача)."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
-        [
-            _btn("← Назад", "settings_ip"),
-            _btn("⤴ Меню", "back_to_main"),
-        ],
+    rows: list[list[InlineKeyboardButton]] = []
+    if support_url:
+        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+    rows.append([
+        _btn("← Назад", "settings_ip"),
+        _btn("⤴ Меню", "back_to_main"),
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_ip_ping_error_keyboard() -> InlineKeyboardMarkup:
+def get_ip_ping_error_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
     """Щоденне повідомлення про помилку пінгу — кнопка Підтримка."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Підтримка", "ip_ping_error_support", E_SUPPORT)],
-    ])
-
-
-def get_ip_support_cancel_keyboard() -> InlineKeyboardMarkup:
-    """Під повідомленням 'Служба підтримки' — червона кнопка Скасувати дію."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Скасувати дію", "ip_support_cancel", style="danger")],
-    ])
-
-
-def get_ip_support_admin_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            _btn("Відповісти", f"admin_ticket_reply_{ticket_id}", E_REPLY),
-            _btn("⤴ Меню", "back_to_main"),
-        ],
-    ])
-
-
-def get_ip_support_sent_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("⤴ Меню", "back_to_main")],
-    ])
+    rows: list[list[InlineKeyboardButton]] = []
+    if support_url:
+        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_ip_monitoring_keyboard(has_ip: bool = False) -> InlineKeyboardMarkup:
@@ -653,13 +642,12 @@ def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
 # ─── Admin keyboards ──────────────────────────────────────────────────────
 
 
-def get_admin_keyboard(open_tickets_count: int = 0) -> InlineKeyboardMarkup:
-    t = f"📩 Звернення ({open_tickets_count})" if open_tickets_count else "📩 Звернення"
+def get_admin_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("📊 Аналітика", "admin_analytics"), _btn("👥 Користувачі", "admin_users")],
-        [_btn(t, "admin_tickets"), _btn("📢 Розсилка", "admin_broadcast")],
+        [_btn("📢 Розсилка", "admin_broadcast")],
         [_btn("⚙️ Налаштування", "admin_settings_menu"), _btn("📡 Роутер", "admin_router")],
-        [_btn("🔧 Тех. роботи", "admin_maintenance"), _btn("📞 Підтримка", "admin_support")],
+        [_btn("🔧 Тех. роботи", "admin_maintenance")],
         [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
     ])
 
