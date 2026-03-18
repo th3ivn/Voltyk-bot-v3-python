@@ -39,7 +39,7 @@ async def cmd_admin(message: Message, session: AsyncSession) -> None:
         return
     await message.answer(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=0),
+        reply_markup=get_admin_keyboard(),
     )
 
 
@@ -51,7 +51,7 @@ async def settings_admin(callback: CallbackQuery, session: AsyncSession) -> None
     await callback.answer()
     await callback.message.edit_text(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=0),
+        reply_markup=get_admin_keyboard(),
     )
 
 
@@ -63,7 +63,7 @@ async def admin_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await callback.message.edit_text(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=0),
+        reply_markup=get_admin_keyboard(),
     )
 
 

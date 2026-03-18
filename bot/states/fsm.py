@@ -29,10 +29,6 @@ class IpSetupSG(StatesGroup):
     waiting_for_ip = State()
 
 
-class IpSupportSG(StatesGroup):
-    waiting_for_message = State()
-
-
 class BroadcastSG(StatesGroup):
     waiting_for_text = State()
     waiting_for_emoji = State()

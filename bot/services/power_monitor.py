@@ -868,9 +868,9 @@ async def daily_ping_error_loop(bot: Bot) -> None:
 
 async def _send_daily_ping_error_alerts(bot: Bot) -> None:
     """Send daily ping-error messages to users whose router hasn't responded in 24h."""
-    from datetime import timedelta
-
     from bot.keyboards.inline import get_ip_ping_error_keyboard
+
+    support_url = settings.SUPPORT_CHANNEL_URL or None
 
     try:
         async with async_session() as session:
@@ -923,7 +923,7 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                 await bot.send_message(
                     int(alert.telegram_id),
                     text,
-                    reply_markup=get_ip_ping_error_keyboard(),
+                    reply_markup=get_ip_ping_error_keyboard(support_url=support_url),
                     parse_mode="HTML",
                 )
                 async with async_session() as session:

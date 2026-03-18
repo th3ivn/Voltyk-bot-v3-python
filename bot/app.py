@@ -67,13 +67,12 @@ async def on_startup(bot: Bot) -> None:
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
-    from bot.services.scheduler import admin_ticket_reminder_loop, daily_flush_loop, schedule_checker_loop
+    from bot.services.scheduler import daily_flush_loop, schedule_checker_loop
 
     _bg_tasks.extend([
         asyncio.create_task(schedule_checker_loop(bot)),
         asyncio.create_task(power_monitor_loop(bot)),
         asyncio.create_task(daily_ping_error_loop(bot)),
-        asyncio.create_task(admin_ticket_reminder_loop(bot)),
         asyncio.create_task(daily_flush_loop(bot)),
     ])
 

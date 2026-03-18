@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -11,36 +9,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
 from bot.db.queries import (
-    add_ticket_message,
-    create_admin_ticket_reminder,
-    create_ticket,
     deactivate_ping_error_alert,
     get_user_by_telegram_id,
     upsert_ping_error_alert,
 )
-from bot.db.session import async_session as _async_session
 from bot.keyboards.inline import (
     get_ip_change_confirm_keyboard,
     get_ip_delete_confirm_keyboard,
     get_ip_deleted_keyboard,
     get_ip_management_keyboard,
     get_ip_monitoring_keyboard_no_ip,
-    get_ip_ping_error_keyboard,
     get_ip_ping_fail_keyboard,
     get_ip_ping_result_keyboard,
     get_ip_saved_fail_keyboard,
-    get_ip_saved_keyboard,
     get_ip_saved_success_keyboard,
-    get_ip_support_admin_keyboard,
-    get_ip_support_cancel_keyboard,
-    get_ip_support_sent_keyboard,
     get_settings_keyboard,
 )
-from bot.states.fsm import IpSetupSG, IpSupportSG
+from bot.states.fsm import IpSetupSG
 from bot.utils.helpers import is_valid_ip_or_domain
 from bot.utils.logger import get_logger
-
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 router = Router(name="settings_ip")
 logger = get_logger(__name__)
@@ -345,7 +332,7 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
         keyboard = get_ip_ping_result_keyboard()
     else:
         result_text = '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> Пінг не пройшов'
-        keyboard = get_ip_ping_fail_keyboard()
+        keyboard = get_ip_ping_fail_keyboard(support_url=app_settings.SUPPORT_CHANNEL_URL or None)
     await _safe_edit(callback.message, result_text, reply_markup=keyboard)
 
 
@@ -394,121 +381,9 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
                 pass
 
     await state.clear()
-    keyboard = get_ip_saved_success_keyboard() if is_alive else get_ip_saved_fail_keyboard()
+    keyboard = get_ip_saved_success_keyboard() if is_alive else get_ip_saved_fail_keyboard(support_url=app_settings.SUPPORT_CHANNEL_URL or None)
     await status_msg.edit_text(
         result_text, reply_markup=keyboard, parse_mode="HTML"
-    )
-
-
-# ─── ip_ping_error_support — Support ticket flow ─────────────────────────
-
-
-@router.callback_query(F.data == "ip_ping_error_support")
-async def ip_ping_error_support(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer()
-    text = (
-        '<tg-emoji emoji-id="5310296757320586255">💬</tg-emoji> Служба підтримки\n\n'
-        "Напишіть ваше повідомлення, і адміністратор\n"
-        "відповість вам найближчим часом."
-    )
-    await _safe_edit(callback.message, text, reply_markup=get_ip_support_cancel_keyboard())
-    await state.set_state(IpSupportSG.waiting_for_message)
-
-
-# ─── ip_ping_support — legacy alias ──────────────────────────────────────
-
-
-@router.callback_query(F.data == "ip_ping_support")
-async def ip_ping_support(callback: CallbackQuery, state: FSMContext) -> None:
-    await ip_ping_error_support(callback, state)
-
-
-@router.message(IpSupportSG.waiting_for_message)
-async def ip_support_message(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    if not message.text:
-        await message.reply("❌ Будь ласка, надішліть текстове повідомлення.")
-        return
-
-    user = await get_user_by_telegram_id(session, message.from_user.id)
-    if not user:
-        await state.clear()
-        return
-
-    ticket = await create_ticket(
-        session,
-        telegram_id=user.telegram_id,
-        ticket_type="ip_support",
-        subject="IP підтримка",
-    )
-    await add_ticket_message(
-        session,
-        ticket_id=ticket.id,
-        sender_type="user",
-        sender_id=user.telegram_id,
-        content=message.text,
-    )
-    await session.commit()
-
-    await state.clear()
-
-    await message.answer(
-        '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Ваше повідомлення надіслано\n\n'
-        "Адміністратор відповість вам найближчим часом.",
-        reply_markup=get_ip_support_sent_keyboard(),
-        parse_mode="HTML",
-    )
-
-    now_str = datetime.now(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
-    username = f"@{user.username}" if user.username else "(без username)"
-    ip_line = f"\n📡 IP: {user.router_ip}" if user.router_ip else ""
-    admin_text = (
-        "📩 Нове звернення від користувача\n\n"
-        f"👤 {username} (ID: {user.telegram_id})\n"
-        f"🌍 Регіон: {user.region} | Черга: {user.queue}"
-        f"{ip_line}\n"
-        f"📅 Дата: {now_str}\n"
-        f"💬 {message.text}"
-    )
-    for admin_id in app_settings.all_admin_ids:
-        try:
-            await message.bot.send_message(
-                admin_id,
-                admin_text,
-                reply_markup=get_ip_support_admin_keyboard(ticket.id),
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
-    for admin_id in app_settings.all_admin_ids:
-        try:
-            async with _async_session() as s:
-                await create_admin_ticket_reminder(s, ticket.id, str(admin_id))
-                await s.commit()
-        except Exception:
-            pass
-
-
-@router.callback_query(F.data == "ip_support_cancel")
-async def ip_support_cancel(
-    callback: CallbackQuery, state: FSMContext, session: AsyncSession
-) -> None:
-    await callback.answer()
-    await state.clear()
-    user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
-        return
-    from bot.formatter.messages import format_main_menu_message
-    from bot.keyboards.inline import get_main_menu
-
-    has_channel = bool(user.channel_config and user.channel_config.channel_id)
-    channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
-    text = format_main_menu_message(user)
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
-        parse_mode="HTML",
     )
 
 
