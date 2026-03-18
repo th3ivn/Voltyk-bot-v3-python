@@ -41,6 +41,7 @@ async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTM
     except Exception as e:
         if _MSG_NOT_MODIFIED in str(e):
             return True
+        logger.warning("_safe_edit_text failed: %s", e)
         return False
 
 
@@ -53,15 +54,19 @@ async def _safe_delete(message) -> None:
 
 async def _safe_edit_or_resend(message, text: str, reply_markup=None, parse_mode: str = "HTML"):
     """Edit a text message in-place, or delete-and-resend when the current message contains a photo.
-    Returns the new message object if a new message was sent, otherwise returns the original message.
+    Returns the new/original message object on success, or None on unexpected error.
     """
-    if message.photo:
-        await _safe_delete(message)
-        return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-    else:
-        if not await _safe_edit_text(message, text, reply_markup=reply_markup, parse_mode=parse_mode):
+    try:
+        if message.photo:
+            await _safe_delete(message)
             return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        return message
+        else:
+            if not await _safe_edit_text(message, text, reply_markup=reply_markup, parse_mode=parse_mode):
+                return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            return message
+    except Exception as e:
+        logger.error("_safe_edit_or_resend failed: %s", e)
+        return None
 
 
 @router.callback_query(F.data == "back_to_main")

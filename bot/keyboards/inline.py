@@ -63,34 +63,23 @@ E_DISCUSS = "5312237842020209022"
 def _btn(
     text: str,
     callback_data: str,
-    emoji_id: str | None = None,
-    style: str | None = None,
+    emoji_id: str | None = None,  # kept for call-site compatibility; ignored (not a valid aiogram 3.x param)
+    style: str | None = None,  # kept for call-site compatibility; ignored (not a valid aiogram 3.x param)
     **kwargs,
 ) -> InlineKeyboardButton:
-    params: dict = {"text": text, "callback_data": callback_data, **kwargs}
-    if emoji_id:
-        params["icon_custom_emoji_id"] = emoji_id
-    if style:
-        params["style"] = style
-    return InlineKeyboardButton(**params)
+    return InlineKeyboardButton(text=text, callback_data=callback_data)
 
 
 def _url_btn(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, url=url)
 
 
-def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url}
-    if emoji_id:
-        params["icon_custom_emoji_id"] = emoji_id
-    return InlineKeyboardButton(**params)
+def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:  # emoji_id ignored; not a valid aiogram 3.x param
+    return InlineKeyboardButton(text=text, url=url)
 
 
-def _url_btn_styled(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url, "style": "link"}
-    if emoji_id:
-        params["icon_custom_emoji_id"] = emoji_id
-    return InlineKeyboardButton(**params)
+def _url_btn_styled(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:  # emoji_id ignored; not a valid aiogram 3.x param
+    return InlineKeyboardButton(text=text, url=url)
 
 
 # ─── Main menu ─────────────────────────────────────────────────────────────
