@@ -48,6 +48,17 @@ E_PING_FAIL = "5264933407229517572"
 E_SUPPORT = "5310296757320586255"
 E_REPLY = "5312237842020209022"
 
+E_INSTRUCTION = "5319069545850247853"
+E_INSTR_HELP = "5321151063095546482"
+E_FAQ = "5319180751143476261"
+E_NOTIF_SECTION = "5262598817626234330"
+E_CHANNEL_SECTION = "5312374181462055424"
+E_IP_SECTION = "5312283536177273995"
+E_SCHEDULE_SEC = "5264999721524562037"
+E_BOT_SETTINGS = "5312280340721604022"
+E_NEWS = "5312374181462055424"
+E_DISCUSS = "5312237842020209022"
+
 
 def _btn(
     text: str,
@@ -68,20 +79,34 @@ def _url_btn(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, url=url)
 
 
+def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
+    params: dict = {"text": text, "url": url}
+    if emoji_id:
+        params["icon_custom_emoji_id"] = emoji_id
+    return InlineKeyboardButton(**params)
+
+
+def _url_btn_styled(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
+    params: dict = {"text": text, "url": url, "style": "link"}
+    if emoji_id:
+        params["icon_custom_emoji_id"] = emoji_id
+    return InlineKeyboardButton(**params)
+
+
 # ─── Main menu ─────────────────────────────────────────────────────────────
 
 
 def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
-            _btn("Графік", "menu_schedule", E_SCHEDULE),
+            _btn("Графік", "menu_schedule", E_SCHEDULE_SEC),
             _btn("Допомога", "menu_help", E_HELP),
         ],
         [
             _btn("Сповіщення", "settings_alerts", E_ALERTS),
             _btn("Канал", "settings_channel", E_CHANNEL),
         ],
-        [_btn("Налаштування", "menu_settings", E_SETTINGS)],
+        [_btn("Налаштування", "menu_settings", E_BOT_SETTINGS)],
     ]
     if has_channel:
         if channel_paused:
@@ -105,7 +130,6 @@ def get_region_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [_btn("Київ", "region_kyiv"), _btn("Київщина", "region_kyiv-region")],
         [_btn("Дніпропетровщина", "region_dnipro"), _btn("Одещина", "region_odesa")],
-        [_btn("🏙 Запропонувати регіон", "region_request_start")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -158,8 +182,14 @@ def get_confirm_keyboard() -> InlineKeyboardMarkup:
 
 def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [_btn("Регіон", "settings_region", E_REGION), _btn("IP", "settings_ip", E_IP)],
-        [_btn("Канал", "settings_channel", E_CHANNEL), _btn("Сповіщення", "settings_alerts", E_ALERTS)],
+        [
+            _btn("Регіон", "settings_region", E_INSTRUCTION),
+            _btn("IP", "settings_ip", E_IP_SECTION),
+        ],
+        [
+            _btn("Канал", "settings_channel", E_CHANNEL_SECTION),
+            _btn("Сповіщення", "settings_alerts", E_NOTIF_SECTION),
+        ],
         [_btn("🗑 Очищення", "settings_cleanup")],
     ]
     if is_admin:
@@ -178,17 +208,46 @@ def get_statistics_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_help_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
-    row1 = [_btn("📖 Інструкція", "help_howto")]
+def get_help_keyboard(faq_url: str | None = None, support_url: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [_btn("Інструкція", "help_instructions", E_INSTR_HELP)],
+    ]
+    row2: list[InlineKeyboardButton] = []
+    if faq_url:
+        row2.append(_url_btn_styled("FAQ", faq_url, E_FAQ))
     if support_url:
-        row1.append(_url_btn("✉️ Підтримка", support_url))
-    else:
-        row1.append(_btn("⚒️ Підтримка", "feedback_start"))
+        row2.append(_url_btn_styled("Підтримка", support_url, E_SUPPORT))
+    if row2:
+        rows.append(row2)
+    rows.append([
+        _url_btn_with_emoji("Новини ↗", "https://t.me/Voltyk_news", E_NEWS),
+        _url_btn_with_emoji("Обговорення ↗", "https://t.me/voltyk_chat", E_DISCUSS),
+    ])
+    rows.append([_btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_instructions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        row1,
-        [_url_btn("📢 Новини", "https://t.me/Voltyk_news"), _url_btn("💬 Обговорення", "https://t.me/voltyk_chat")],
-        [_btn("🏙 Запропонувати регіон", "region_request_start")],
-        [_btn("⤴ Меню", "back_to_main")],
+        [
+            _btn("Регіон і черга", "instr_region", E_INSTRUCTION),
+            _btn("Сповіщення", "instr_notif", E_NOTIF_SECTION),
+        ],
+        [
+            _btn("Канал", "instr_channel", E_CHANNEL_SECTION),
+            _btn("IP моніторинг", "instr_ip", E_IP_SECTION),
+        ],
+        [
+            _btn("Графік відключень", "instr_schedule", E_SCHEDULE_SEC),
+            _btn("Налаштування бота", "instr_bot_settings", E_BOT_SETTINGS),
+        ],
+        [_btn("← Назад", "menu_help"), _btn("⤴ Меню", "back_to_main")],
+    ])
+
+
+def get_instruction_section_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("← Назад", "help_instructions"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
@@ -587,30 +646,6 @@ def get_error_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-# ─── Feedback / Region request ────────────────────────────────────────────
-
-
-def get_feedback_type_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🐛 Баг", "feedback_type_bug")],
-        [_btn("💡 Ідея", "feedback_type_idea")],
-        [_btn("💬 Інше", "feedback_type_other")],
-        [_btn("← Назад", "back_to_main")],
-    ])
-
-
-def get_feedback_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("✅ Надіслати", "feedback_confirm"), _btn("❌ Скасувати", "feedback_cancel")],
-    ])
-
-
-def get_region_request_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("✅ Надіслати", "region_request_confirm"), _btn("❌ Скасувати", "region_request_cancel")],
-    ])
-
-
 def get_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_btn("❌ Скасувати", "broadcast_cancel")]])
 
@@ -781,38 +816,6 @@ def get_users_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_admin_ticket_keyboard(ticket_id: int, status: str = "open") -> InlineKeyboardMarkup:
-    rows = [[_btn("💬 Відповісти", f"admin_ticket_reply_{ticket_id}")]]
-    if status == "open":
-        rows.append([_btn("✅ Закрити", f"admin_ticket_close_{ticket_id}")])
-    else:
-        rows.append([_btn("🔄 Відкрити знову", f"admin_ticket_reopen_{ticket_id}")])
-    rows.append([_btn("← Назад до списку", "admin_tickets")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def get_admin_tickets_list_keyboard(tickets: list, page: int = 1, per_page: int = 5) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    start = (page - 1) * per_page
-    for t in tickets[start : start + per_page]:
-        si = "🟢" if t.status == "open" else "🔴"
-        ti = {"bug": "🐛", "idea": "💡", "other": "💬", "region_request": "🏙"}.get(t.type, "📩")
-        text = f"{si}{ti} #{t.id}"
-        if t.subject:
-            text += f" - {t.subject[:30]}"
-        rows.append([_btn(text, f"admin_ticket_view_{t.id}")])
-    nav: list[InlineKeyboardButton] = []
-    if page > 1:
-        nav.append(_btn("Попередня", f"admin_tickets_page_{page - 1}"))
-    total_pages = max(1, (len(tickets) + per_page - 1) // per_page)
-    if page < total_pages:
-        nav.append(_btn("Наступна →", f"admin_tickets_page_{page + 1}"))
-    if nav:
-        rows.append(nav)
-    rows.append([_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def get_admin_router_keyboard(has_ip: bool = False, notifications_on: bool = True) -> InlineKeyboardMarkup:
     if not has_ip:
         return InlineKeyboardMarkup(inline_keyboard=[
@@ -825,15 +828,3 @@ def get_admin_router_keyboard(has_ip: bool = False, notifications_on: bool = Tru
         [_btn("📊 Статистика", "admin_router_stats"), _btn("🔄 Оновити", "admin_router_refresh")],
         [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
-
-
-def get_admin_support_keyboard(current_mode: str = "bot", support_url: str | None = None) -> InlineKeyboardMarkup:
-    cm = "●" if current_mode == "channel" else "○"
-    bm = "●" if current_mode == "bot" else "○"
-    rows = [
-        [_btn(f"{cm} Через канал (листування)", "admin_support_channel")],
-        [_btn(f"{bm} Через бот (тікети)", "admin_support_bot")],
-        [_btn("✏️ Змінити посилання", "admin_support_edit_url")],
-        [_btn("← Назад", "admin_menu")],
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=rows)

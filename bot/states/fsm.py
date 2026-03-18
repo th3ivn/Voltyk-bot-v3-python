@@ -33,17 +33,6 @@ class IpSupportSG(StatesGroup):
     waiting_for_message = State()
 
 
-class FeedbackSG(StatesGroup):
-    choosing_type = State()
-    waiting_for_message = State()
-    confirming = State()
-
-
-class RegionRequestSG(StatesGroup):
-    waiting_for_text = State()
-    confirming = State()
-
-
 class BroadcastSG(StatesGroup):
     waiting_for_text = State()
     waiting_for_emoji = State()
@@ -61,11 +50,3 @@ class MaintenanceSG(StatesGroup):
 
 class AdminRouterIpSG(StatesGroup):
     waiting_for_ip = State()
-
-
-class AdminSupportUrlSG(StatesGroup):
-    waiting_for_url = State()
-
-
-class AdminTicketReplySG(StatesGroup):
-    waiting_for_reply = State()
