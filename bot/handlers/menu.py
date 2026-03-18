@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
@@ -14,6 +12,7 @@ from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_timer_popup
 from bot.keyboards.inline import (
     get_error_keyboard,
+    get_faq_keyboard,
     get_help_keyboard,
     get_instruction_section_keyboard,
     get_instructions_keyboard,
@@ -27,6 +26,7 @@ from bot.keyboards.inline import (
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import WizardSG
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="menu")
@@ -246,6 +246,22 @@ async def help_instructions(callback: CallbackQuery) -> None:
         callback.message,
         "📖 Інструкція\n\nОберіть розділ який вас цікавить:",
         reply_markup=get_instructions_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "help_faq")
+async def help_faq(callback: CallbackQuery) -> None:
+    await callback.answer()
+    faq_url = app_settings.FAQ_CHANNEL_URL or None
+    text = (
+        '<tg-emoji emoji-id="5319180751143476261">❓</tg-emoji> FAQ\n\n'
+        "Тут ви знайдете відповіді на найпоширеніші\n"
+        "питання про роботу бота."
+    )
+    await _safe_edit_or_resend(
+        callback.message,
+        text,
+        reply_markup=get_faq_keyboard(faq_url=faq_url),
     )
 
 

@@ -87,7 +87,7 @@ def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> Inl
 
 
 def _url_btn_styled(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url, "style": "link"}
+    params: dict = {"text": text, "url": url}
     if emoji_id:
         params["icon_custom_emoji_id"] = emoji_id
     return InlineKeyboardButton(**params)
@@ -214,9 +214,9 @@ def get_help_keyboard(faq_url: str | None = None, support_url: str | None = None
     ]
     row2: list[InlineKeyboardButton] = []
     if faq_url:
-        row2.append(_url_btn_styled("FAQ", faq_url, E_FAQ))
+        row2.append(_btn("FAQ", "help_faq", E_FAQ))
     if support_url:
-        row2.append(_url_btn_styled("Підтримка", support_url, E_SUPPORT))
+        row2.append(_btn("Підтримка", "help_support", E_SUPPORT))
     if row2:
         rows.append(row2)
     rows.append([
@@ -227,10 +227,18 @@ def get_help_keyboard(faq_url: str | None = None, support_url: str | None = None
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def get_faq_keyboard(faq_url: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if faq_url:
+        rows.append([_url_btn_with_emoji("Перейти в FAQ ↗", faq_url, E_FAQ)])
+    rows.append([_btn("← Назад", "menu_help"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def get_support_keyboard(support_url: str | None = None) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if support_url:
-        rows.append([_url_btn_styled("Написати адміністратору", support_url)])
+        rows.append([_url_btn_with_emoji("Написати адміністратору ↗", support_url, E_SUPPORT)])
     rows.append([_btn("← Назад", "menu_help"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -506,7 +514,7 @@ def get_ip_saved_fail_keyboard(support_url: str | None = None) -> InlineKeyboard
     """Екран 5 — Після збереження IP, пінг не пройшов."""
     rows: list[list[InlineKeyboardButton]] = []
     if support_url:
-        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+        rows.append([_url_btn_with_emoji("Підтримка", support_url, E_SUPPORT)])
     rows.append([
         _btn("← Назад", "settings_ip"),
         _btn("⤴ Меню", "back_to_main"),
@@ -528,7 +536,7 @@ def get_ip_ping_fail_keyboard(support_url: str | None = None) -> InlineKeyboardM
     """Екран 6 — Після перевірки пінгу (невдача)."""
     rows: list[list[InlineKeyboardButton]] = []
     if support_url:
-        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+        rows.append([_url_btn_with_emoji("Підтримка", support_url, E_SUPPORT)])
     rows.append([
         _btn("← Назад", "settings_ip"),
         _btn("⤴ Меню", "back_to_main"),
@@ -540,7 +548,7 @@ def get_ip_ping_error_keyboard(support_url: str | None = None) -> InlineKeyboard
     """Щоденне повідомлення про помилку пінгу — кнопка Підтримка."""
     rows: list[list[InlineKeyboardButton]] = []
     if support_url:
-        rows.append([_url_btn_styled("Підтримка", support_url, E_SUPPORT)])
+        rows.append([_url_btn_with_emoji("Підтримка", support_url, E_SUPPORT)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
