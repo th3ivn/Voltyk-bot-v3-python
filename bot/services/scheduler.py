@@ -180,8 +180,9 @@ async def _check_single_queue(
     async with async_session() as session:
         stored_hash = await get_schedule_hash(session, region, queue)
 
-        if stored_hash == new_all_hash:
-            # No change in overall hash — update timestamp only
+    if stored_hash is not None and stored_hash == new_all_hash:
+        # No change in overall hash — update timestamp only
+        async with async_session() as session:
             await update_schedule_check_time(session, region, queue)
             await session.commit()
 
@@ -189,7 +190,7 @@ async def _check_single_queue(
     # refresh the daily snapshot (e.g. first check of a new day).  Do this
     # outside the early-return so it always runs.
     today_date_check = _kyiv_date_str()
-    if stored_hash == new_all_hash:
+    if stored_hash is not None and stored_hash == new_all_hash:
         async with async_session() as session:
             existing = await get_daily_snapshot(session, region, queue, today_date_check)
             if existing is None:
@@ -272,8 +273,9 @@ async def _check_single_queue(
         await session.commit()
 
     # If no meaningful change detected, skip notification
+    # Fallback: hash changed but snapshots were absent (e.g. first run) — always notify
     if not update_type:
-        return
+        update_type["todayUpdated"] = True
 
     sched_data_json = json.dumps(sched)
     update_type_json = json.dumps(update_type)
