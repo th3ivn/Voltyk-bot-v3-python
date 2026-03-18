@@ -30,6 +30,7 @@
 - [x] PR-1: Повний rewrite з нуля (12 березня 2026)
 - [x] PR-2: Виправлення UTF-16 offsets, edit_media, animated emoji (13 березня 2026)
 - [x] PR-3: Оновлення aiogram до 3.26, фінальне виправлення date_time entity та _send_schedule_photo (13 березня 2026)
+- [x] PR-4: Критичне виправлення — бот не сповіщав про оновлення графіка (18 березня 2026)
 
 ---
 
@@ -119,3 +120,50 @@
 - ✅ Правило №1: "X секунд тому" і анімоване 🔄 тепер відображаються коректно; переход меню→графік без flicker (edit_media)
 - ✅ Правило №2: Оновлення залежності до актуальної версії — єдине правильне рішення, без костилів
 - ✅ Правило №3: Без змін у логіці каналів/Celery
+---
+
+## PR-4: Критичне виправлення — бот не сповіщав про оновлення графіка (18 березня 2026)
+
+### Суть проблеми:
+Бот повністю ігнорував зміни графіку відключень. Жодне сповіщення не надсилалось ні в особисті чати, ні в канали.
+
+### Кореневі причини (4 баги):
+
+**БАГ №1 (GitHub CDN кеш):** URL `raw.githubusercontent.com` кешується CDN з TTL до 5 хвилин. Бот не додавав cache-busting параметри, тому навіть при реальному HTTP-запиті отримував застарілі дані.
+
+**БАГ №2 (In-memory кеш scheduler):** `fetch_schedule_data` не мав опції `force_refresh`. Scheduler викликав функцію з `cache_ttl_s=interval_s`, але TTL = interval-5s. Оскільки цикл теж спить interval секунд — кеш майже завжди "свіжий" при наступному виклику. Scheduler ніколи не отримував реальні свіжі дані.
+
+**БАГ №3 (Timezone):** `datetime.fromtimestamp(ts)` використовував системний TZ (UTC на Railway), а не Kyiv. Це зсувало дати на ±2-3 год, що давало неправильні ISO дати в events і некоректні хеші. `find_next_event` і formatter також використовували `datetime.now()` (UTC) замість Kyiv TZ.
+
+**БАГ №4 (Зображення CDN кеш):** `fetch_schedule_image` теж не обходив GitHub CDN кеш.
+
+### Що зроблено:
+
+#### `bot/services/api.py`:
+1. Додано `import time` та `from zoneinfo import ZoneInfo`, константа `KYIV_TZ`
+2. `fetch_schedule_data`: новий параметр `force_refresh: bool = False` — якщо `True`, in-memory кеш ігнорується; cache-busting `?_cb=<unix_ms>` у URL; заголовок `Cache-Control: no-cache, no-store`
+3. `fetch_schedule_image`: cache-busting `?_cb=<unix_ms>` у URL; заголовок `Cache-Control: no-cache, no-store`
+4. `parse_schedule_for_queue`: `datetime.fromtimestamp(ts)` → `datetime.fromtimestamp(ts, tz=KYIV_TZ)` для `today_date` та `tomorrow_date`
+5. `find_next_event`: `datetime.now()` → `datetime.now(KYIV_TZ)` для коректного TZ-aware порівняння
+
+#### `bot/services/scheduler.py`:
+1. `_check_single_queue`: `fetch_schedule_data(region, cache_ttl_s=interval_s)` → `fetch_schedule_data(region, force_refresh=True)` — scheduler завжди отримує свіжі дані
+2. `flush_pending_notifications`: `fetch_schedule_data(region)` → `fetch_schedule_data(region, force_refresh=True)` — daily flush теж отримує свіжі дані
+
+#### `bot/formatter/schedule.py`:
+1. Додано `from zoneinfo import ZoneInfo`, константа `KYIV_TZ`
+2. Новий хелпер `_parse_event_dt(dt)`: нормалізує datetime до tz-aware KYIV_TZ — підтримує як нові (tz-aware ISO) так і старі (tz-naive ISO) формати для backward compatibility з даними в DB
+3. `format_schedule_message`: `datetime.now()` → `datetime.now(KYIV_TZ)`; всі парсинги та порівняння подій через `_parse_event_dt()`
+4. `format_schedule_for_channel`: `datetime.now()` → `datetime.now(KYIV_TZ)`; парсинги та порівняння подій через `_parse_event_dt()`
+
+### Рішення і чому:
+- `?_cb=<unix_ms>` — стандартний cache-busting pattern; змінюється при кожному запиті, CDN не може закешувати
+- `Cache-Control: no-cache, no-store` — повідомляє proxy/CDN не кешувати відповідь
+- `force_refresh=True` — чистий API-design: scheduler завжди потребує свіжих даних, user-facing запити можуть використовувати кеш
+- `datetime.fromtimestamp(ts, tz=KYIV_TZ)` — стандартний Python спосіб отримати tz-aware datetime для конкретного TZ
+- `_parse_event_dt()` — defensive programming: підтримує обидва формати (tz-aware і tz-naive) без помилок
+
+### Відповідність правилам:
+- ✅ Правило №1: UI ідентичний — тексти, кнопки, flows не змінено
+- ✅ Правило №2: Всі рішення production-рівня, жодних костилів
+- ✅ Правило №3: bot_notifications і channel_notifications незалежні; логіка каналів не змінена
