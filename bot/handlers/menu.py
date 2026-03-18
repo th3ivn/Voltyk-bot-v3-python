@@ -51,14 +51,17 @@ async def _safe_delete(message) -> None:
         pass
 
 
-async def _safe_edit_or_resend(message, text: str, reply_markup=None, parse_mode: str = "HTML") -> None:
-    """Edit a text message in-place, or delete-and-resend when the current message contains a photo."""
+async def _safe_edit_or_resend(message, text: str, reply_markup=None, parse_mode: str = "HTML"):
+    """Edit a text message in-place, or delete-and-resend when the current message contains a photo.
+    Returns the new message object if a new message was sent, otherwise returns the original message.
+    """
     if message.photo:
         await _safe_delete(message)
-        await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
     else:
         if not await _safe_edit_text(message, text, reply_markup=reply_markup, parse_mode=parse_mode):
-            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+            return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return message
 
 
 @router.callback_query(F.data == "back_to_main")
@@ -217,15 +220,18 @@ async def stats_detail(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu_help")
-async def menu_help(callback: CallbackQuery) -> None:
+async def menu_help(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
     faq_url = app_settings.FAQ_CHANNEL_URL or None
     support_url = app_settings.SUPPORT_CHANNEL_URL or None
-    await _safe_edit_or_resend(
+    msg = await _safe_edit_or_resend(
         callback.message,
         "❓ Допомога\n\nТут ви можете дізнатися як користуватися\nботом або звернутися за підтримкою.",
         reply_markup=get_help_keyboard(faq_url=faq_url, support_url=support_url),
     )
+    if user and msg:
+        user.last_menu_message_id = msg.message_id
 
 
 @router.callback_query(F.data == "help_instructions")
