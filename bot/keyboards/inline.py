@@ -214,9 +214,9 @@ def get_help_keyboard(faq_url: str | None = None, support_url: str | None = None
     ]
     row2: list[InlineKeyboardButton] = []
     if faq_url:
-        row2.append(_btn("FAQ", "help_faq", E_FAQ))
+        row2.append(_btn("FAQ", "help_faq", E_FAQ, style="primary"))
     if support_url:
-        row2.append(_btn("Підтримка", "help_support", E_SUPPORT))
+        row2.append(_btn("Підтримка", "help_support", E_SUPPORT, style="primary"))
     if row2:
         rows.append(row2)
     rows.append([
