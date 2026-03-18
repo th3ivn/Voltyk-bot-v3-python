@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import settings
 from bot.db.queries import (
     count_active_users,
-    count_open_tickets,
     count_total_users,
     get_recent_users,
 )
@@ -38,10 +37,9 @@ async def cmd_admin(message: Message, session: AsyncSession) -> None:
     if not _admin_only(message.from_user.id):
         await message.answer("❌ Доступ заборонено")
         return
-    open_count = await count_open_tickets(session)
     await message.answer(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=open_count),
+        reply_markup=get_admin_keyboard(open_tickets_count=0),
     )
 
 
@@ -51,10 +49,9 @@ async def settings_admin(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    open_count = await count_open_tickets(session)
     await callback.message.edit_text(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=open_count),
+        reply_markup=get_admin_keyboard(open_tickets_count=0),
     )
 
 
@@ -64,10 +61,9 @@ async def admin_menu(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    open_count = await count_open_tickets(session)
     await callback.message.edit_text(
         "🔧 Адмін-панель",
-        reply_markup=get_admin_keyboard(open_tickets_count=open_count),
+        reply_markup=get_admin_keyboard(open_tickets_count=0),
     )
 
 

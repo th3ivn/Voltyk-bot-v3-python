@@ -52,6 +52,9 @@ class Settings(BaseSettings):
         "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/{region}/gpv-{queue}-emergency.png"
     )
 
+    SUPPORT_CHANNEL_URL: str = ""
+    FAQ_CHANNEL_URL: str = ""
+
     CHANNEL_GUARD_BATCH_SIZE: int = 5
     CHANNEL_GUARD_DELAY_BETWEEN_BATCHES_MS: int = 1000
     CHANNEL_GUARD_RETRY_ATTEMPTS: int = 3

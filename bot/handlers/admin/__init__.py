@@ -8,17 +8,13 @@ from bot.handlers.admin.intervals import router as intervals_router
 from bot.handlers.admin.maintenance import router as maintenance_router
 from bot.handlers.admin.panel import router as panel_router
 from bot.handlers.admin.pause import router as pause_router
-from bot.handlers.admin.support import router as support_router
-from bot.handlers.admin.tickets import router as tickets_router
 
 router = Router(name="admin")
 router.include_router(panel_router)
 router.include_router(broadcast_router)
 router.include_router(maintenance_router)
-router.include_router(tickets_router)
 router.include_router(growth_router)
 router.include_router(intervals_router)
 router.include_router(pause_router)
 router.include_router(admin_router_r)
-router.include_router(support_router)
 router.include_router(database_router)
