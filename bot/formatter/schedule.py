@@ -2,8 +2,24 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from html import escape as html_escape
+from zoneinfo import ZoneInfo
 
 from bot.constants.regions import REGIONS
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
+
+
+def _parse_event_dt(dt: datetime | str) -> datetime:
+    """Parse an event datetime string to a timezone-aware Kyiv datetime.
+
+    Handles both offset-aware ISO strings (new format, from api.py) and
+    offset-naive ISO strings (legacy format, from old cached/DB data).
+    """
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=KYIV_TZ)
+    return dt.astimezone(KYIV_TZ)
 
 DAY_NAMES = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
 
@@ -51,7 +67,7 @@ def format_schedule_message(
         return "⚠️ Помилка: невірний формат даних графіка"
 
     lines: list[str] = []
-    now = datetime.now()
+    now = datetime.now(KYIV_TZ)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
     today_name = day_names[now.weekday()]
@@ -85,18 +101,18 @@ def format_schedule_message(
     today_events = []
     tomorrow_events = []
     for ev in events:
-        start = datetime.fromisoformat(ev["start"]) if isinstance(ev["start"], str) else ev["start"]
+        start = _parse_event_dt(ev["start"])
         if today_start <= start < tomorrow_start:
             today_events.append(ev)
         elif tomorrow_start <= start < day_after_tomorrow:
             tomorrow_events.append(ev)
 
     today_total = sum(
-        (datetime.fromisoformat(e["end"]) - datetime.fromisoformat(e["start"])).total_seconds() / 60
+        (_parse_event_dt(e["end"]) - _parse_event_dt(e["start"])).total_seconds() / 60
         for e in today_events
     )
     tomorrow_total = sum(
-        (datetime.fromisoformat(e["end"]) - datetime.fromisoformat(e["start"])).total_seconds() / 60
+        (_parse_event_dt(e["end"]) - _parse_event_dt(e["start"])).total_seconds() / 60
         for e in tomorrow_events
     )
 
@@ -110,7 +126,7 @@ def format_schedule_message(
         for ev in tomorrow_events:
             s = _format_time(ev["start"])
             e = _format_time(ev["end"])
-            dur = (datetime.fromisoformat(ev["end"]) - datetime.fromisoformat(ev["start"])).total_seconds() * 1000
+            dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
             dur_str = _format_duration_from_ms(dur)
             key = f"{ev['start']}_{ev['end']}"
             is_new = key in new_event_keys
@@ -134,7 +150,7 @@ def format_schedule_message(
         for ev in today_events:
             s = _format_time(ev["start"])
             e = _format_time(ev["end"])
-            dur = (datetime.fromisoformat(ev["end"]) - datetime.fromisoformat(ev["start"])).total_seconds() * 1000
+            dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
             dur_str = _format_duration_from_ms(dur)
             key = f"{ev['start']}_{ev['end']}"
             is_new = key in new_event_keys
@@ -156,7 +172,7 @@ def format_schedule_for_channel(
     region: str, queue: str, schedule_data: dict, today_date: datetime | None = None
 ) -> str:
     lines: list[str] = []
-    date = today_date or datetime.now()
+    date = today_date or datetime.now(KYIV_TZ)
     day_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
     day_name = day_names[date.weekday()]
     date_str = date.strftime("%d.%m.%Y")
@@ -175,14 +191,14 @@ def format_schedule_for_channel(
     today_end = date.replace(hour=23, minute=59, second=59)
 
     for ev in events:
-        start = datetime.fromisoformat(ev["start"]) if isinstance(ev["start"], str) else ev["start"]
+        start = _parse_event_dt(ev["start"])
         if start < today_start or start > today_end:
             continue
         if ev.get("isPossible"):
             continue
         s = _format_time(ev["start"])
         e = _format_time(ev["end"])
-        dur = (datetime.fromisoformat(ev["end"]) - datetime.fromisoformat(ev["start"])).total_seconds() * 1000
+        dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
         dur_str = _format_duration_from_ms(dur)
         lines.append(f"🪫 <b>{s} - {e} (~{dur_str})</b>")
 

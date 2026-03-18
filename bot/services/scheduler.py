@@ -169,7 +169,7 @@ async def _check_single_queue(
     queue: str,
     interval_s: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S,
 ) -> None:
-    data = await fetch_schedule_data(region, cache_ttl_s=interval_s)
+    data = await fetch_schedule_data(region, force_refresh=True)
     if not data:
         return
 
@@ -364,7 +364,7 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         await session.commit()
             else:
                 # No overnight changes — send daily planned message
-                data = await fetch_schedule_data(region)
+                data = await fetch_schedule_data(region, force_refresh=True)
                 if not data:
                     continue
                 sched = parse_schedule_for_queue(data, queue)

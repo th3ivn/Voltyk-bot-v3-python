@@ -3,15 +3,19 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from bot.utils.logger import get_logger
+import time
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import aiohttp
 
 from bot.config import settings
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 _schedule_cache: dict[str, tuple[datetime, Any]] = {}
 _image_cache: dict[str, tuple[datetime, bytes]] = {}
@@ -19,18 +23,21 @@ CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
 
-async def fetch_schedule_data(region: str, cache_ttl_s: int | None = None) -> dict | None:
+async def fetch_schedule_data(
+    region: str, cache_ttl_s: int | None = None, force_refresh: bool = False
+) -> dict | None:
     # TTL = interval minus 5s buffer (minimum 10s). Falls back to settings if not provided.
     effective_ttl = timedelta(seconds=max((cache_ttl_s or settings.SCHEDULE_CHECK_INTERVAL_S) - 5, 10))
 
     cache_key = region
     now = datetime.now()
-    if cache_key in _schedule_cache:
+    if not force_refresh and cache_key in _schedule_cache:
         cached_at, data = _schedule_cache[cache_key]
         if now - cached_at < effective_ttl:
             return data
 
-    url = settings.DATA_URL_TEMPLATE.replace("{region}", region)
+    cb = int(time.time() * 1000)
+    url = f"{settings.DATA_URL_TEMPLATE.replace('{region}', region)}?_cb={cb}"
     retry_delays = [5, 15, 45]
 
     for attempt in range(len(retry_delays) + 1):
@@ -39,7 +46,10 @@ async def fetch_schedule_data(region: str, cache_ttl_s: int | None = None) -> di
                 async with session.get(
                     url,
                     timeout=aiohttp.ClientTimeout(total=30),
-                    headers={"User-Agent": "SvitloCheck-Bot/4.0"},
+                    headers={
+                        "User-Agent": "SvitloCheck-Bot/4.0",
+                        "Cache-Control": "no-cache, no-store",
+                    },
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json(content_type=None)
@@ -65,15 +75,22 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
         if now - cached_at < CACHE_TTL:
             return data
 
+    cb = int(time.time() * 1000)
     queue_dashed = queue.replace(".", "-")
-    url = settings.IMAGE_URL_TEMPLATE.replace("{region}", region).replace("{queue}", queue_dashed)
+    url = (
+        f"{settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)}"
+        f"?_cb={cb}"
+    )
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
-                headers={"User-Agent": "SvitloCheck-Bot/4.0"},
+                headers={
+                    "User-Agent": "SvitloCheck-Bot/4.0",
+                    "Cache-Control": "no-cache, no-store",
+                },
             ) as resp:
                 if resp.status == 200:
                     data = await resp.read()
@@ -167,7 +184,7 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
 
     today_schedule = fact_data.get(str(today_ts), {}).get(queue_key)
     if today_schedule:
-        today_date = datetime.fromtimestamp(today_ts)
+        today_date = datetime.fromtimestamp(today_ts, tz=KYIV_TZ)
         planned, possible = _parse_hourly_schedule(today_schedule)
 
         for p in planned:
@@ -186,7 +203,7 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
     if tomorrow_ts:
         tomorrow_schedule = fact_data.get(str(tomorrow_ts), {}).get(queue_key)
         if tomorrow_schedule:
-            tomorrow_date = datetime.fromtimestamp(tomorrow_ts)
+            tomorrow_date = datetime.fromtimestamp(tomorrow_ts, tz=KYIV_TZ)
             planned, possible = _parse_hourly_schedule(tomorrow_schedule)
 
             for p in planned:
@@ -207,22 +224,30 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
     return {"hasData": len(events) > 0, "events": events, "queue": queue}
 
 
+def _parse_dt(dt_str: str) -> datetime:
+    """Parse an ISO datetime string, attaching Kyiv TZ when the string is offset-naive."""
+    dt = datetime.fromisoformat(dt_str)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=KYIV_TZ)
+    return dt
+
+
 def find_next_event(schedule_data: dict) -> dict | None:
     if not schedule_data.get("hasData"):
         return None
 
-    now = datetime.now()
+    now = datetime.now(KYIV_TZ)
     events = schedule_data.get("events", [])
 
     for i, ev in enumerate(events):
-        start = datetime.fromisoformat(ev["start"])
-        end = datetime.fromisoformat(ev["end"])
+        start = _parse_dt(ev["start"])
+        end = _parse_dt(ev["end"])
 
         if start <= now < end:
             final_end = end
             j = i + 1
-            while j < len(events) and datetime.fromisoformat(events[j]["start"]) == final_end:
-                final_end = datetime.fromisoformat(events[j]["end"])
+            while j < len(events) and _parse_dt(events[j]["start"]) == final_end:
+                final_end = _parse_dt(events[j]["end"])
                 j += 1
             return {
                 "type": "power_on",
