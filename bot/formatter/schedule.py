@@ -69,8 +69,7 @@ def format_schedule_message(
     lines: list[str] = []
     now = datetime.now(KYIV_TZ)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
-    today_name = day_names[now.weekday()]
+    today_name = DAY_NAMES[now.weekday()]
     today_date = _format_date(now)
 
     events = schedule_data.get("events", [])
@@ -173,8 +172,7 @@ def format_schedule_for_channel(
 ) -> str:
     lines: list[str] = []
     date = today_date or datetime.now(KYIV_TZ)
-    day_names = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
-    day_name = day_names[date.weekday()]
+    day_name = DAY_NAMES[date.weekday()]
     date_str = date.strftime("%d.%m.%Y")
 
     lines.append(f"💡 Графік відключень <b>на сьогодні, {date_str} ({day_name})</b>, для черги {queue}:")
