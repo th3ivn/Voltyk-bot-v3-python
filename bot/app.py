@@ -106,6 +106,7 @@ async def on_shutdown(bot: Bot) -> None:
 
     for task in _bg_tasks:
         task.cancel()
+    await asyncio.gather(*_bg_tasks, return_exceptions=True)
     _bg_tasks.clear()
 
     await close_http_client()
