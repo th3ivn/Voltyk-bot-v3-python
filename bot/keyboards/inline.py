@@ -75,6 +75,10 @@ def _btn(
     return InlineKeyboardButton(**params)
 
 
+def _url_btn(text: str, url: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, url=url)
+
+
 def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
     params: dict = {"text": text, "url": url}
     if emoji_id:
