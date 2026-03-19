@@ -75,22 +75,12 @@ def _btn(
     return InlineKeyboardButton(**params)
 
 
-def _url_btn(text: str, url: str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text=text, url=url)
-
-
 def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
     params: dict = {"text": text, "url": url}
     if emoji_id:
         params["icon_custom_emoji_id"] = emoji_id
     return InlineKeyboardButton(**params)
 
-
-def _url_btn_styled(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url}
-    if emoji_id:
-        params["icon_custom_emoji_id"] = emoji_id
-    return InlineKeyboardButton(**params)
 
 
 # ─── Main menu ─────────────────────────────────────────────────────────────
@@ -552,16 +542,6 @@ def get_ip_ping_error_keyboard(support_url: str | None = None) -> InlineKeyboard
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_ip_monitoring_keyboard(has_ip: bool = False) -> InlineKeyboardMarkup:
-    """Legacy keyboard kept for backwards compatibility."""
-    if has_ip:
-        return get_ip_management_keyboard()
-    return get_ip_monitoring_keyboard_no_ip()
-
-
-def get_ip_cancel_keyboard() -> InlineKeyboardMarkup:
-    """Legacy keyboard kept for backwards compatibility."""
-    return get_ip_monitoring_keyboard_no_ip()
 
 
 # ─── Cleanup / Data deletion ──────────────────────────────────────────────

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from html import escape as html_escape
 from zoneinfo import ZoneInfo
 
 from bot.constants.regions import REGIONS
@@ -165,80 +164,3 @@ def format_schedule_message(
         lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
 
     return "\n".join(lines)
-
-
-def format_schedule_for_channel(
-    region: str, queue: str, schedule_data: dict, today_date: datetime | None = None
-) -> str:
-    lines: list[str] = []
-    date = today_date or datetime.now(KYIV_TZ)
-    day_name = DAY_NAMES[date.weekday()]
-    date_str = date.strftime("%d.%m.%Y")
-
-    lines.append(f"💡 Графік відключень <b>на сьогодні, {date_str} ({day_name})</b>, для черги {queue}:")
-    lines.append("")
-
-    events = schedule_data.get("events", [])
-    has_data = schedule_data.get("hasData", False)
-
-    if not has_data or not events:
-        lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
-        return "\n".join(lines)
-
-    today_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = date.replace(hour=23, minute=59, second=59)
-
-    for ev in events:
-        start = _parse_event_dt(ev["start"])
-        if start < today_start or start > today_end:
-            continue
-        if ev.get("isPossible"):
-            continue
-        s = _format_time(ev["start"])
-        e = _format_time(ev["end"])
-        dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
-        dur_str = _format_duration_from_ms(dur)
-        lines.append(f"🪫 <b>{s} - {e} (~{dur_str})</b>")
-
-    return "\n".join(lines)
-
-
-def format_schedule_changes(changes: dict | None) -> str:
-    if not changes:
-        return "Немає змін"
-
-    added = changes.get("added", [])
-    removed = changes.get("removed", [])
-    modified = changes.get("modified", [])
-
-    if not added and not removed and not modified:
-        return "Немає змін"
-
-    lines = ["📝 <b>Зміни:</b>", ""]
-
-    for ev in added:
-        lines.append(f"➕ {_format_time(ev['start'])}-{_format_time(ev['end'])}")
-    for ev in removed:
-        lines.append(f"➖ {_format_time(ev['start'])}-{_format_time(ev['end'])}")
-    for m in modified:
-        old, new = m["old"], m["new"]
-        lines.append(
-            f"🔄 {_format_time(old['start'])}-{_format_time(old['end'])} → "
-            f"{_format_time(new['start'])}-{_format_time(new['end'])}"
-        )
-
-    summary = changes.get("summary")
-    if summary:
-        lines.extend(["", f"Всього: {summary}"])
-
-    return "\n".join(lines)
-
-
-def format_schedule_update_message(region: str, queue: str) -> str:
-    region_name = REGIONS.get(region, None)
-    name = region_name.name if region_name else region
-    return (
-        f"🔄 <b>Графік оновлено!</b>\n"
-        f"📍 {html_escape(name)}, Черга {queue}\n\n"
-        f"Натисніть 📊 Графік для перегляду."
-    )

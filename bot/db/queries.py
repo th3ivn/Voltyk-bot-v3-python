@@ -51,10 +51,6 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int | str)
     return result.scalars().first()
 
 
-async def get_user_full(session: AsyncSession, telegram_id: int | str) -> User | None:
-    return await get_user_by_telegram_id(session, telegram_id)
-
-
 async def create_or_update_user(
     session: AsyncSession,
     telegram_id: int | str,

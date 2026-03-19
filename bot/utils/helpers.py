@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
-from html import escape as html_escape
 from typing import TypeVar
 
 _T = TypeVar("_T")
@@ -30,10 +29,6 @@ async def retry_bot_call(
             await asyncio.sleep(e.retry_after + 1)
 
     raise RuntimeError("unreachable")
-
-
-def escape_html(text: str) -> str:
-    return html_escape(text)
 
 
 def is_valid_ip_or_domain(address: str) -> dict:
@@ -70,10 +65,6 @@ CHANNEL_DESCRIPTION_BASE = (
     "⚡️ СвітлоБот — слідкує, щоб ви не слідкували.\n\n"
     "💬 Маєте ідеї або знайшли помилку?"
 )
-DEFAULT_SCHEDULE_CAPTION = "Графік на {dd}, {dm} для черги {queue}"
-DEFAULT_PERIOD_FORMAT = "{s} - {f} ({h} год)"
-
-
 def get_channel_welcome_message(queue: str) -> str:
     return (
         "👋 Цей канал підключено до СвітлоБота — чат-бота для моніторингу світла.\n\n"
