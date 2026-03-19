@@ -33,6 +33,7 @@ from bot.services.api import (
     fetch_schedule_image,
     parse_schedule_for_queue,
 )
+from bot.utils.helpers import retry_bot_call
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
 
@@ -507,22 +508,22 @@ async def _send_schedule_notification(
 
                 if image_bytes:
                     photo = BufferedInputFile(image_bytes, filename="schedule.png")
-                    sent_msg = await bot.send_photo(
+                    sent_msg = await retry_bot_call(lambda: bot.send_photo(
                         int(fresh_user.telegram_id),
                         photo=photo,
                         caption=bot_plain_text,
                         caption_entities=bot_entities,
                         reply_markup=kb,
                         parse_mode=None,
-                    )
+                    ))
                 else:
-                    sent_msg = await bot.send_message(
+                    sent_msg = await retry_bot_call(lambda: bot.send_message(
                         int(fresh_user.telegram_id),
                         bot_plain_text,
                         entities=bot_entities,
                         reply_markup=kb,
                         parse_mode=None,
-                    )
+                    ))
 
             except TelegramForbiddenError:
                 logger.warning(
@@ -547,20 +548,20 @@ async def _send_schedule_notification(
 
                     if image_bytes:
                         photo = BufferedInputFile(image_bytes, filename="schedule.png")
-                        sent_ch_msg = await bot.send_photo(
+                        sent_ch_msg = await retry_bot_call(lambda: bot.send_photo(
                             cc.channel_id,
                             photo=photo,
                             caption=ch_plain_text,
                             caption_entities=ch_entities,
                             parse_mode=None,
-                        )
+                        ))
                     else:
-                        sent_ch_msg = await bot.send_message(
+                        sent_ch_msg = await retry_bot_call(lambda: bot.send_message(
                             cc.channel_id,
                             ch_plain_text,
                             entities=ch_entities,
                             parse_mode=None,
-                        )
+                        ))
 
                 except TelegramForbiddenError:
                     logger.warning(

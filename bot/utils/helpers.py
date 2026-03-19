@@ -1,7 +1,35 @@
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from html import escape as html_escape
+from typing import TypeVar
+
+_T = TypeVar("_T")
+
+
+async def retry_bot_call(
+    coro_factory: Callable[[], Awaitable[_T]],
+    *,
+    max_retries: int = 1,
+) -> _T:
+    """Execute a Telegram bot API call, retrying on TelegramRetryAfter (429).
+
+    Pass a lambda so a fresh coroutine is created for each attempt:
+        await retry_bot_call(lambda: bot.send_message(chat_id, text))
+    """
+    from aiogram.exceptions import TelegramRetryAfter
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_factory()
+        except TelegramRetryAfter as e:
+            if attempt >= max_retries:
+                raise
+            await asyncio.sleep(e.retry_after + 1)
+
+    raise RuntimeError("unreachable")
 
 
 def escape_html(text: str) -> str:

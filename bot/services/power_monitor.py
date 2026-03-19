@@ -29,6 +29,7 @@ from bot.db.queries import (
 )
 from bot.db.session import async_session
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+from bot.utils.helpers import retry_bot_call
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -313,7 +314,7 @@ async def _handle_power_state_change(
 
             if send_to_bot:
                 try:
-                    sent = await bot.send_message(int(telegram_id), message, parse_mode="HTML")
+                    sent = await retry_bot_call(lambda: bot.send_message(int(telegram_id), message, parse_mode="HTML"))
                     logger.info("📱 Power notification sent to user %s (%s)", telegram_id, new_state)
                     try:
                         async with async_session() as session:
@@ -356,7 +357,7 @@ async def _handle_power_state_change(
                             ch_id = int(cc.channel_id)
                         except (ValueError, TypeError):
                             ch_id = cc.channel_id
-                        ch_sent = await bot.send_message(ch_id, message, parse_mode="HTML")
+                        ch_sent = await retry_bot_call(lambda: bot.send_message(ch_id, message, parse_mode="HTML"))
                         logger.info("📢 Power notification sent to channel %s", cc.channel_id)
                         try:
                             async with async_session() as session:
@@ -924,12 +925,12 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                 "адміністратор допоможе вам розібратися."
             )
             try:
-                await bot.send_message(
+                await retry_bot_call(lambda: bot.send_message(
                     int(alert.telegram_id),
                     text,
                     reply_markup=get_ip_ping_error_keyboard(support_url=support_url),
                     parse_mode="HTML",
-                )
+                ))
                 async with async_session() as session:
                     await update_ping_error_alert_time(session, alert.telegram_id)
                     await session.commit()
