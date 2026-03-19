@@ -4,7 +4,6 @@ import logging
 import sys
 from datetime import datetime
 
-
 _LEVEL_EMOJIS = {
     logging.DEBUG: "🔍 ",
     logging.INFO: "ℹ️ ",

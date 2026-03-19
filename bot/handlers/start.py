@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -21,6 +19,7 @@ from bot.keyboards.inline import (
     get_wizard_notify_target_keyboard,
 )
 from bot.states.fsm import WizardSG
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="start")

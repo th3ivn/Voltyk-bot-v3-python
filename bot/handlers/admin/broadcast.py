@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -11,6 +9,7 @@ from bot.config import settings
 from bot.db.queries import get_all_active_users
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="admin_broadcast")

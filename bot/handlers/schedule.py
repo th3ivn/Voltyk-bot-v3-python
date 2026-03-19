@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
@@ -13,6 +11,7 @@ from bot.formatter.timer import format_next_event_message, format_timer_message
 from bot.keyboards.inline import get_main_menu, get_schedule_view_keyboard
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="schedule")

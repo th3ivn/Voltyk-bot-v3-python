@@ -59,8 +59,8 @@ def create_dispatcher() -> Dispatcher:
 
 async def on_startup(bot: Bot) -> None:
     import sentry_sdk
-    from sentry_sdk.integrations.asyncio import AsyncioIntegration
     from sentry_sdk.integrations.aiohttp import AioHttpIntegration
+    from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
     if settings.SENTRY_DSN:
         sentry_sdk.init(

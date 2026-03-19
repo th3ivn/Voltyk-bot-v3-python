@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +10,7 @@ from bot.db.queries import (
     get_user_by_telegram_id,
     save_pending_channel,
 )
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="chat_member")

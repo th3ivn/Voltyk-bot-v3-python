@@ -7,13 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.queries import get_user_by_telegram_id
 from bot.formatter.messages import build_channel_notification_message, build_notification_settings_message
 from bot.keyboards.inline import (
+    E_BELL,
     get_channel_notification_keyboard,
     get_notification_main_keyboard,
     get_notification_reminders_keyboard,
     get_notification_select_keyboard,
     get_notification_target_select_keyboard,
     get_notification_targets_keyboard,
-    E_BELL,
 )
 
 router = Router(name="settings_alerts")

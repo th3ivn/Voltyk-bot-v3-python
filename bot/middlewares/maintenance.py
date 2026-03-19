@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -8,6 +7,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import settings
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

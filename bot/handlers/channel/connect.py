@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,6 +13,7 @@ from bot.db.queries import (
 )
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.helpers import CHANNEL_NAME_PREFIX
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="channel_connect")
