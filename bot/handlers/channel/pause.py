@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
 from bot.keyboards.inline import get_main_menu
+from bot.utils.logger import get_logger
 
+logger = get_logger(__name__)
 router = Router(name="channel_pause")
 
 
@@ -35,8 +37,8 @@ async def channel_pause_confirm(callback: CallbackQuery, session: AsyncSession) 
                 user.channel_config.channel_id,
                 "⚠ Канал зупинено на технічну перерву!",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not send pause notice to channel %s: %s", user.channel_config.channel_id, e)
     await callback.answer("✅ Канал зупинено")
     from bot.formatter.messages import format_main_menu_message
 
@@ -72,8 +74,8 @@ async def channel_resume_confirm(callback: CallbackQuery, session: AsyncSession)
                 user.channel_config.channel_id,
                 "✅ Роботу каналу відновлено!",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not send resume notice to channel %s: %s", user.channel_config.channel_id, e)
     await callback.answer("✅ Канал відновлено")
     from bot.formatter.messages import format_main_menu_message
 

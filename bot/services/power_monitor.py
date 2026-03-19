@@ -109,7 +109,8 @@ async def _check_router_http(router_ip: str | None) -> bool | None:
                 allow_redirects=False,
             ):
                 return True  # Any response → router is reachable → power is on
-    except Exception:
+    except Exception as e:
+        logger.debug("HTTP ping failed for %s:%s — %s", host, port, e)
         return False  # Connection failed → power is likely off
 
 
@@ -204,8 +205,8 @@ async def _handle_power_state_change(
                     logger.debug(
                         "User %s: Skipping notification (cooldown, %ds left)", telegram_id, remaining
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("User %s: Cooldown calculation error: %s", telegram_id, e)
 
         # ── Atomic DB update + duration calculation ───────────────────
         power_result = None
@@ -535,7 +536,8 @@ async def _check_user_power(bot: Bot, user) -> None:
         try:
             async with async_session() as session:
                 debounce_s = await _get_debounce_seconds(session)
-        except Exception:
+        except Exception as e:
+            logger.warning("Could not fetch debounce seconds, using default %ds: %s", DEFAULT_DEBOUNCE_S, e)
             debounce_s = DEFAULT_DEBOUNCE_S
         if debounce_s == 0:
             debounce_s = settings.POWER_MIN_STABILIZATION_S
@@ -719,7 +721,8 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
     try:
         async with async_session() as session:
             debounce_s = await _get_debounce_seconds(session)
-    except Exception:
+    except Exception as e:
+        logger.warning("Could not fetch debounce seconds on restart, using default: %s", e)
         debounce_s = DEFAULT_DEBOUNCE_S
 
     count = 0
