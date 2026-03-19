@@ -135,9 +135,14 @@ async def delete_user_data(session: AsyncSession, telegram_id: int | str) -> Non
         await session.delete(user)
 
 
-async def get_active_users_by_region(session: AsyncSession, region: str) -> list[User]:
+async def get_active_users_by_region(
+    session: AsyncSession, region: str, queue: str | None = None
+) -> list[User]:
+    conditions = [User.is_active.is_(True), User.region == region]
+    if queue is not None:
+        conditions.append(User.queue == queue)
     result = await session.execute(
-        select(User).options(*_user_with_relations()).where(User.is_active.is_(True), User.region == region)
+        select(User).options(*_user_with_relations()).where(*conditions)
     )
     return list(result.scalars().all())
 

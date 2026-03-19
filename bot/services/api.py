@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -118,6 +119,11 @@ async def fetch_schedule_data(
             return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
+    req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
+    if force_refresh:
+        url += f"?_cb={int(time.time() * 1000)}"
+        req_headers["Cache-Control"] = "no-cache, no-store"
+
     retry_delays = [1, 3]
 
     for attempt in range(len(retry_delays) + 1):
@@ -131,9 +137,7 @@ async def fetch_schedule_data(
             async with _session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
-                headers={
-                    "User-Agent": "SvitloCheck-Bot/4.0",
-                },
+                headers=req_headers,
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)

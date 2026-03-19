@@ -1026,9 +1026,16 @@ async def update_power_notifications_on_schedule_change(
 
         if bot_msg_id and new_schedule_line is not None:
             try:
-                duration_text = ""
-                if pt.last_power_change:
-                    duration_text = str(pt.last_power_change)
+                duration_text = "—"
+                if pt.power_changed_at:
+                    try:
+                        changed = pt.power_changed_at
+                        if changed.tzinfo is None:
+                            changed = changed.replace(tzinfo=UTC)
+                        elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
+                        duration_text = _format_exact_duration(elapsed_min)
+                    except Exception:
+                        pass
                 if current_state == "off":
                     base = (
                         f"🔴 <b>Світло зникло</b>\n"
@@ -1084,7 +1091,16 @@ async def update_power_notifications_on_schedule_change(
                 except (ValueError, TypeError):
                     ch_id = cc.channel_id
 
-                duration_text = str(pt.last_power_change) if pt.last_power_change else "—"
+                duration_text = "—"
+                if pt.power_changed_at:
+                    try:
+                        changed = pt.power_changed_at
+                        if changed.tzinfo is None:
+                            changed = changed.replace(tzinfo=UTC)
+                        elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
+                        duration_text = _format_exact_duration(elapsed_min)
+                    except Exception:
+                        pass
                 if current_state == "off":
                     base_ch = (
                         f"🔴 <b>Світло зникло</b>\n"
