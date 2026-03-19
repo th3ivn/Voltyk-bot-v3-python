@@ -479,12 +479,22 @@ async def timer_callback(callback: CallbackQuery, session: AsyncSession) -> None
 
 
 @router.callback_query(F.data == "reminder_dismiss")
-async def reminder_dismiss(callback: CallbackQuery) -> None:
+async def reminder_dismiss(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     try:
         await callback.message.delete()
     except Exception:
         pass
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        return
+    text = format_main_menu_message(user)
+    has_channel = bool(user.channel_config and user.channel_config.channel_id)
+    channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
+    kb = get_main_menu(channel_paused=channel_paused, has_channel=has_channel)
+    msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    user.last_menu_message_id = msg.message_id
+    await session.commit()
 
 
 @router.callback_query(F.data == "reminder_show_schedule")
