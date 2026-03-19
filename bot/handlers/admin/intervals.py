@@ -21,7 +21,7 @@ async def admin_intervals(callback: CallbackQuery, session: AsyncSession) -> Non
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
     await callback.answer()
-    sched = int(await get_setting(session, "schedule_check_interval") or "60")
+    sched = int(await get_setting(session, "schedule_check_interval") or "180")
     ip = int(await get_setting(session, "power_check_interval") or "2")
     await callback.message.edit_text(
         "⏱ Інтервали",

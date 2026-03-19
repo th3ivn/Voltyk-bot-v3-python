@@ -28,6 +28,7 @@ from bot.db.session import async_session
 from bot.keyboards.inline import get_schedule_view_keyboard
 from bot.services.api import (
     calculate_schedule_hash,
+    check_source_repo_updated,
     fetch_schedule_data,
     fetch_schedule_image,
     parse_schedule_for_queue,
@@ -144,6 +145,12 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
+    has_update = await check_source_repo_updated()
+    if not has_update:
+        logger.debug("No new commits in source repo, skipping full check")
+        return
+    logger.info("Source repo updated, checking all schedules")
+
     region_queue_pairs: set[tuple[str, str]] = set()
     batch_size_inner = 1000
     offset = 0
