@@ -41,8 +41,8 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                     "Кожен канал може бути підключений тільки до одного облікового запису.\n\n"
                     "Якщо це ваш канал — зверніться до підтримки.",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not notify user %s about already connected channel: %s", from_user.id, e)
             return
 
         user = await get_user_by_telegram_id(session, from_user.id)
@@ -78,8 +78,8 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                     "Замінити на новий?",
                     reply_markup=kb,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not send channel replace prompt to user %s: %s", from_user.id, e)
         else:
             try:
                 await event.bot.send_message(
@@ -87,8 +87,8 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                     f'✅ Канал знайдено: "{channel_title}"\n\nВикористовувати його для сповіщень?',
                     reply_markup=kb,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not send channel connect prompt to user %s: %s", from_user.id, e)
 
     elif new_status in ("left", "kicked") and old_status in ("administrator", "creator"):
         channel_id = str(chat.id)
@@ -107,5 +107,5 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                     f'⚠️ Мене видалили з каналу "{channel_title}".\n\n'
                     "Сповіщення в цей канал більше не надсилатимуться.",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not notify user %s about channel removal: %s", user.telegram_id, e)

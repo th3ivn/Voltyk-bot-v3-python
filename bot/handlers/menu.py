@@ -48,8 +48,8 @@ async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTM
 async def _safe_delete(message) -> None:
     try:
         await message.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not delete message: %s", e)
 
 
 async def _safe_edit_or_resend(message, text: str, reply_markup=None, parse_mode: str = "HTML"):
@@ -81,8 +81,8 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
     if user.last_menu_message_id and user.last_menu_message_id != callback.message.message_id:
         try:
             await callback.bot.delete_message(callback.message.chat.id, user.last_menu_message_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not delete old menu message %s: %s", user.last_menu_message_id, e)
 
     text = format_main_menu_message(user)
     has_channel = bool(user.channel_config and user.channel_config.channel_id)

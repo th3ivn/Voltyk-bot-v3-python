@@ -49,8 +49,8 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
         if user.last_menu_message_id:
             try:
                 await message.bot.delete_message(message.chat.id, user.last_menu_message_id)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not delete previous menu message %s: %s", user.last_menu_message_id, e)
 
         text = format_main_menu_message(user)
         has_channel = bool(user.channel_config and user.channel_config.channel_id)

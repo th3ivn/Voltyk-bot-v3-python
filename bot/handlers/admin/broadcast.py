@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
-from bot.db.queries import get_all_active_users
+from bot.db.queries import get_active_users_paginated
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
 from bot.utils.logger import get_logger
@@ -68,19 +68,26 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, ses
     await callback.answer()
     await callback.message.edit_text("📤 Розсилка розпочата...")
 
-    users = await get_all_active_users(session)
     sent = 0
     failed = 0
     full_text = BROADCAST_HEADER + text
+    offset = 0
+    batch_size = 500
 
-    for user in users:
-        try:
-            await callback.bot.send_message(
-                int(user.telegram_id), full_text, parse_mode="HTML"
-            )
-            sent += 1
-        except Exception:
-            failed += 1
+    while True:
+        batch = await get_active_users_paginated(session, limit=batch_size, offset=offset)
+        if not batch:
+            break
+        for user in batch:
+            try:
+                await callback.bot.send_message(
+                    int(user.telegram_id), full_text, parse_mode="HTML"
+                )
+                sent += 1
+            except Exception as e:
+                logger.warning("Broadcast failed for user %s: %s", user.telegram_id, e)
+                failed += 1
+        offset += len(batch)
 
     await callback.message.answer(
         f"✅ Розсилка завершена\n\n📤 Надіслано: {sent}\n❌ Помилок: {failed}"
