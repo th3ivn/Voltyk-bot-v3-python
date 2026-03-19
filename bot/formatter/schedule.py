@@ -88,7 +88,7 @@ def format_schedule_message(
 
     tomorrow_start = today_start + timedelta(days=1)
     day_after_tomorrow = tomorrow_start + timedelta(days=1)
-    tomorrow_name = day_names[tomorrow_start.weekday()]
+    tomorrow_name = DAY_NAMES[tomorrow_start.weekday()]
     tomorrow_date = _format_date(tomorrow_start)
 
     new_event_keys: set[str] = set()
