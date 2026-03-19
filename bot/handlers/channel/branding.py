@@ -116,6 +116,6 @@ async def _apply_branding(bot, user) -> None:
     except Exception as e:
         logger.warning("Failed to send welcome message: %s", e)
 
-    from datetime import datetime
+    from datetime import UTC, datetime
 
-    cc.channel_branding_updated_at = datetime.utcnow()
+    cc.channel_branding_updated_at = datetime.now(UTC)

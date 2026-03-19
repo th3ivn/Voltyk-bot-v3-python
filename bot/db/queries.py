@@ -70,7 +70,7 @@ async def create_or_update_user(
         user.queue = queue
         user.username = username
         user.is_active = True
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(UTC)
     else:
         user = User(
             telegram_id=tid,
@@ -289,7 +289,7 @@ async def close_ticket(session: AsyncSession, ticket_id: int, closed_by: str) ->
     await session.execute(
         update(Ticket)
         .where(Ticket.id == ticket_id)
-        .values(status="closed", closed_at=datetime.utcnow(), closed_by=closed_by)
+        .values(status="closed", closed_at=datetime.now(UTC), closed_by=closed_by)
     )
 
 

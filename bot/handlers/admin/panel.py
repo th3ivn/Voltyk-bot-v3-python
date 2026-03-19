@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -25,7 +25,7 @@ from bot.keyboards.inline import (
 
 router = Router(name="admin_panel")
 
-_start_time = datetime.utcnow()
+_start_time = datetime.now(UTC)
 
 
 def _admin_only(user_id: int) -> bool:
@@ -146,7 +146,7 @@ async def admin_system(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    uptime = datetime.utcnow() - _start_time
+    uptime = datetime.now(UTC) - _start_time
     hours = int(uptime.total_seconds() // 3600)
     minutes = int((uptime.total_seconds() % 3600) // 60)
     text = (
