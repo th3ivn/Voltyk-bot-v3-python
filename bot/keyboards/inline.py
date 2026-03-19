@@ -116,6 +116,13 @@ def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> In
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def get_reminder_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        _btn("Графік", "reminder_show_schedule", E_SCHEDULE_SEC),
+        _btn("Зрозуміло", "reminder_dismiss", E_SUCCESS),
+    ]])
+
+
 def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [

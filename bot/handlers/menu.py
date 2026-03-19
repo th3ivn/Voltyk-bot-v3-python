@@ -476,3 +476,22 @@ async def timer_callback(callback: CallbackQuery, session: AsyncSession) -> None
     next_event = find_next_event(schedule_data)
     text = format_timer_popup(next_event, schedule_data)
     await callback.answer(text, show_alert=True)
+
+
+@router.callback_query(F.data == "reminder_dismiss")
+async def reminder_dismiss(callback: CallbackQuery) -> None:
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "reminder_show_schedule")
+async def reminder_show_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Спочатку запустіть бота /start", show_alert=True)
+        return
+    await _send_schedule_photo(callback, user, session, edit_photo=False)
