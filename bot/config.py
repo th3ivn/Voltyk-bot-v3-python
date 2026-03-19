@@ -95,6 +95,11 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
+    if settings.ENVIRONMENT == "production":
+        raise ValueError(
+            "WEBHOOK_SECRET is required when USE_WEBHOOK=True in production. "
+            "Set WEBHOOK_SECRET in your environment."
+        )
     logger.warning(
         "⚠️  USE_WEBHOOK=True but WEBHOOK_SECRET is empty — "
         "the webhook endpoint has no authentication. "
