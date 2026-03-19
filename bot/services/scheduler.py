@@ -116,8 +116,8 @@ async def _get_schedule_interval() -> int:
             n = int(val)
             if n > 0:
                 return n
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Could not read schedule interval from DB: %s", e)
     return settings.SCHEDULE_CHECK_INTERVAL_S
 
 
@@ -291,9 +291,8 @@ async def _check_single_queue(
 
     # Fetch users and send notifications
     async with async_session() as session:
-        users = await get_active_users_by_region(session, region)
+        users_in_queue = await get_active_users_by_region(session, region, queue=queue)
 
-    users_in_queue = [u for u in users if u.queue == queue]
     await _send_notifications_to_users(
         bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
     )
@@ -342,10 +341,8 @@ async def flush_pending_notifications(bot: Bot) -> None:
             if (region, queue) in pending_set:
                 # Fetch users and pending notification in a single session
                 async with async_session() as session:
-                    users = await get_active_users_by_region(session, region)
+                    users_in_queue = await get_active_users_by_region(session, region, queue=queue)
                     notif = await get_latest_pending_notification(session, region, queue)
-
-                users_in_queue = [u for u in users if u.queue == queue]
 
                 if notif:
                     sched = json.loads(notif.schedule_data)
@@ -362,9 +359,7 @@ async def flush_pending_notifications(bot: Bot) -> None:
             else:
                 # No overnight changes — send daily planned message
                 async with async_session() as session:
-                    users = await get_active_users_by_region(session, region)
-
-                users_in_queue = [u for u in users if u.queue == queue]
+                    users_in_queue = await get_active_users_by_region(session, region, queue=queue)
                 data = await fetch_schedule_data(region, force_refresh=True)
                 if not data:
                     continue
