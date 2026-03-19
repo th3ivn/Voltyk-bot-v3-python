@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile
 
 from bot.config import settings
+from bot.constants.regions import REGIONS
 from bot.db.queries import (
     get_active_users_by_region,
     get_active_users_paginated,
@@ -590,16 +591,19 @@ async def _send_schedule_notification(
 
 # ─── Reminder notifications ───────────────────────────────────────────────
 
-# Tracks reminders already sent: (telegram_id, outage_start_iso, remind_minutes)
+# (telegram_id, event_anchor_iso, remind_minutes) — prevents duplicate sends
 _sent_reminders: set[tuple[str, str, int]] = set()
 
+# telegram_id -> event_anchor_iso whose reminder should be deleted when passed
+_pending_reminder_cleanup: dict[str, str] = {}
+
 _REMIND_MINUTES = [60, 30, 15]
-_REMIND_FIELDS = {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}
-_REMIND_LABELS = {60: "1 годину", 30: "30 хвилин", 15: "15 хвилин"}
+_REMIND_FIELDS  = {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}
+_REMIND_LABELS  = {60: "1 годину",  30: "30 хвилин",   15: "15 хвилин"}
 
 
 async def reminder_checker_loop(bot: Bot) -> None:
-    """Check every 60 seconds for upcoming outages and send reminders."""
+    """Check every 60 seconds for upcoming events and send/clean up reminders."""
     logger.info("Reminder checker loop started")
     while _running:
         try:
@@ -615,7 +619,17 @@ async def _check_and_send_reminders(bot: Bot) -> None:
 
     now = datetime.now(KYIV_TZ)
 
-    # Collect users with reminders enabled, grouped by (region, queue)
+    # ── 1. Cleanup: delete reminders for events that have already passed ──
+    for tid, anchor_iso in list(_pending_reminder_cleanup.items()):
+        if _event_passed(anchor_iso, now):
+            await _delete_reminder_messages(bot, tid)
+            del _pending_reminder_cleanup[tid]
+
+    # ── 2. Expire sent-reminders cache for past events ─────────────────
+    expired = {k for k in _sent_reminders if _event_passed(k[1], now)}
+    _sent_reminders.difference_update(expired)
+
+    # ── 3. Collect users grouped by (region, queue) ────────────────────
     pairs: dict[tuple[str, str], list] = {}
     offset = 0
     while True:
@@ -625,21 +639,18 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             break
         for user in batch:
             ns = user.notification_settings
-            if not ns or not ns.notify_remind_off:
+            if not ns:
                 continue
-            if not any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES):
+            has_off = ns.notify_remind_off and any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+            has_on  = ns.notify_remind_on  and any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+            if not (has_off or has_on):
                 continue
             if not user.region or not user.queue:
                 continue
-            key = (user.region, user.queue)
-            pairs.setdefault(key, []).append(user)
+            pairs.setdefault((user.region, user.queue), []).append(user)
         offset += len(batch)
 
-    # Clean up sent reminders for outages already passed
-    expired = {k for k in _sent_reminders if _outage_passed(k[1], now)}
-    _sent_reminders.difference_update(expired)
-
-    # For each (region, queue) fetch schedule and send due reminders
+    # ── 4. For each (region, queue) check schedule and fire reminders ───
     for (region, queue), users in pairs.items():
         try:
             raw = await fetch_schedule_data(region)
@@ -647,32 +658,42 @@ async def _check_and_send_reminders(bot: Bot) -> None:
                 continue
             sched = parse_schedule_for_queue(raw, queue)
             next_event = find_next_event(sched)
-            if not next_event or next_event["type"] != "power_off":
+            if not next_event:
                 continue
 
-            outage_start_iso: str = next_event["time"]
+            event_type: str   = next_event["type"]          # "power_off" | "power_on"
+            anchor_iso: str   = next_event["time"]           # outage start (off) / power back (on)
             minutes_until: int = next_event["minutes"]
             is_possible: bool = next_event.get("isPossible", False)
 
             for user in users:
                 ns = user.notification_settings
+                # Check whether this event type is enabled for this user
+                if event_type == "power_off" and not ns.notify_remind_off:
+                    continue
+                if event_type == "power_on" and not ns.notify_remind_on:
+                    continue
+
                 cc = user.channel_config
                 for remind_m in _REMIND_MINUTES:
                     if not getattr(ns, _REMIND_FIELDS[remind_m], False):
                         continue
-                    rkey = (str(user.telegram_id), outage_start_iso, remind_m)
+                    rkey = (str(user.telegram_id), anchor_iso, remind_m)
                     if rkey in _sent_reminders:
                         continue
                     if remind_m - 1 <= minutes_until <= remind_m + 1:
-                        await _send_reminder(bot, user, outage_start_iso, remind_m, is_possible, ns, cc)
+                        await _send_reminder(
+                            bot, user, next_event, remind_m, sched, region, queue, is_possible, ns, cc
+                        )
                         _sent_reminders.add(rkey)
+                        _pending_reminder_cleanup[str(user.telegram_id)] = anchor_iso
         except Exception as e:
             logger.error("Reminder check error for %s/%s: %s", region, queue, e)
 
 
-def _outage_passed(outage_start_iso: str, now: datetime) -> bool:
+def _event_passed(anchor_iso: str, now: datetime) -> bool:
     try:
-        dt = datetime.fromisoformat(outage_start_iso)
+        dt = datetime.fromisoformat(anchor_iso)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=KYIV_TZ)
         return now > dt
@@ -680,29 +701,153 @@ def _outage_passed(outage_start_iso: str, now: datetime) -> bool:
         return True
 
 
+async def _delete_reminder_messages(bot: Bot, telegram_id: str) -> None:
+    """Delete stored reminder messages for a user from bot chat and channel."""
+    try:
+        async with async_session() as session:
+            user = await get_user_by_telegram_id(session, telegram_id)
+            if not user or not user.message_tracking:
+                return
+            mt = user.message_tracking
+            cc = user.channel_config
+
+            if mt.last_reminder_message_id:
+                try:
+                    await bot.delete_message(int(telegram_id), mt.last_reminder_message_id)
+                except Exception:
+                    pass
+                mt.last_reminder_message_id = None
+
+            if mt.last_channel_reminder_message_id and cc and cc.channel_id:
+                try:
+                    ch_id: int | str
+                    try:
+                        ch_id = int(cc.channel_id)
+                    except (ValueError, TypeError):
+                        ch_id = cc.channel_id
+                    await bot.delete_message(ch_id, mt.last_channel_reminder_message_id)
+                except Exception:
+                    pass
+                mt.last_channel_reminder_message_id = None
+
+            await session.commit()
+    except Exception as e:
+        logger.warning("Could not delete reminder messages for user %s: %s", telegram_id, e)
+
+
+def _build_reminder_text(
+    next_event: dict,
+    remind_m: int,
+    sched: dict,
+    region: str,
+    queue: str,
+    is_possible: bool,
+) -> str:
+    event_type = next_event["type"]
+    label = _REMIND_LABELS[remind_m]
+
+    # ── Header ────────────────────────────────────────────────────────
+    if event_type == "power_off":
+        header = f"⚠️ <b>Відключення через {label}</b>"
+    else:
+        header = f"⚡️ <b>Увімкнення через {label}</b>"
+
+    # ── Region · Queue ────────────────────────────────────────────────
+    region_name = REGIONS[region].name if region in REGIONS else region
+    region_line = f"🌍 {region_name} · Черга {queue}"
+
+    # ── Schedule block ────────────────────────────────────────────────
+    try:
+        if event_type == "power_off":
+            start_iso = next_event["time"]
+            end_iso   = next_event.get("endTime", "")
+        else:
+            start_iso = next_event.get("startTime", "")
+            end_iso   = next_event["time"]
+
+        start_dt = datetime.fromisoformat(start_iso)
+        end_dt   = datetime.fromisoformat(end_iso)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=KYIV_TZ)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=KYIV_TZ)
+
+        duration_min = int((end_dt - start_dt).total_seconds() / 60)
+        dur_h = duration_min // 60
+        dur_m = duration_min % 60
+        dur_str = f"{dur_h} год {dur_m} хв" if dur_m else f"{dur_h} год"
+
+        schedule_line = (
+            f"📋 {start_dt.strftime('%H:%M')} – {end_dt.strftime('%H:%M')} ({dur_str})"
+        )
+    except Exception:
+        schedule_line = ""
+        end_dt = None
+
+    # ── Context line ──────────────────────────────────────────────────
+    context_line = ""
+    if end_dt:
+        if event_type == "power_off":
+            context_line = f"💡 Увімкнення о {end_dt.strftime('%H:%M')}"
+            # Find next outage after this one ends
+            next_outage = _find_next_outage_after(sched, end_dt)
+            if next_outage:
+                next_start = datetime.fromisoformat(next_outage["start"])
+                if next_start.tzinfo is None:
+                    next_start = next_start.replace(tzinfo=KYIV_TZ)
+                context_line += f"\n⚠️ Наступне відключення о {next_start.strftime('%H:%M')}"
+        else:
+            # power_on: power comes back at end_dt — find next outage
+            next_outage = _find_next_outage_after(sched, end_dt)
+            if next_outage:
+                next_start = datetime.fromisoformat(next_outage["start"])
+                if next_start.tzinfo is None:
+                    next_start = next_start.replace(tzinfo=KYIV_TZ)
+                context_line = f"⚠️ Наступне відключення о {next_start.strftime('%H:%M')}"
+            else:
+                context_line = "🌙 Більше відключень сьогодні немає"
+
+    if is_possible:
+        context_line = ("⚠️ Можливе відключення\n" + context_line).strip()
+
+    parts = [header, region_line]
+    if schedule_line:
+        parts.append(schedule_line)
+    if context_line:
+        parts.append(context_line)
+    return "\n".join(parts)
+
+
+def _find_next_outage_after(sched: dict, after_dt: datetime) -> dict | None:
+    """Return the first scheduled outage event that starts after after_dt."""
+    for ev in sched.get("events", []):
+        try:
+            start = datetime.fromisoformat(ev["start"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=KYIV_TZ)
+            if start >= after_dt and not ev.get("isPossible"):
+                return ev
+        except Exception:
+            continue
+    return None
+
+
 async def _send_reminder(
     bot: Bot,
     user,
-    outage_start_iso: str,
+    next_event: dict,
     remind_m: int,
+    sched: dict,
+    region: str,
+    queue: str,
     is_possible: bool,
     ns,
     cc,
 ) -> None:
-    try:
-        start_dt = datetime.fromisoformat(outage_start_iso)
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=KYIV_TZ)
-        start_str = start_dt.strftime("%H:%M")
-    except Exception:
-        start_str = "?"
+    text = _build_reminder_text(next_event, remind_m, sched, region, queue, is_possible)
 
-    label = _REMIND_LABELS[remind_m]
-    possible_note = " (можливо)" if is_possible else ""
-    text = (
-        f"⏰ <b>Нагадування</b>\n\n"
-        f"За {label} ({start_str}) очікується відключення світла{possible_note}."
-    )
+    # Delete previous reminder before sending the new one
+    await _delete_reminder_messages(bot, str(user.telegram_id))
 
     send_to_bot = ns.notify_remind_target != "channel"
     send_to_channel = (
@@ -712,11 +857,15 @@ async def _send_reminder(
         and getattr(cc, "ch_notify_remind_off", False)
     )
 
+    bot_msg_id: int | None = None
+    ch_msg_id: int | None = None
+
     if send_to_bot:
         try:
-            await retry_bot_call(
+            msg = await retry_bot_call(
                 lambda: bot.send_message(int(user.telegram_id), text, parse_mode="HTML")
             )
+            bot_msg_id = msg.message_id
             logger.debug("Reminder -%dm sent to user %s", remind_m, user.telegram_id)
         except TelegramForbiddenError:
             logger.debug("User %s blocked bot, skipping reminder", user.telegram_id)
@@ -730,14 +879,29 @@ async def _send_reminder(
                 ch_id = int(cc.channel_id)
             except (ValueError, TypeError):
                 ch_id = cc.channel_id
-            await retry_bot_call(
+            ch_msg = await retry_bot_call(
                 lambda: bot.send_message(ch_id, text, parse_mode="HTML")
             )
+            ch_msg_id = ch_msg.message_id
             logger.debug("Reminder -%dm sent to channel %s", remind_m, cc.channel_id)
         except TelegramForbiddenError:
             logger.debug("Lost access to channel %s, skipping reminder", cc.channel_id)
         except Exception as e:
             logger.warning("Failed to send reminder to channel %s: %s", cc.channel_id, e)
+
+    # Persist message IDs for future deletion
+    if bot_msg_id or ch_msg_id:
+        try:
+            async with async_session() as session:
+                db_user = await get_user_by_telegram_id(session, str(user.telegram_id))
+                if db_user and db_user.message_tracking:
+                    if bot_msg_id:
+                        db_user.message_tracking.last_reminder_message_id = bot_msg_id
+                    if ch_msg_id:
+                        db_user.message_tracking.last_channel_reminder_message_id = ch_msg_id
+                    await session.commit()
+        except Exception as e:
+            logger.warning("Could not save reminder message IDs for user %s: %s", user.telegram_id, e)
 
 
 def stop_scheduler() -> None:
