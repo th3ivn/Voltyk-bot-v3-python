@@ -817,7 +817,8 @@ async def power_monitor_loop(bot: Bot) -> None:
         try:
             async with async_session() as session:
                 interval = await _get_check_interval(session)
-        except Exception:
+        except Exception as e:
+            logger.warning("Could not read check interval from DB, using default: %s", e)
             interval = DEFAULT_CHECK_INTERVAL_S
 
         await asyncio.sleep(interval)
