@@ -622,6 +622,8 @@ async def _check_all_ips(bot: Bot) -> None:
 
     except Exception as e:
         logger.error("Error in _check_all_ips: %s", e)
+        import sentry_sdk
+        sentry_sdk.capture_exception(e)
     finally:
         _is_checking = False
         _is_checking_started_at = None
@@ -826,6 +828,8 @@ async def power_monitor_loop(bot: Bot) -> None:
             await _check_all_ips(bot)
         except Exception as e:
             logger.error("Power monitor check error: %s", e)
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
 
         # Periodic state save (every 5 minutes)
         now_t = asyncio.get_running_loop().time()

@@ -133,6 +133,8 @@ async def schedule_checker_loop(bot: Bot) -> None:
             await _check_all_schedules(bot, interval)
         except Exception as e:
             logger.error("Schedule check error: %s", e)
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
 
         logger.debug("Next schedule check in %ds", interval)
         await asyncio.sleep(interval)
@@ -161,6 +163,8 @@ async def _check_all_schedules(
             await _check_single_queue(bot, region, queue, interval_s=interval)
         except Exception as e:
             logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
 
 
 async def _check_single_queue(

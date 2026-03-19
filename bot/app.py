@@ -58,6 +58,14 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot) -> None:
+    import sentry_sdk
+    if settings.SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            traces_sample_rate=0.1,
+            environment=settings.ENVIRONMENT,
+        )
+        logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
     logger.info("🚀 Запуск СвітлоБот v4...")
     await _run_migrations()
     await init_db()

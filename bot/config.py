@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     CHANNEL_GUARD_RETRY_ATTEMPTS: int = 3
     CHANNEL_GUARD_RETRY_BASE_DELAY_MS: int = 1000
 
+    SENTRY_DSN: str = ""
+    ENVIRONMENT: str = "production"
+
     @field_validator("ADMIN_IDS", mode="before")
     @classmethod
     def parse_admin_ids(cls, v: str | list) -> list:

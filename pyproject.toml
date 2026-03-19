@@ -18,6 +18,7 @@ dependencies = [
     "structlog>=24.1",
     "uvloop>=0.19; sys_platform != 'win32'",
     "aioping>=0.4",
+    "sentry-sdk[aiohttp]>=2.0,<3",
 ]
 
 [project.optional-dependencies]
