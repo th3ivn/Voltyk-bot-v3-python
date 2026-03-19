@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from bot.utils.logger import get_logger
 import re
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -10,8 +9,8 @@ import aiohttp
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from bot.config import settings
 from bot.db.models import User as UserModel
@@ -30,6 +29,7 @@ from bot.db.queries import (
 )
 from bot.db.session import async_session
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

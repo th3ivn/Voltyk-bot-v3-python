@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from bot.utils.logger import get_logger
-
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -10,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.queries import get_user_by_telegram_id
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.helpers import CHANNEL_NAME_PREFIX
+from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="channel_conversation")
