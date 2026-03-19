@@ -31,6 +31,9 @@
 - [x] PR-2: Виправлення UTF-16 offsets, edit_media, animated emoji (13 березня 2026)
 - [x] PR-3: Оновлення aiogram до 3.26, фінальне виправлення date_time entity та _send_schedule_photo (13 березня 2026)
 - [x] PR-4: Критичне виправлення — бот не сповіщав про оновлення графіка (18 березня 2026)
+- [x] PR-5: Оптимізація HTTP client, Sentry SDK, CI/CD pipeline (19 березня 2026)
+- [x] PR-6: GitHub Commits API замість file polling (19 березня 2026)
+- [x] PR-7: datetime.utcnow() deprecation, ThrottleMiddleware memory leak, DB sessions, retry 429, graceful shutdown (19 березня 2026)
 
 ---
 
@@ -167,3 +170,93 @@
 - ✅ Правило №1: UI ідентичний — тексти, кнопки, flows не змінено
 - ✅ Правило №2: Всі рішення production-рівня, жодних костилів
 - ✅ Правило №3: bot_notifications і channel_notifications незалежні; логіка каналів не змінена
+
+---
+
+## PR-5: Оптимізація HTTP client, Sentry SDK, CI/CD pipeline (19 березня 2026)
+
+### Що зроблено:
+
+#### PR #74 — Оптимізація HTTP client та DB sessions (`bot/services/api.py`, `bot/services/scheduler.py`, `bot/app.py`):
+1. Shared `aiohttp.ClientSession` з `TCPConnector(limit=20)` — одна сесія на весь lifetime бота (init/close через `on_startup`/`on_shutdown`).
+2. Retry delays зменшено з `[5, 15, 45]` до `[1, 3]` секунд — менше простою при тимчасових збоях.
+3. `scheduler.py`: злито 3→1 та 2→1 зайвих DB сесії в `_check_single_queue`.
+
+#### PR #75 — Sentry SDK (`bot/app.py`, `.env.example`):
+1. `sentry_sdk.init(...)` з `AsyncioIntegration` + `AioHttpIntegration` в `on_startup`, активується тільки якщо `SENTRY_DSN` задано.
+2. `traces_sample_rate=0.1` — мінімальне трейсування без перевантаження квоти.
+
+#### PR #76 — CI/CD pipeline (`.github/workflows/ci.yml`):
+1. GitHub Actions: ruff lint + auto-delete merged branches.
+2. Ruff як єдиний linter/formatter — стандарт для Python 3.12+.
+
+#### PR #77 — Ruff lint fix:
+Виправлено `I001` (unsorted imports) та `W292` (no newline at EOF) — чистка після PR #76.
+
+### Рішення і чому:
+- Shared `ClientSession` — офіційна рекомендація aiohttp: одна сесія на застосунок, не одна на запит.
+- `TCPConnector(limit=20)` — обмеження пулу з'єднань, запобігає file descriptor exhaustion.
+- Sentry `init` в `on_startup` (не на рівні модуля) — Sentry не ініціалізується при тестах та Alembic міграціях.
+
+### Відповідність правилам:
+- ✅ Правило №1: UI не змінено
+- ✅ Правило №2: Shared session — стандарт aiohttp; Sentry — офіційний SDK
+- ✅ Правило №3: Без змін у логіці каналів/сповіщень
+
+---
+
+## PR-6: GitHub Commits API замість file polling (19 березня 2026)
+
+### Суть проблеми:
+`fetch_schedule_data` перевіряв зміни графіку через `?_cb=` cache-busting на raw.githubusercontent.com. CDN GitHub кешує raw-файли з TTL до 5 хвилин навіть з різними query params. Детектор змін міг пропускати оновлення.
+
+### Що зроблено (`bot/services/api.py`, `bot/services/scheduler.py`, `bot/config.py`):
+1. Новий метод `fetch_schedule_commit_sha(region)` — запитує `api.github.com/repos/.../commits?path=<file>&per_page=1` і повертає SHA останнього коміту для файлу графіку.
+2. `_check_single_queue` в `scheduler.py` — порівнює `commit_sha` замість хешу вмісту файлу.
+3. `bot/config.py`: нові поля `GITHUB_TOKEN` (optional), `GITHUB_REPO`, `GITHUB_BRANCH` — конфігурабельний репозиторій.
+4. Rate limit: GitHub API дає 60 req/год без токену, 5000 — з токеном. При наявності `GITHUB_TOKEN` — автентифікований запит.
+
+### Рішення і чому:
+- GitHub Commits API (`/repos/{owner}/{repo}/commits`) — офіційний, не кешований CDN endpoint.
+- SHA коміту — детермінований, стабільний ідентифікатор зміни файлу (краще за хеш вмісту, який залежить від CDN).
+- `per_page=1` — мінімальна відповідь, тільки останній коміт.
+
+### Відповідність правилам:
+- ✅ Правило №1: UI не змінено
+- ✅ Правило №2: Офіційний GitHub REST API, без хаків
+- ✅ Правило №3: Логіка сповіщень не змінена; детектор змін надійніший
+
+---
+
+## PR-7: Серія технічних виправлень (19 березня 2026)
+
+### PR #79 — `datetime.utcnow()` deprecation (`bot/db/`, `bot/services/`, `bot/tasks/`):
+- `datetime.utcnow()` deprecated з Python 3.12 і повертає naive datetime.
+- Замінено всі 5 входжень на `datetime.now(UTC)` (tz-aware, `from datetime import UTC`).
+- Причина: naive datetimes при порівнянні з tz-aware викидають `TypeError`; в майбутніх Python буде `DeprecationWarning → Error`.
+
+### PR #80 — ThrottleMiddleware memory leak (`bot/middlewares/throttle.py`):
+- `_last_call: dict[int, float]` ніколи не очищувався — при 100k DAU займав ~8 MB/добу.
+- Додано `_cleanup_interval = 300` (5 хв) і `_cleanup_threshold = 600` (10 хв TTL для неактивних юзерів).
+- Cleanup викликається в `__call__` раз на 5 хвилин через `time.monotonic()` — без додаткового фонового таску.
+
+### PR #81 — Оптимізація DB сесій в scheduler (`bot/services/scheduler.py`):
+- `_check_single_queue`: 4–5 окремих `async with session_factory() as db:` злито у 3 логічні фази:
+  1. Read: хеш + сьогоднішній/вчорашній snapshot.
+  2. Write: оновлення хешу + upsert snapshot + черга сповіщень.
+  3. Read: активні юзери для розсилки.
+- Причина: кожен `session_factory()` — окреме з'єднання з пулу. 4–5 з'єднань × N черг = навантаження на PostgreSQL connection pool.
+
+### PR #82 — Retry на TelegramRetryAfter (429) (`bot/utils/helpers.py`):
+- Новий хелпер `retry_bot_call(coro_fn)` — ловить `TelegramRetryAfter`, спить `retry_after + 1` секунд, робить одну повторну спробу.
+- Без retry 429 мовчки дропав повідомлення (виняток ловився у верхньому `except Exception`).
+- Один retry (не безмежний цикл) — відповідає Telegram рекомендаціям: при flood control достатньо однієї повторної спроби.
+
+### PR #83 — Graceful shutdown (`bot/app.py`):
+- `on_shutdown`: після `task.cancel()` для всіх `_bg_tasks` додано `await asyncio.gather(*_bg_tasks, return_exceptions=True)`.
+- Причина: `task.cancel()` лише планує CancelledError — без await таски ще виконуються під час teardown DB/HTTP. `return_exceptions=True` — щоб `CancelledError` не переривав shutdown.
+
+### Відповідність правилам:
+- ✅ Правило №1: UI не змінено
+- ✅ Правило №2: Всі рішення стандартні — UTC-aware datetime, monotonic cleanup, connection pool efficiency, офіційний retry pattern
+- ✅ Правило №3: Логіка каналів/сповіщень не змінена
