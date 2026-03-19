@@ -31,7 +31,9 @@ class Settings(BaseSettings):
 
     HEALTH_PORT: int = 3000
 
-    SCHEDULE_CHECK_INTERVAL_S: int = 60
+    GITHUB_TOKEN: str = ""
+
+    SCHEDULE_CHECK_INTERVAL_S: int = 180
     POWER_CHECK_INTERVAL_S: int = 0
     POWER_DEBOUNCE_MINUTES: int = 5
     POWER_PING_TIMEOUT_MS: int = 3000

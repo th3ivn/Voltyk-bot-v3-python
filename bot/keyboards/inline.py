@@ -696,7 +696,7 @@ def get_admin_intervals_keyboard(schedule_interval: int = 60, ip_interval: int =
 
 def get_schedule_interval_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("1 хв", "admin_schedule_1"), _btn("5 хв", "admin_schedule_5"),
+        [_btn("3 хв", "admin_schedule_3"), _btn("5 хв", "admin_schedule_5"),
          _btn("10 хв", "admin_schedule_10"), _btn("15 хв", "admin_schedule_15")],
         [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])

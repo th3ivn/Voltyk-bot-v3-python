@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import time
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -23,6 +22,7 @@ CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
 _http_client: aiohttp.ClientSession | None = None
+_last_commit_sha: str | None = None
 
 
 async def init_http_client() -> None:
@@ -40,6 +40,70 @@ async def close_http_client() -> None:
         _http_client = None
 
 
+async def check_source_repo_updated() -> bool:
+    """Check if Baskerville42/outage-data-ua has new commits in data/ directory.
+
+    Uses GitHub Commits API which is not affected by CDN caching.
+    With GITHUB_TOKEN: 5000 requests/hour limit.
+    Without token: 60 requests/hour limit.
+
+    Returns True if new data is available or on any error (fail-open).
+    Returns False if no changes detected.
+    """
+    global _last_commit_sha
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Voltyk-Bot/4.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+
+    url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits?per_page=1&path=data"
+
+    _owned = False
+    _session = _http_client
+    if _session is None:
+        _session = aiohttp.ClientSession()
+        _owned = True
+    try:
+        async with _session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=15),
+            headers=headers,
+        ) as resp:
+            if resp.status == 200:
+                commits = await resp.json(content_type=None)
+                if commits and isinstance(commits, list):
+                    first = commits[0]
+                    if not isinstance(first, dict) or "sha" not in first:
+                        logger.warning("Unexpected commit object structure, falling back to full fetch")
+                        return True
+                    new_sha = first["sha"]
+                    if _last_commit_sha is None:
+                        _last_commit_sha = new_sha
+                        logger.info("Initial commit SHA: %s", new_sha[:8])
+                        return True
+                    if new_sha != _last_commit_sha:
+                        logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
+                        _last_commit_sha = new_sha
+                        return True
+                    logger.debug("No new commits (SHA: %s)", new_sha[:8])
+                    return False
+            else:
+                logger.warning("GitHub Commits API returned %d, falling back to full fetch", resp.status)
+                return True
+    except Exception as e:
+        logger.warning("GitHub Commits API check failed: %s, falling back to full fetch", e)
+        return True
+    finally:
+        if _owned:
+            await _session.close()
+
+    return True
+
+
 async def fetch_schedule_data(
     region: str, cache_ttl_s: int | None = None, force_refresh: bool = False
 ) -> dict | None:
@@ -53,8 +117,7 @@ async def fetch_schedule_data(
         if now - cached_at < effective_ttl:
             return data
 
-    cb = int(time.time() * 1000)
-    url = f"{settings.DATA_URL_TEMPLATE.replace('{region}', region)}?_cb={cb}"
+    url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
     retry_delays = [1, 3]
 
     for attempt in range(len(retry_delays) + 1):
@@ -70,7 +133,6 @@ async def fetch_schedule_data(
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers={
                     "User-Agent": "SvitloCheck-Bot/4.0",
-                    "Cache-Control": "no-cache, no-store",
                 },
             ) as resp:
                 if resp.status == 200:
@@ -100,12 +162,8 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
         if now - cached_at < CACHE_TTL:
             return data
 
-    cb = int(time.time() * 1000)
     queue_dashed = queue.replace(".", "-")
-    url = (
-        f"{settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)}"
-        f"?_cb={cb}"
-    )
+    url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
 
     try:
         _owned = False
@@ -120,7 +178,6 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers={
                     "User-Agent": "SvitloCheck-Bot/4.0",
-                    "Cache-Control": "no-cache, no-store",
                 },
             ) as resp:
                 if resp.status == 200:
