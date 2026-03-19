@@ -66,9 +66,6 @@ async def on_startup(bot: Bot) -> None:
             environment=settings.ENVIRONMENT,
         )
         logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
-        # TODO: Remove after Sentry verification
-        sentry_sdk.capture_message("Voltyk bot started successfully", level="info")
-        logger.info("🧪 Тестове Sentry повідомлення відправлено")
     logger.info("🚀 Запуск СвітлоБот v4...")
     await _run_migrations()
     await init_db()
