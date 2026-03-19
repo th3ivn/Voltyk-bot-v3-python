@@ -22,6 +22,23 @@ _image_cache: dict[str, tuple[datetime, bytes]] = {}
 CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
+_http_client: aiohttp.ClientSession | None = None
+
+
+async def init_http_client() -> None:
+    """Initialise the shared HTTP client. Call once at bot startup."""
+    global _http_client
+    connector = aiohttp.TCPConnector(limit=20)
+    _http_client = aiohttp.ClientSession(connector=connector)
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client. Call once at bot shutdown."""
+    global _http_client
+    if _http_client is not None:
+        await _http_client.close()
+        _http_client = None
+
 
 async def fetch_schedule_data(
     region: str, cache_ttl_s: int | None = None, force_refresh: bool = False
@@ -38,29 +55,37 @@ async def fetch_schedule_data(
 
     cb = int(time.time() * 1000)
     url = f"{settings.DATA_URL_TEMPLATE.replace('{region}', region)}?_cb={cb}"
-    retry_delays = [5, 15, 45]
+    retry_delays = [1, 3]
 
     for attempt in range(len(retry_delays) + 1):
+        _owned = False
+        _session = _http_client
+        if _session is None:
+            logger.warning("HTTP client not initialised, falling back to temporary session")
+            _session = aiohttp.ClientSession()
+            _owned = True
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                    headers={
-                        "User-Agent": "SvitloCheck-Bot/4.0",
-                        "Cache-Control": "no-cache, no-store",
-                    },
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json(content_type=None)
-                        if len(_schedule_cache) >= MAX_CACHE_SIZE:
-                            oldest = min(_schedule_cache, key=lambda k: _schedule_cache[k][0])
-                            del _schedule_cache[oldest]
-                        _schedule_cache[cache_key] = (now, data)
-                        return data
-                    logger.warning("Schedule fetch %s returned %d", region, resp.status)
+            async with _session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=30),
+                headers={
+                    "User-Agent": "SvitloCheck-Bot/4.0",
+                    "Cache-Control": "no-cache, no-store",
+                },
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    if len(_schedule_cache) >= MAX_CACHE_SIZE:
+                        oldest = min(_schedule_cache, key=lambda k: _schedule_cache[k][0])
+                        del _schedule_cache[oldest]
+                    _schedule_cache[cache_key] = (now, data)
+                    return data
+                logger.warning("Schedule fetch %s returned %d", region, resp.status)
         except (TimeoutError, aiohttp.ClientError) as e:
             logger.warning("Schedule fetch %s attempt %d failed: %s", region, attempt + 1, e)
+        finally:
+            if _owned:
+                await _session.close()
         if attempt < len(retry_delays):
             await asyncio.sleep(retry_delays[attempt])
 
@@ -83,8 +108,14 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
     )
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        _owned = False
+        _session = _http_client
+        if _session is None:
+            logger.warning("HTTP client not initialised, falling back to temporary session")
+            _session = aiohttp.ClientSession()
+            _owned = True
+        try:
+            async with _session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers={
@@ -99,6 +130,9 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
                         del _image_cache[oldest]
                     _image_cache[cache_key] = (now, data)
                     return data
+        finally:
+            if _owned:
+                await _session.close()
     except (TimeoutError, aiohttp.ClientError) as e:
         logger.warning("Image fetch %s/%s failed: %s", region, queue, e)
 
