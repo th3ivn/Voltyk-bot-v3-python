@@ -188,45 +188,38 @@ async def _check_single_queue(
     events = sched.get("events", [])
     new_all_hash = calculate_schedule_hash(events)
 
-    async with async_session() as session:
-        stored_hash = await get_schedule_hash(session, region, queue)
-        if stored_hash is not None and stored_hash == new_all_hash:
-            # No change in overall hash — update timestamp only
-            await update_schedule_check_time(session, region, queue)
-            # Even when the overall hash hasn't changed we may need to create or
-            # refresh the daily snapshot (e.g. first check of a new day).  Do this
-            # outside the early-return so it always runs.
-            today_date_check = _kyiv_date_str()
-            existing = await get_daily_snapshot(session, region, queue, today_date_check)
-            if existing is None:
-                new_today_hash_check = _compute_date_hash(events, today_date_check)
-                new_tomorrow_hash_check = _compute_date_hash(events, _tomorrow_date_str())
-                await upsert_daily_snapshot(
-                    session, region, queue, today_date_check,
-                    json.dumps(sched), new_today_hash_check, new_tomorrow_hash_check,
-                )
-            await session.commit()
-            return
-
-    # Hash changed — update check time and hash
-    logger.info("Schedule changed for region=%s queue=%s", region, queue)
-
-    # Determine update_type and changes using daily snapshot comparison
     today_date = _kyiv_date_str()
     yesterday_date = _yesterday_date_str()
     tomorrow_date = _tomorrow_date_str()
+
+    # Single read session — fetch all needed DB state upfront
+    async with async_session() as session:
+        stored_hash = await get_schedule_hash(session, region, queue)
+        snapshot = await get_daily_snapshot(session, region, queue, today_date)
+        yesterday_snapshot = await get_daily_snapshot(session, region, queue, yesterday_date)
+
+    if stored_hash is not None and stored_hash == new_all_hash:
+        # No change in overall hash — update timestamp and refresh daily snapshot if needed
+        async with async_session() as session:
+            await update_schedule_check_time(session, region, queue)
+            if snapshot is None:
+                new_today_hash_check = _compute_date_hash(events, today_date)
+                new_tomorrow_hash_check = _compute_date_hash(events, tomorrow_date)
+                await upsert_daily_snapshot(
+                    session, region, queue, today_date,
+                    json.dumps(sched), new_today_hash_check, new_tomorrow_hash_check,
+                )
+            await session.commit()
+        return
+
+    # Hash changed — determine what changed
+    logger.info("Schedule changed for region=%s queue=%s", region, queue)
 
     new_today_hash = _compute_date_hash(events, today_date)
     new_tomorrow_hash = _compute_date_hash(events, tomorrow_date)
 
     update_type: dict = {}
     changes: dict = {"added": []}
-
-    async with async_session() as session:
-        await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
-        snapshot = await get_daily_snapshot(session, region, queue, today_date)
-        yesterday_snapshot = await get_daily_snapshot(session, region, queue, yesterday_date)
-        await session.commit()
 
     if snapshot is None:
         # First check of the day — compare today's events with yesterday's tomorrow data
@@ -268,15 +261,6 @@ async def _check_single_queue(
         if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
-    # Save updated snapshot
-    async with async_session() as session:
-        await upsert_daily_snapshot(
-            session, region, queue, today_date,
-            json.dumps(sched), new_today_hash, new_tomorrow_hash,
-        )
-        await session.commit()
-
-    # If no meaningful change detected, skip notification
     # Fallback: hash changed but snapshots were absent (e.g. first run) — always notify
     if not update_type:
         update_type["todayUpdated"] = True
@@ -285,17 +269,26 @@ async def _check_single_queue(
     update_type_json = json.dumps(update_type)
     changes_json = json.dumps(changes) if changes.get("added") else None
 
-    if _is_quiet_hours():
-        # Queue notification for 06:00 flush
-        async with async_session() as session:
+    quiet = _is_quiet_hours()
+
+    # Single write session — update hash, snapshot, and optionally queue notification
+    async with async_session() as session:
+        await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
+        await upsert_daily_snapshot(
+            session, region, queue, today_date,
+            sched_data_json, new_today_hash, new_tomorrow_hash,
+        )
+        if quiet:
             await save_pending_notification(
                 session, region, queue, sched_data_json, update_type_json, changes_json
             )
-            await session.commit()
+        await session.commit()
+
+    if quiet:
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
         return
 
-    # Send immediately to all active users in this region/queue
+    # Fetch users and send notifications
     async with async_session() as session:
         users = await get_active_users_by_region(session, region)
 
@@ -345,14 +338,13 @@ async def flush_pending_notifications(bot: Bot) -> None:
 
     for region, queue in all_pairs:
         try:
-            async with async_session() as session:
-                users = await get_active_users_by_region(session, region)
-            users_in_queue = [u for u in users if u.queue == queue]
-
             if (region, queue) in pending_set:
-                # Send the latest queued notification
+                # Fetch users and pending notification in a single session
                 async with async_session() as session:
+                    users = await get_active_users_by_region(session, region)
                     notif = await get_latest_pending_notification(session, region, queue)
+
+                users_in_queue = [u for u in users if u.queue == queue]
 
                 if notif:
                     sched = json.loads(notif.schedule_data)
@@ -368,6 +360,10 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         await session.commit()
             else:
                 # No overnight changes — send daily planned message
+                async with async_session() as session:
+                    users = await get_active_users_by_region(session, region)
+
+                users_in_queue = [u for u in users if u.queue == queue]
                 data = await fetch_schedule_data(region, force_refresh=True)
                 if not data:
                     continue
@@ -495,6 +491,9 @@ async def _send_schedule_notification(
 
         image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
 
+        sent_msg = None
+        sent_ch_msg = None
+
         # ── Send to user's bot chat ─────────────────────────────────────────
         if ns is None or ns.notify_schedule_target != "channel":
             try:
@@ -506,7 +505,6 @@ async def _send_schedule_notification(
                         bot, int(fresh_user.telegram_id), mt.last_schedule_message_id
                     )
 
-                sent_msg = None
                 if image_bytes:
                     photo = BufferedInputFile(image_bytes, filename="schedule.png")
                     sent_msg = await bot.send_photo(
@@ -525,14 +523,6 @@ async def _send_schedule_notification(
                         reply_markup=kb,
                         parse_mode=None,
                     )
-
-                # Persist new message ID for future deletion
-                if sent_msg:
-                    async with async_session() as session:
-                        db_user = await get_user_by_telegram_id(session, str(fresh_user.telegram_id))
-                        if db_user and db_user.message_tracking:
-                            db_user.message_tracking.last_schedule_message_id = sent_msg.message_id
-                            await session.commit()
 
             except TelegramForbiddenError:
                 logger.warning(
@@ -555,7 +545,6 @@ async def _send_schedule_notification(
                     if not is_daily_planned and cc.last_schedule_message_id:
                         await _safe_delete_message(bot, cc.channel_id, cc.last_schedule_message_id)
 
-                    sent_ch_msg = None
                     if image_bytes:
                         photo = BufferedInputFile(image_bytes, filename="schedule.png")
                         sent_ch_msg = await bot.send_photo(
@@ -573,14 +562,6 @@ async def _send_schedule_notification(
                             parse_mode=None,
                         )
 
-                    # Persist channel message ID for future deletion
-                    if sent_ch_msg:
-                        async with async_session() as session:
-                            db_user = await get_user_by_telegram_id(session, str(fresh_user.telegram_id))
-                            if db_user and db_user.channel_config:
-                                db_user.channel_config.last_schedule_message_id = sent_ch_msg.message_id
-                                await session.commit()
-
                 except TelegramForbiddenError:
                     logger.warning(
                         "Bot lost access to channel %s, skipping schedule notification",
@@ -591,6 +572,17 @@ async def _send_schedule_notification(
                         "Failed to send schedule notification to channel %s: %s",
                         cc.channel_id, e,
                     )
+
+        # ── Persist sent message IDs (single session for both bot and channel) ──
+        if sent_msg is not None or sent_ch_msg is not None:
+            async with async_session() as session:
+                db_user = await get_user_by_telegram_id(session, str(fresh_user.telegram_id))
+                if db_user:
+                    if sent_msg is not None and db_user.message_tracking:
+                        db_user.message_tracking.last_schedule_message_id = sent_msg.message_id
+                    if sent_ch_msg is not None and db_user.channel_config:
+                        db_user.channel_config.last_schedule_message_id = sent_ch_msg.message_id
+                    await session.commit()
 
     except Exception as e:
         logger.error(
