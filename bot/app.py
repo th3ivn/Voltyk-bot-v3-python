@@ -59,11 +59,18 @@ def create_dispatcher() -> Dispatcher:
 
 async def on_startup(bot: Bot) -> None:
     import sentry_sdk
+    from sentry_sdk.integrations.asyncio import AsyncioIntegration
+    from sentry_sdk.integrations.aiohttp import AioHttpIntegration
+
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
             traces_sample_rate=0.1,
             environment=settings.ENVIRONMENT,
+            integrations=[
+                AsyncioIntegration(),
+                AioHttpIntegration(),
+            ],
         )
         logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
     logger.info("🚀 Запуск СвітлоБот v4...")
