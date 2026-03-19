@@ -63,6 +63,10 @@ async def on_startup(bot: Bot) -> None:
     await init_db()
     logger.info("✅ База даних ініційована")
 
+    from bot.services.api import init_http_client
+    await init_http_client()
+    logger.info("✅ HTTP client ініційований")
+
     me = await bot.get_me()
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
@@ -78,6 +82,7 @@ async def on_startup(bot: Bot) -> None:
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
+    from bot.services.api import close_http_client
     from bot.services.power_monitor import stop_power_monitor
     from bot.services.scheduler import stop_scheduler
 
@@ -88,6 +93,7 @@ async def on_shutdown(bot: Bot) -> None:
         task.cancel()
     _bg_tasks.clear()
 
+    await close_http_client()
     await engine.dispose()
     logger.info("Bye!")
 

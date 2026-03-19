@@ -179,19 +179,13 @@ async def _check_single_queue(
 
     async with async_session() as session:
         stored_hash = await get_schedule_hash(session, region, queue)
-
-    if stored_hash is not None and stored_hash == new_all_hash:
-        # No change in overall hash — update timestamp only
-        async with async_session() as session:
+        if stored_hash is not None and stored_hash == new_all_hash:
+            # No change in overall hash — update timestamp only
             await update_schedule_check_time(session, region, queue)
-            await session.commit()
-
-    # Even when the overall hash hasn't changed we may need to create or
-    # refresh the daily snapshot (e.g. first check of a new day).  Do this
-    # outside the early-return so it always runs.
-    today_date_check = _kyiv_date_str()
-    if stored_hash is not None and stored_hash == new_all_hash:
-        async with async_session() as session:
+            # Even when the overall hash hasn't changed we may need to create or
+            # refresh the daily snapshot (e.g. first check of a new day).  Do this
+            # outside the early-return so it always runs.
+            today_date_check = _kyiv_date_str()
             existing = await get_daily_snapshot(session, region, queue, today_date_check)
             if existing is None:
                 new_today_hash_check = _compute_date_hash(events, today_date_check)
@@ -200,14 +194,11 @@ async def _check_single_queue(
                     session, region, queue, today_date_check,
                     json.dumps(sched), new_today_hash_check, new_tomorrow_hash_check,
                 )
-                await session.commit()
-        return
+            await session.commit()
+            return
 
     # Hash changed — update check time and hash
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
-    async with async_session() as session:
-        await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
-        await session.commit()
 
     # Determine update_type and changes using daily snapshot comparison
     today_date = _kyiv_date_str()
@@ -221,8 +212,10 @@ async def _check_single_queue(
     changes: dict = {"added": []}
 
     async with async_session() as session:
+        await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
         snapshot = await get_daily_snapshot(session, region, queue, today_date)
         yesterday_snapshot = await get_daily_snapshot(session, region, queue, yesterday_date)
+        await session.commit()
 
     if snapshot is None:
         # First check of the day — compare today's events with yesterday's tomorrow data
