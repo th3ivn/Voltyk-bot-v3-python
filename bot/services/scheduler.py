@@ -42,6 +42,7 @@ logger = get_logger(__name__)
 _running = False
 
 DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
+_DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 
@@ -153,7 +154,7 @@ async def _check_all_schedules(
     logger.info("Source repo updated, checking all schedules")
 
     region_queue_pairs: set[tuple[str, str]] = set()
-    batch_size_inner = 1000
+    batch_size_inner = _DB_SCAN_BATCH_SIZE
     offset = 0
     while True:
         async with async_session() as session:
@@ -324,7 +325,7 @@ async def flush_pending_notifications(bot: Bot) -> None:
     # Collect all active region/queue pairs
     all_pairs: set[tuple[str, str]] = set()
     offset = 0
-    batch_size_inner = 1000
+    batch_size_inner = _DB_SCAN_BATCH_SIZE
     while True:
         async with async_session() as session:
             batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
