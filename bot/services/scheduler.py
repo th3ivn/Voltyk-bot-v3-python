@@ -31,6 +31,7 @@ from bot.services.api import (
     check_source_repo_updated,
     fetch_schedule_data,
     fetch_schedule_image,
+    find_next_event,
     parse_schedule_for_queue,
 )
 from bot.utils.helpers import retry_bot_call
@@ -585,6 +586,158 @@ async def _send_schedule_notification(
         logger.error(
             "Error in _send_schedule_notification for user %s: %s", user.telegram_id, e
         )
+
+
+# ─── Reminder notifications ───────────────────────────────────────────────
+
+# Tracks reminders already sent: (telegram_id, outage_start_iso, remind_minutes)
+_sent_reminders: set[tuple[str, str, int]] = set()
+
+_REMIND_MINUTES = [60, 30, 15]
+_REMIND_FIELDS = {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}
+_REMIND_LABELS = {60: "1 годину", 30: "30 хвилин", 15: "15 хвилин"}
+
+
+async def reminder_checker_loop(bot: Bot) -> None:
+    """Check every 60 seconds for upcoming outages and send reminders."""
+    logger.info("Reminder checker loop started")
+    while _running:
+        try:
+            await _check_and_send_reminders(bot)
+        except Exception as e:
+            logger.error("Reminder checker error: %s", e)
+        await asyncio.sleep(60)
+
+
+async def _check_and_send_reminders(bot: Bot) -> None:
+    if _is_quiet_hours():
+        return
+
+    now = datetime.now(KYIV_TZ)
+
+    # Collect users with reminders enabled, grouped by (region, queue)
+    pairs: dict[tuple[str, str], list] = {}
+    offset = 0
+    while True:
+        async with async_session() as session:
+            batch = await get_active_users_paginated(session, limit=_DB_SCAN_BATCH_SIZE, offset=offset)
+        if not batch:
+            break
+        for user in batch:
+            ns = user.notification_settings
+            if not ns or not ns.notify_remind_off:
+                continue
+            if not any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES):
+                continue
+            if not user.region or not user.queue:
+                continue
+            key = (user.region, user.queue)
+            pairs.setdefault(key, []).append(user)
+        offset += len(batch)
+
+    # Clean up sent reminders for outages already passed
+    expired = {k for k in _sent_reminders if _outage_passed(k[1], now)}
+    _sent_reminders.difference_update(expired)
+
+    # For each (region, queue) fetch schedule and send due reminders
+    for (region, queue), users in pairs.items():
+        try:
+            raw = await fetch_schedule_data(region)
+            if not raw:
+                continue
+            sched = parse_schedule_for_queue(raw, queue)
+            next_event = find_next_event(sched)
+            if not next_event or next_event["type"] != "power_off":
+                continue
+
+            outage_start_iso: str = next_event["time"]
+            minutes_until: int = next_event["minutes"]
+            is_possible: bool = next_event.get("isPossible", False)
+
+            for user in users:
+                ns = user.notification_settings
+                cc = user.channel_config
+                for remind_m in _REMIND_MINUTES:
+                    if not getattr(ns, _REMIND_FIELDS[remind_m], False):
+                        continue
+                    rkey = (str(user.telegram_id), outage_start_iso, remind_m)
+                    if rkey in _sent_reminders:
+                        continue
+                    if remind_m - 1 <= minutes_until <= remind_m + 1:
+                        await _send_reminder(bot, user, outage_start_iso, remind_m, is_possible, ns, cc)
+                        _sent_reminders.add(rkey)
+        except Exception as e:
+            logger.error("Reminder check error for %s/%s: %s", region, queue, e)
+
+
+def _outage_passed(outage_start_iso: str, now: datetime) -> bool:
+    try:
+        dt = datetime.fromisoformat(outage_start_iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=KYIV_TZ)
+        return now > dt
+    except Exception:
+        return True
+
+
+async def _send_reminder(
+    bot: Bot,
+    user,
+    outage_start_iso: str,
+    remind_m: int,
+    is_possible: bool,
+    ns,
+    cc,
+) -> None:
+    try:
+        start_dt = datetime.fromisoformat(outage_start_iso)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=KYIV_TZ)
+        start_str = start_dt.strftime("%H:%M")
+    except Exception:
+        start_str = "?"
+
+    label = _REMIND_LABELS[remind_m]
+    possible_note = " (можливо)" if is_possible else ""
+    text = (
+        f"⏰ <b>Нагадування</b>\n\n"
+        f"За {label} ({start_str}) очікується відключення світла{possible_note}."
+    )
+
+    send_to_bot = ns.notify_remind_target != "channel"
+    send_to_channel = (
+        cc is not None
+        and cc.channel_id
+        and not cc.channel_paused
+        and getattr(cc, "ch_notify_remind_off", False)
+    )
+
+    if send_to_bot:
+        try:
+            await retry_bot_call(
+                lambda: bot.send_message(int(user.telegram_id), text, parse_mode="HTML")
+            )
+            logger.debug("Reminder -%dm sent to user %s", remind_m, user.telegram_id)
+        except TelegramForbiddenError:
+            logger.debug("User %s blocked bot, skipping reminder", user.telegram_id)
+        except Exception as e:
+            logger.warning("Failed to send reminder to user %s: %s", user.telegram_id, e)
+
+    if send_to_channel:
+        try:
+            ch_id: int | str
+            try:
+                ch_id = int(cc.channel_id)
+            except (ValueError, TypeError):
+                ch_id = cc.channel_id
+            await retry_bot_call(
+                lambda: bot.send_message(ch_id, text, parse_mode="HTML")
+            )
+            logger.debug("Reminder -%dm sent to channel %s", remind_m, cc.channel_id)
+        except TelegramForbiddenError:
+            logger.debug("Lost access to channel %s, skipping reminder", cc.channel_id)
+        except Exception as e:
+            logger.warning("Failed to send reminder to channel %s: %s", cc.channel_id, e)
 
 
 def stop_scheduler() -> None:
