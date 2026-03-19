@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from bot.constants.regions import REGIONS
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
