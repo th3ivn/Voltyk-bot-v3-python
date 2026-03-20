@@ -15,11 +15,6 @@ from bot.db.queries import (
     get_user_by_telegram_id,
 )
 from bot.keyboards.inline import (
-    E_ADMIN,
-    E_CHANNEL,
-    E_CHECK,
-    E_INSTRUCTION,
-    E_SETTINGS,
     get_channel_pending_confirm_keyboard,
     get_understood_keyboard,
 )
@@ -44,13 +39,13 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
 
     bot_me = await callback.bot.get_me()
     instruction_text = (
-        '<tg-emoji emoji-id="5327890571157607542">📺</tg-emoji> <b>Підключення каналу</b>\n\n'
+        "📺 <b>Підключення каналу</b>\n\n"
         "Щоб бот міг публікувати графіки у ваш канал:\n\n"
-        f'1️⃣ <tg-emoji emoji-id="{E_CHANNEL}">📺</tg-emoji> Відкрийте ваш канал у Telegram\n'
-        f'2️⃣ <tg-emoji emoji-id="{E_SETTINGS}">⚙️</tg-emoji> Перейдіть у Налаштування → Адміністратори\n'
-        f'3️⃣ <tg-emoji emoji-id="{E_ADMIN}">👤</tg-emoji> Натисніть "Додати адміністратора"\n'
-        f'4️⃣ <tg-emoji emoji-id="{E_INSTRUCTION}">🔍</tg-emoji> Знайдіть бота: @{bot_me.username}\n'
-        f'5️⃣ <tg-emoji emoji-id="{E_CHECK}">✅</tg-emoji> Увімкніть усі перемикачі\n\n'
+        "1️⃣ Відкрийте ваш канал у Telegram\n"
+        "2️⃣ Перейдіть у Налаштування → Адміністратори\n"
+        "3️⃣ Натисніть \"Додати адміністратора\"\n"
+        f"4️⃣ Знайдіть бота: @{bot_me.username}\n"
+        "5️⃣ Увімкніть усі перемикачі\n\n"
         "Після того як ви додасте бота — він знайде канал автоматично."
     )
     try:
