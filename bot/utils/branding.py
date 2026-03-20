@@ -15,10 +15,11 @@ def build_channel_title(user_title: str) -> str:
     return f"{CHANNEL_NAME_PREFIX}{user_title}"[:_TITLE_MAX]
 
 
-def build_channel_description(user_desc: str | None) -> str | None:
+def build_channel_description(user_desc: str | None, bot_username: str | None = None) -> str | None:
     if not user_desc:
         return None
-    return f"{user_desc}\n\n{CHANNEL_DESCRIPTION_BASE}"[:_DESC_MAX]
+    suffix = f"\n@{bot_username}" if bot_username else ""
+    return f"{user_desc}\n\n{CHANNEL_DESCRIPTION_BASE}{suffix}"[:_DESC_MAX]
 
 
 def get_channel_welcome_message(
@@ -33,12 +34,10 @@ def get_channel_welcome_message(
         bot_link = "Вольтика"
     location = f"Регіон: {region}\nЧерга: {queue}" if region else f"Черга: {queue}"
     ip_line = "• ⚡ Сповіщення про стан світла\n" if has_ip else ""
-    username_line = f"\n@{bot_username}" if bot_username else ""
     return (
         f"👋 Цей канал підключено до {bot_link} — чат-бота для моніторингу світла.\n\n"
         "Тут публікуватимуться:\n"
         "• 📊 Графіки відключень\n"
         f"{ip_line}\n"
         f"{location}"
-        f"{username_line}"
     )
