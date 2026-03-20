@@ -66,7 +66,7 @@ async def create_or_update_user(
         user.queue = queue
         user.username = username
         user.is_active = True
-        user.updated_at = datetime.now(UTC)
+        user.updated_at = datetime.now(UTC).replace(tzinfo=None)
     else:
         user = User(
             telegram_id=tid,
@@ -290,7 +290,7 @@ async def close_ticket(session: AsyncSession, ticket_id: int, closed_by: str) ->
     await session.execute(
         update(Ticket)
         .where(Ticket.id == ticket_id)
-        .values(status="closed", closed_at=datetime.now(UTC), closed_by=closed_by)
+        .values(status="closed", closed_at=datetime.now(UTC).replace(tzinfo=None), closed_by=closed_by)
     )
 
 
@@ -522,7 +522,7 @@ async def get_recent_user_power_states(
 ) -> list[UserPowerState]:
     """Return UserPowerState rows updated within the last hour."""
     from datetime import timedelta
-    cutoff = datetime.now(UTC) - timedelta(hours=1)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
     result = await session.execute(
         select(UserPowerState).where(UserPowerState.updated_at > cutoff)
     )
@@ -578,7 +578,7 @@ async def upsert_daily_snapshot(
         snapshot.schedule_data = schedule_data
         snapshot.today_hash = today_hash
         snapshot.tomorrow_hash = tomorrow_hash
-        snapshot.updated_at = datetime.now(UTC)
+        snapshot.updated_at = datetime.now(UTC).replace(tzinfo=None)
     else:
         snapshot = ScheduleDailySnapshot(
             region=region,
