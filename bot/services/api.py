@@ -42,7 +42,7 @@ async def close_http_client() -> None:
 
 
 async def check_source_repo_updated() -> bool:
-    """Check if th3ivn/Voltyk-data has new commits in data/ directory.
+    """Check if Baskerville42/outage-data-ua has new commits in data/ directory.
 
     Uses GitHub Commits API which is not affected by CDN caching.
     With GITHUB_TOKEN: 5000 requests/hour limit.
@@ -61,7 +61,7 @@ async def check_source_repo_updated() -> bool:
     if settings.GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
 
-    url = "https://api.github.com/repos/th3ivn/Voltyk-data/commits?per_page=1&path=data"
+    url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits?per_page=1&path=data"
 
     _owned = False
     _session = _http_client
