@@ -685,31 +685,36 @@ def get_admin_intervals_keyboard(schedule_interval: int = 60, ip_interval: int =
     ])
 
 
-def get_schedule_interval_keyboard() -> InlineKeyboardMarkup:
+def get_schedule_interval_keyboard(current_seconds: int = 0) -> InlineKeyboardMarkup:
+    def _s(minutes: int) -> InlineKeyboardButton:
+        selected = current_seconds == minutes * 60
+        return _btn(f"{minutes} хв", f"admin_schedule_{minutes}", style="success" if selected else None)
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("3 хв", "admin_schedule_3"), _btn("5 хв", "admin_schedule_5"),
-         _btn("10 хв", "admin_schedule_10"), _btn("15 хв", "admin_schedule_15")],
+        [_s(3), _s(5), _s(10), _s(15)],
         [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
-def get_ip_interval_keyboard() -> InlineKeyboardMarkup:
+def get_ip_interval_keyboard(current_seconds: int = 10) -> InlineKeyboardMarkup:
+    def _i(seconds: int, label: str) -> InlineKeyboardButton:
+        selected = current_seconds == seconds
+        return _btn(label, f"admin_ip_{seconds}", style="success" if selected else None)
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("10 сек", "admin_ip_10"), _btn("30 сек", "admin_ip_30"),
-         _btn("1 хв", "admin_ip_60"), _btn("2 хв", "admin_ip_120")],
-        [_btn("🔄 Динамічний", "admin_ip_0")],
+        [_i(10, "10 сек"), _i(30, "30 сек"), _i(60, "1 хв"), _i(120, "2 хв")],
+        [_i(0, "🔄 Динамічний")],
         [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
 def get_debounce_keyboard(current_value: int = 0) -> InlineKeyboardMarkup:
     def _d(v: int, label: str) -> InlineKeyboardButton:
-        mark = "✓ " if current_value == v else ""
-        return _btn(f"{mark}{label}", f"debounce_set_{v}")
+        selected = current_value == v
+        return _btn(label, f"debounce_set_{v}", style="success" if selected else None)
 
-    row0_text = "✓ Вимкнено" if current_value == 0 else "❌ Вимкнути"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(row0_text, "debounce_set_0")],
+        [_d(0, "❌ Вимкнути")],
         [_d(1, "1 хв"), _d(2, "2 хв"), _d(3, "3 хв")],
         [_d(5, "5 хв"), _d(10, "10 хв"), _d(15, "15 хв")],
         [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
@@ -736,24 +741,31 @@ def get_pause_type_keyboard(current_type: str = "update") -> InlineKeyboardMarku
              ("🔨 Обслуговування", "maintenance"), ("🧪 Тестування", "testing")]
     rows = []
     for text, t in types:
-        mark = "✓ " if t == current_type else ""
-        rows.append([_btn(f"{mark}{text}", f"pause_type_{t}")])
+        selected = t == current_type
+        rows.append([_btn(text, f"pause_type_{t}", style="success" if selected else None)])
     rows.append([_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_pause_message_keyboard(show_support_button: bool = False) -> InlineKeyboardMarkup:
-    s = "✓" if show_support_button else "○"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🔧 Бот тимчасово недоступний...", "pause_template_1")],
-        [_btn("⏸️ Бот на паузі. Скоро повернемось", "pause_template_2")],
-        [_btn("🔧 Бот тимчасово оновлюється. Спробуйте пізніше.", "pause_template_3")],
-        [_btn("⏸️ Бот на паузі. Скоро повернемось.", "pause_template_4")],
-        [_btn("🚧 Технічні роботи. Дякуємо за розуміння.", "pause_template_5")],
-        [_btn("✏️ Свій текст...", "pause_custom_message")],
-        [_btn(f'{s} Показувати кнопку "Обговорення/Підтримка"', "pause_toggle_support")],
-        [_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")],
-    ])
+def get_pause_message_keyboard(show_support_button: bool = False, current_message: str = "") -> InlineKeyboardMarkup:
+    templates = [
+        ("🔧 Бот тимчасово недоступний. Спробуйте пізніше.", "pause_template_1"),
+        ("⏸️ Бот на паузі. Скоро повернемось", "pause_template_2"),
+        ("🔧 Бот тимчасово оновлюється. Спробуйте пізніше.", "pause_template_3"),
+        ("⏸️ Бот на паузі. Скоро повернемось.", "pause_template_4"),
+        ("🚧 Технічні роботи. Дякуємо за розуміння.", "pause_template_5"),
+    ]
+    template_texts = {t for t, _ in templates}
+    rows = []
+    for text, cb in templates:
+        selected = text == current_message
+        rows.append([_btn(text, cb, style="success" if selected else None)])
+    is_custom = bool(current_message) and current_message not in template_texts
+    rows.append([_btn("✏️ Свій текст...", "pause_custom_message", style="success" if is_custom else None)])
+    support_style = "success" if show_support_button else None
+    rows.append([_btn('Показувати кнопку "Обговорення/Підтримка"', "pause_toggle_support", style=support_style)])
+    rows.append([_btn("← Назад", "admin_pause"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_growth_keyboard() -> InlineKeyboardMarkup:
@@ -772,8 +784,8 @@ def get_growth_stage_keyboard(current_stage: int = 0) -> InlineKeyboardMarkup:
               ("Етап 4: Масштаб (5000+)", 4)]
     rows = []
     for text, s in stages:
-        mark = "✓ " if s == current_stage else ""
-        rows.append([_btn(f"{mark}{text}", f"growth_stage_{s}")])
+        selected = s == current_stage
+        rows.append([_btn(text, f"growth_stage_{s}", style="success" if selected else None)])
     rows.append([_btn("← Назад", "admin_growth"), _btn("⤴ Меню", "back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

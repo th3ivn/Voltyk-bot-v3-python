@@ -64,9 +64,10 @@ async def pause_message_settings(callback: CallbackQuery, session: AsyncSession)
         return
     await callback.answer()
     show_support = (await get_setting(session, "pause_show_support") or "false") == "true"
+    current_message = await get_setting(session, "pause_message") or ""
     await callback.message.edit_text(
         "📋 Налаштування повідомлення паузи",
-        reply_markup=get_pause_message_keyboard(show_support_button=show_support),
+        reply_markup=get_pause_message_keyboard(show_support_button=show_support, current_message=current_message),
     )
 
 
@@ -83,6 +84,10 @@ async def pause_template(callback: CallbackQuery, session: AsyncSession) -> None
     msg = templates.get(idx, templates["1"])
     await set_setting(session, "pause_message", msg)
     await callback.answer(f"✅ Повідомлення: {msg[:50]}")
+    show_support = (await get_setting(session, "pause_show_support") or "false") == "true"
+    await callback.message.edit_reply_markup(
+        reply_markup=get_pause_message_keyboard(show_support_button=show_support, current_message=msg)
+    )
 
 
 @router.callback_query(F.data == "pause_custom_message")
@@ -98,8 +103,13 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(F.data == "pause_toggle_support")
 async def pause_toggle_support(callback: CallbackQuery, session: AsyncSession) -> None:
     current = (await get_setting(session, "pause_show_support") or "false") == "true"
-    await set_setting(session, "pause_show_support", "false" if current else "true")
+    new_val = "false" if current else "true"
+    await set_setting(session, "pause_show_support", new_val)
     await callback.answer("✅ Збережено")
+    current_message = await get_setting(session, "pause_message") or ""
+    await callback.message.edit_reply_markup(
+        reply_markup=get_pause_message_keyboard(show_support_button=new_val == "true", current_message=current_message)
+    )
 
 
 @router.callback_query(F.data == "pause_type_select")
