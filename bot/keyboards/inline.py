@@ -121,7 +121,7 @@ def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             _btn("Замінити", "my_queues", E_REGION),
-            _btn("Оновити", "schedule_refresh", E_REFRESH),
+            _btn("Перевірити", "schedule_check", E_REFRESH),
         ],
         [_btn("⤴ Меню", "back_to_main")],
     ])
@@ -667,9 +667,20 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("💻 Система", "admin_system"), _btn("⏱ Інтервали", "admin_intervals")],
         [_btn("⏸ Debounce", "admin_debounce"), _btn("⏸️ Режим паузи", "admin_pause")],
+        [_btn("🔄 Cooldown перевірки", "admin_refresh_cooldown")],
         [_btn("🗑 Очистити базу", "admin_clear_db"), _btn("🔄 Перезапуск", "admin_restart")],
         [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
+
+
+def get_refresh_cooldown_keyboard(current_seconds: int = 30) -> InlineKeyboardMarkup:
+    options = [(5, "5 сек"), (10, "10 сек"), (20, "20 сек"), (30, "30 сек"), (60, "60 сек")]
+    rows = []
+    for secs, label in options:
+        selected = current_seconds == secs
+        rows.append([_btn(label, f"admin_cooldown_set_{secs}", style="success" if selected else None)])
+    rows.append([_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_maintenance_keyboard(enabled: bool = False) -> InlineKeyboardMarkup:

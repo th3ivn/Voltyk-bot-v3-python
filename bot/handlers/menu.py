@@ -6,7 +6,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
-from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
+from bot.db.queries import get_schedule_check_time, get_setting, get_user_by_telegram_id
 from bot.formatter.messages import format_live_status_message, format_main_menu_message
 from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_timer_popup
@@ -23,15 +23,21 @@ from bot.keyboards.inline import (
     get_statistics_keyboard,
     get_support_keyboard,
 )
-from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
+from bot.services.api import calculate_schedule_hash, fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.states.fsm import WizardSG
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
+
+import time
 
 logger = get_logger(__name__)
 router = Router(name="menu")
 
 _MSG_NOT_MODIFIED = "message is not modified"
+
+# Per-user cooldown: user_id → timestamp of last "Перевірити" press
+_user_last_check: dict[int, float] = {}
+_DEFAULT_COOLDOWN_S = 30
 
 
 async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTML") -> bool:
@@ -165,14 +171,46 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     await _send_schedule_photo(callback, user, session, edit_photo=True)
 
 
-@router.callback_query(F.data == "schedule_refresh")
-async def schedule_refresh(callback: CallbackQuery, session: AsyncSession) -> None:
+@router.callback_query(F.data == "schedule_check")
+async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         await callback.answer("❌ Користувача не знайдено")
         return
-    await _send_schedule_photo(callback, user, session, edit_photo=True)
-    await callback.answer("🔄 Оновлено")
+
+    # --- Cooldown check ---
+    cooldown_s = int(await get_setting(session, "refresh_cooldown") or str(_DEFAULT_COOLDOWN_S))
+    now = time.monotonic()
+    last = _user_last_check.get(callback.from_user.id, 0.0)
+    elapsed = now - last
+    if elapsed < cooldown_s:
+        remaining = int(cooldown_s - elapsed) + 1
+        await callback.answer(f"⏳ Зачекай ще {remaining} сек", show_alert=False)
+        return
+
+    # --- Get old hash from cached data (before force refresh) ---
+    old_data = await fetch_schedule_data(user.region)
+    old_events = parse_schedule_for_queue(old_data, user.queue).get("events", []) if old_data else []
+    old_hash = calculate_schedule_hash(old_events) if old_events else None
+
+    # --- Force refresh ---
+    new_data = await fetch_schedule_data(user.region, force_refresh=True)
+    if new_data is None:
+        await callback.answer("❌ Не вдалось отримати дані", show_alert=False)
+        return
+
+    _user_last_check[callback.from_user.id] = time.monotonic()
+
+    # --- Compare hashes ---
+    new_events = parse_schedule_for_queue(new_data, user.queue).get("events", [])
+    new_hash = calculate_schedule_hash(new_events) if new_events else None
+
+    if old_hash != new_hash:
+        await _send_schedule_photo(callback, user, session, edit_photo=True)
+        await callback.answer("💡 Знайдено зміни — оновлено", show_alert=False)
+    else:
+        await _send_schedule_photo(callback, user, session, edit_photo=True)
+        await callback.answer("✅ Без змін — дані актуальні", show_alert=False)
 
 
 @router.callback_query(F.data == "my_queues")
