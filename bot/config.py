@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     HEALTH_PORT: int = 3000
 
     GITHUB_TOKEN: str = ""
+    VOLTYK_DATA_URL: str = ""  # Railway internal URL, e.g. http://voltyk-data.railway.internal:3000
 
     SCHEDULE_CHECK_INTERVAL_S: int = 180
     POWER_CHECK_INTERVAL_S: int = 0
@@ -48,10 +49,10 @@ class Settings(BaseSettings):
     SCHEDULER_STAGGER_MS: int = 20
 
     DATA_URL_TEMPLATE: str = (
-        "https://cdn.jsdelivr.net/gh/Baskerville42/outage-data-ua@main/data/{region}.json"
+        "https://cdn.jsdelivr.net/gh/th3ivn/Voltyk-data@main/data/{region}.json"
     )
     IMAGE_URL_TEMPLATE: str = (
-        "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/{region}/gpv-{queue}-emergency.png"
+        "https://raw.githubusercontent.com/th3ivn/Voltyk-data/main/images/{region}/gpv-{queue}-emergency.png"
     )
 
     SUPPORT_CHANNEL_URL: str = ""
