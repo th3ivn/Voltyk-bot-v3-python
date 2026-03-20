@@ -65,7 +65,14 @@ async def channel_skip_desc(callback: CallbackQuery, state: FSMContext, session:
     if not user or not user.channel_config:
         return
 
-    await apply_channel_branding(callback.bot, user.channel_config, send_welcome=True, queue=user.queue)
+    await apply_channel_branding(
+        callback.bot,
+        user.channel_config,
+        send_welcome=True,
+        queue=user.queue,
+        region=user.region,
+        has_ip=bool(user.router_ip),
+    )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

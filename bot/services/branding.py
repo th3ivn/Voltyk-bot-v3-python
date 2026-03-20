@@ -19,6 +19,8 @@ async def apply_channel_branding(
     *,
     send_welcome: bool = False,
     queue: str | None = None,
+    region: str | None = None,
+    has_ip: bool = False,
 ) -> None:
     """Apply branding to a Telegram channel and update the config record.
 
@@ -51,6 +53,10 @@ async def apply_channel_branding(
     if send_welcome and queue:
         try:
             me = await bot.get_me()
-            await bot.send_message(cc.channel_id, get_channel_welcome_message(queue, me.username))
+            await bot.send_message(
+                cc.channel_id,
+                get_channel_welcome_message(queue, me.username, region=region, has_ip=has_ip),
+                parse_mode="HTML",
+            )
         except Exception as e:
             logger.warning("Failed to send welcome message to %s: %s", cc.channel_id, e)

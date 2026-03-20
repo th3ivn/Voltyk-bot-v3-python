@@ -63,7 +63,14 @@ async def handle_description(message: Message, state: FSMContext, session: Async
         user.channel_config.channel_user_description = desc
 
     await state.clear()
-    await apply_channel_branding(message.bot, user.channel_config, send_welcome=True, queue=user.queue)
+    await apply_channel_branding(
+        message.bot,
+        user.channel_config,
+        send_welcome=True,
+        queue=user.queue,
+        region=user.region,
+        has_ip=bool(user.router_ip),
+    )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

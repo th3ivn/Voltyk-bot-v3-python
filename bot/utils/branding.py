@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 CHANNEL_NAME_PREFIX = "Вольтик ⚡️ "
-CHANNEL_DESCRIPTION_BASE = (
-    "⚡️ Вольтик — слідкує, щоб ви не слідкували.\n\n"
-    "💬 Маєте ідеї або знайшли помилку?"
-)
+CHANNEL_DESCRIPTION_BASE = "⚡️ Вольтик — слідкує, щоб ви не слідкували."
 
 _TITLE_MAX = 128
 _DESC_MAX = 255
@@ -21,18 +18,27 @@ def build_channel_title(user_title: str) -> str:
 def build_channel_description(user_desc: str | None) -> str | None:
     if not user_desc:
         return None
-    return f"{CHANNEL_DESCRIPTION_BASE}\n\n{user_desc}"[:_DESC_MAX]
+    return f"{user_desc}\n\n{CHANNEL_DESCRIPTION_BASE}"[:_DESC_MAX]
 
 
-def get_channel_welcome_message(queue: str, bot_username: str | None = None) -> str:
+def get_channel_welcome_message(
+    queue: str,
+    bot_username: str | None = None,
+    region: str | None = None,
+    has_ip: bool = False,
+) -> str:
     if bot_username:
         bot_link = f'<a href="https://t.me/{bot_username}">Вольтика</a>'
     else:
         bot_link = "Вольтика"
+    location = f"Регіон: {region}\nЧерга: {queue}" if region else f"Черга: {queue}"
+    ip_line = "• ⚡ Сповіщення про стан світла\n" if has_ip else ""
+    username_line = f"\n@{bot_username}" if bot_username else ""
     return (
         f"👋 Цей канал підключено до {bot_link} — чат-бота для моніторингу світла.\n\n"
         "Тут публікуватимуться:\n"
         "• 📊 Графіки відключень\n"
-        "• ⚡ Сповіщення про стан світла (якщо IP налаштований)\n\n"
-        f"Черга: {queue}"
+        f"{ip_line}\n"
+        f"{location}"
+        f"{username_line}"
     )

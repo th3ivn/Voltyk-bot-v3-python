@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,23 +37,27 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
         return
 
     bot_me = await callback.bot.get_me()
-    await callback.message.edit_text(
-        "📺 Підключення каналу\n\n"
-        "Щоб бот міг публікувати графіки у ваш канал:\n\n"
-        "1️⃣ Відкрийте ваш канал у Telegram\n"
-        "2️⃣ Перейдіть у Налаштування каналу → Адміністратори\n"
-        "3️⃣ Натисніть \"Додати адміністратора\"\n"
-        f"4️⃣ Знайдіть бота: @{bot_me.username}\n"
-        "5️⃣ Надайте права на публікацію повідомлень\n\n"
-        "Після цього натисніть кнопку \"✅ Перевірити\" нижче.\n\n"
-        f"💡 Порада: скопіюйте @{bot_me.username} і вставте у пошук",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Перевірити", callback_data="channel_connect")],
-                [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
-            ]
-        ),
-    )
+    try:
+        await callback.message.edit_text(
+            "📺 Підключення каналу\n\n"
+            "Щоб бот міг публікувати графіки у ваш канал:\n\n"
+            "1️⃣ Відкрийте ваш канал у Telegram\n"
+            "2️⃣ Перейдіть у Налаштування каналу → Адміністратори\n"
+            "3️⃣ Натисніть \"Додати адміністратора\"\n"
+            f"4️⃣ Знайдіть бота: @{bot_me.username}\n"
+            "5️⃣ Надайте права на публікацію повідомлень\n\n"
+            "Після цього натисніть кнопку \"✅ Перевірити\" нижче.\n\n"
+            f"💡 Порада: скопіюйте @{bot_me.username} і вставте у пошук",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Перевірити", callback_data="channel_connect")],
+                    [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
+                ]
+            ),
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
 
 
 @router.callback_query(F.data.startswith("channel_confirm_"))
