@@ -431,24 +431,24 @@ def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
 def get_channel_pending_confirm_keyboard(channel_id: str) -> InlineKeyboardMarkup:
     """Для підтвердження каналу зі сторінки підключення (channel_confirm_)."""
     return InlineKeyboardMarkup(inline_keyboard=[[
-        _btn("Так, підключити", f"channel_confirm_{channel_id}", E_SUCCESS, style="primary"),
-        _btn("Ні", "settings_channel", E_CANCEL, style="danger"),
+        _btn("Так, підключити", f"channel_confirm_{channel_id}", style="success"),
+        _btn("Ні", "settings_channel", style="danger"),
     ]])
 
 
 def get_channel_connect_confirm_keyboard(channel_id: str) -> InlineKeyboardMarkup:
     """Для підтвердження нового каналу (connect_channel_)."""
     return InlineKeyboardMarkup(inline_keyboard=[[
-        _btn("Так, підключити", f"connect_channel_{channel_id}", E_SUCCESS, style="primary"),
-        _btn("Ні", "cancel_channel_connect", E_CANCEL, style="danger"),
+        _btn("Так, підключити", f"connect_channel_{channel_id}", style="success"),
+        _btn("Ні", "cancel_channel_connect", style="danger"),
     ]])
 
 
 def get_channel_replace_confirm_keyboard(channel_id: str) -> InlineKeyboardMarkup:
     """Для підтвердження заміни каналу (replace_channel_)."""
     return InlineKeyboardMarkup(inline_keyboard=[[
-        _btn("Так, замінити", f"replace_channel_{channel_id}", E_SUCCESS, style="primary"),
-        _btn("Залишити", "keep_current_channel", E_CANCEL, style="danger"),
+        _btn("Так, замінити", f"replace_channel_{channel_id}", style="success"),
+        _btn("Залишити", "keep_current_channel", style="danger"),
     ]])
 
 
