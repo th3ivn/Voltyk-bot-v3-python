@@ -44,7 +44,7 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
 
     bot_me = await callback.bot.get_me()
     instruction_text = (
-        f'<tg-emoji emoji-id="{E_CHANNEL}">📺</tg-emoji> <b>Підключення каналу</b>\n\n'
+        '<tg-emoji emoji-id="5327890571157607542">📺</tg-emoji> <b>Підключення каналу</b>\n\n'
         "Щоб бот міг публікувати графіки у ваш канал:\n\n"
         f'1️⃣ <tg-emoji emoji-id="{E_CHANNEL}">📺</tg-emoji> Відкрийте ваш канал у Telegram\n'
         f'2️⃣ <tg-emoji emoji-id="{E_SETTINGS}">⚙️</tg-emoji> Перейдіть у Налаштування → Адміністратори\n'
