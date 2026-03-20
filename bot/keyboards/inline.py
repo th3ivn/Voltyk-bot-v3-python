@@ -127,21 +127,29 @@ def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_region_keyboard() -> InlineKeyboardMarkup:
+def get_region_keyboard(current_region: str | None = None) -> InlineKeyboardMarkup:
+    def _r(label: str, code: str) -> InlineKeyboardButton:
+        selected = current_region == code
+        return _btn(label, f"region_{code}", style="success" if selected else None)
+
     rows = [
-        [_btn("Київ", "region_kyiv"), _btn("Київщина", "region_kyiv-region")],
-        [_btn("Дніпропетровщина", "region_dnipro"), _btn("Одещина", "region_odesa")],
+        [_r("Київ", "kyiv"), _r("Київщина", "kyiv-region")],
+        [_r("Дніпропетровщина", "dnipro"), _r("Одещина", "odesa")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
+def get_queue_keyboard(region: str, page: int = 1, current_queue: str | None = None) -> InlineKeyboardMarkup:
     queues = REGION_QUEUES.get(region, STANDARD_QUEUES)
     rows: list[list[InlineKeyboardButton]] = []
 
+    def _q(q: str) -> InlineKeyboardButton:
+        selected = current_queue == q
+        return _btn(q, f"queue_{q}", style="success" if selected else None)
+
     if region != "kyiv":
         for i in range(0, len(queues), 3):
-            row = [_btn(q, f"queue_{q}") for q in queues[i : i + 3]]
+            row = [_q(q) for q in queues[i : i + 3]]
             rows.append(row)
         rows.append([_btn("← Назад", "back_to_region")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -157,7 +165,7 @@ def get_queue_keyboard(region: str, page: int = 1) -> InlineKeyboardMarkup:
     cols = 4
 
     for i in range(0, len(current_queues), cols):
-        row = [_btn(q, f"queue_{q}") for q in current_queues[i : i + cols]]
+        row = [_q(q) for q in current_queues[i : i + cols]]
         rows.append(row)
 
     if page == 1:
@@ -353,18 +361,18 @@ def get_notification_main_keyboard(
 
 
 def get_notification_reminders_keyboard(**kw) -> InlineKeyboardMarkup:
-    def _c(v: bool) -> str:
-        return "✅" if v else "❌"
+    def _t(v: bool) -> str | None:
+        return "success" if v else "danger"
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(f"🔴 Нагадування перед відкл.  {_c(kw.get('remind_off', True))}", "notif_toggle_remind_off")],
-        [_btn(f"🔴 Факт відключення  {_c(kw.get('fact_off', True))}", "notif_toggle_fact_off")],
-        [_btn(f"🟢 Нагадування перед вкл.  {_c(kw.get('remind_on', True))}", "notif_toggle_remind_on")],
-        [_btn(f"🟢 Факт включення  {_c(kw.get('fact_on', True))}", "notif_toggle_fact_on")],
+        [_btn("🔴 Нагадування перед відкл.", "notif_toggle_remind_off", style=_t(kw.get("remind_off", True)))],
+        [_btn("🔴 Факт відключення", "notif_toggle_fact_off", style=_t(kw.get("fact_off", True)))],
+        [_btn("🟢 Нагадування перед вкл.", "notif_toggle_remind_on", style=_t(kw.get("remind_on", True)))],
+        [_btn("🟢 Факт включення", "notif_toggle_fact_on", style=_t(kw.get("fact_on", True)))],
         [
-            _btn(f"15 хв {'✅' if kw.get('remind_15m', True) else ''}", "notif_time_15"),
-            _btn(f"30 хв {'✅' if kw.get('remind_30m', False) else ''}", "notif_time_30"),
-            _btn(f"1 год {'✅' if kw.get('remind_1h', False) else ''}", "notif_time_60"),
+            _btn("15 хв", "notif_time_15", style="success" if kw.get("remind_15m", True) else None),
+            _btn("30 хв", "notif_time_30", style="success" if kw.get("remind_30m", False) else None),
+            _btn("1 год", "notif_time_60", style="success" if kw.get("remind_1h", False) else None),
         ],
         [_btn("← Назад", "notif_main")],
     ])
@@ -384,13 +392,13 @@ def get_notification_targets_keyboard(has_ip: bool = False) -> InlineKeyboardMar
 
 
 def get_notification_target_select_keyboard(target_type: str, current_target: str = "bot") -> InlineKeyboardMarkup:
-    def _m(t: str) -> str:
-        return "✅ " if t == current_target else ""
+    def _m(t: str) -> str | None:
+        return "success" if t == current_target else None
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(f"{_m('bot')}📱 В бот", f"notif_target_set_{target_type}_bot")],
-        [_btn(f"{_m('channel')}📺 В канал", f"notif_target_set_{target_type}_channel")],
-        [_btn(f"{_m('both')}📱📺 Обидва", f"notif_target_set_{target_type}_both")],
+        [_btn("📱 В бот", f"notif_target_set_{target_type}_bot", style=_m("bot"))],
+        [_btn("📺 В канал", f"notif_target_set_{target_type}_channel", style=_m("channel"))],
+        [_btn("📱📺 Обидва", f"notif_target_set_{target_type}_both", style=_m("both"))],
         [_btn("← Назад", "notif_targets")],
     ])
 
@@ -559,11 +567,9 @@ def get_ip_ping_error_keyboard(support_url: str | None = None) -> InlineKeyboard
 
 
 def get_cleanup_keyboard(auto_delete_commands: bool = False, auto_delete_bot_messages: bool = False) -> InlineKeyboardMarkup:
-    cmd = "✅ Видаляти команди" if auto_delete_commands else "⌨️ Видаляти команди"
-    msg = "✅ Видаляти старі відповіді" if auto_delete_bot_messages else "💬 Видаляти старі відповіді"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(cmd, "cleanup_toggle_commands")],
-        [_btn(msg, "cleanup_toggle_messages")],
+        [_btn("⌨️ Видаляти команди", "cleanup_toggle_commands", style="success" if auto_delete_commands else None)],
+        [_btn("💬 Видаляти старі відповіді", "cleanup_toggle_messages", style="success" if auto_delete_bot_messages else None)],
         [_btn("← Назад", "back_to_settings"), _btn("⤴ Меню", "back_to_main")],
     ])
 
@@ -599,12 +605,10 @@ def get_format_settings_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_format_schedule_keyboard(delete_old: bool = False, picture_only: bool = False) -> InlineKeyboardMarkup:
-    d = "✓" if delete_old else "○"
-    p = "✓" if picture_only else "○"
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("📝 Налаштувати текст графіка", "format_schedule_text")],
-        [_btn(f"{d} Видаляти старий графік", "format_toggle_delete")],
-        [_btn(f"{p} Без тексту (тільки картинка)", "format_toggle_piconly")],
+        [_btn("Видаляти старий графік", "format_toggle_delete", style="success" if delete_old else None)],
+        [_btn("Без тексту (тільки картинка)", "format_toggle_piconly", style="success" if picture_only else None)],
         [_btn("← Назад", "format_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 

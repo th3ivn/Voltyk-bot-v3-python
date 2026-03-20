@@ -187,9 +187,9 @@ async def change_queue(callback: CallbackQuery, state: FSMContext, session: Asyn
 
     if callback.message.photo:
         await _safe_delete(callback.message)
-        await callback.message.answer("Оберіть свій регіон:", reply_markup=get_region_keyboard())
+        await callback.message.answer("Оберіть свій регіон:", reply_markup=get_region_keyboard(current_region=user.region))
     else:
-        await _safe_edit_text(callback.message, "Оберіть свій регіон:", reply_markup=get_region_keyboard())
+        await _safe_edit_text(callback.message, "Оберіть свій регіон:", reply_markup=get_region_keyboard(current_region=user.region))
 
 
 @router.callback_query(F.data == "menu_timer")
