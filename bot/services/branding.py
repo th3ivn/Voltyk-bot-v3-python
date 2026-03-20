@@ -50,6 +50,7 @@ async def apply_channel_branding(
 
     if send_welcome and queue:
         try:
-            await bot.send_message(cc.channel_id, get_channel_welcome_message(queue))
+            me = await bot.get_me()
+            await bot.send_message(cc.channel_id, get_channel_welcome_message(queue, me.username))
         except Exception as e:
             logger.warning("Failed to send welcome message to %s: %s", cc.channel_id, e)
