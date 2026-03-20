@@ -4,15 +4,25 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.db.models import UserMessageTracking
 from bot.db.queries import (
     delete_pending_channel,
     delete_pending_channel_by_telegram_id,
     get_pending_channel_by_telegram_id,
     get_user_by_telegram_id,
 )
-from bot.keyboards.inline import get_understood_keyboard
+from bot.keyboards.inline import (
+    E_ADMIN,
+    E_CHANNEL,
+    E_CHECK,
+    E_INSTRUCTION,
+    E_SETTINGS,
+    get_channel_pending_confirm_keyboard,
+    get_understood_keyboard,
+)
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.branding import CHANNEL_NAME_PREFIX
 from bot.utils.logger import get_logger
@@ -28,35 +38,42 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
     if pending:
         await callback.message.edit_text(
             f'📺 Знайдено канал!\n\n"{pending.channel_title}"\n\nПідключити цей канал?',
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="✓ Так, підключити", callback_data=f"channel_confirm_{pending.channel_id}")],
-                    [InlineKeyboardButton(text="✕ Ні", callback_data="settings_channel")],
-                ]
-            ),
+            reply_markup=get_channel_pending_confirm_keyboard(pending.channel_id),
         )
         return
 
     bot_me = await callback.bot.get_me()
+    instruction_text = (
+        '<tg-emoji emoji-id="5327890571157607542">📺</tg-emoji> <b>Підключення каналу</b>\n\n'
+        "Щоб бот міг публікувати графіки у ваш канал:\n\n"
+        f'1️⃣ <tg-emoji emoji-id="{E_CHANNEL}">📺</tg-emoji> Відкрийте ваш канал у Telegram\n'
+        f'2️⃣ <tg-emoji emoji-id="{E_SETTINGS}">⚙️</tg-emoji> Перейдіть у Налаштування → Адміністратори\n'
+        f'3️⃣ <tg-emoji emoji-id="{E_ADMIN}">👤</tg-emoji> Натисніть "Додати адміністратора"\n'
+        f'4️⃣ <tg-emoji emoji-id="{E_INSTRUCTION}">🔍</tg-emoji> Знайдіть бота: @{bot_me.username}\n'
+        f'5️⃣ <tg-emoji emoji-id="{E_CHECK}">✅</tg-emoji> Увімкніть усі перемикачі\n\n'
+        "Після того як ви додасте бота — він знайде канал автоматично."
+    )
     try:
         await callback.message.edit_text(
-            "📺 Підключення каналу\n\n"
-            "Щоб бот міг публікувати графіки у ваш канал:\n\n"
-            "1️⃣ Відкрийте ваш канал у Telegram\n"
-            "2️⃣ Перейдіть у Налаштування каналу → Адміністратори\n"
-            "3️⃣ Натисніть \"Додати адміністратора\"\n"
-            f"4️⃣ Знайдіть бота: @{bot_me.username}\n"
-            "5️⃣ Надайте права на публікацію повідомлень\n\n"
-            "Після того як ви додасте бота — він знайде канал автоматично.",
+            instruction_text,
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
                 ]
             ),
+            parse_mode="HTML",
         )
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
+
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if user:
+        await session.execute(
+            sa_update(UserMessageTracking)
+            .where(UserMessageTracking.user_id == user.id)
+            .values(last_settings_message_id=callback.message.message_id)
+        )
 
 
 @router.callback_query(F.data.startswith("channel_confirm_"))

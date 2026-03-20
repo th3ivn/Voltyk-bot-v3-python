@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from aiogram import Router
-from aiogram.types import ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import ChatMemberUpdated, InlineKeyboardMarkup
+from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.db.models import UserMessageTracking
 from bot.db.queries import (
     delete_pending_channel,
     get_user_by_channel_id,
     get_user_by_telegram_id,
     save_pending_channel,
 )
-from bot.keyboards.inline import get_understood_keyboard
+from bot.keyboards.inline import (
+    get_channel_connect_confirm_keyboard,
+    get_channel_replace_confirm_keyboard,
+    get_understood_keyboard,
+)
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -56,40 +62,46 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
             channel_title=channel_title,
         )
 
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Так, підключити", callback_data=f"connect_channel_{channel_id}")],
-                [InlineKeyboardButton(text="❌ Ні", callback_data="cancel_channel_connect")],
-            ]
-        )
+        # Try to edit the instruction message the user saw; fall back to a new message
+        instruction_msg_id: int | None = None
+        if user:
+            tracking = (await session.execute(
+                sa_select(UserMessageTracking).where(UserMessageTracking.user_id == user.id)
+            )).scalar_one_or_none()
+            if tracking and tracking.last_settings_message_id:
+                instruction_msg_id = tracking.last_settings_message_id
+                tracking.last_settings_message_id = None
+
+        async def _notify(text: str, kb: InlineKeyboardMarkup) -> None:
+            if instruction_msg_id:
+                try:
+                    await event.bot.edit_message_text(
+                        chat_id=from_user.id,
+                        message_id=instruction_msg_id,
+                        text=text,
+                        reply_markup=kb,
+                    )
+                    return
+                except Exception:
+                    pass
+            try:
+                await event.bot.send_message(from_user.id, text, reply_markup=kb)
+            except Exception as e:
+                logger.warning("Could not notify user %s about channel: %s", from_user.id, e)
 
         if user and user.channel_config and user.channel_config.channel_id:
             current_title = user.channel_config.channel_title or "поточний"
-            kb = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Так, замінити", callback_data=f"replace_channel_{channel_id}")],
-                    [InlineKeyboardButton(text="❌ Залишити поточний", callback_data="keep_current_channel")],
-                ]
+            await _notify(
+                f'✅ Ви додали мене в канал "{channel_title}"!\n\n'
+                f'⚠️ У вас вже підключений канал "{current_title}".\n'
+                "Замінити на новий?",
+                get_channel_replace_confirm_keyboard(channel_id),
             )
-            try:
-                await event.bot.send_message(
-                    from_user.id,
-                    f'✅ Ви додали мене в канал "{channel_title}"!\n\n'
-                    f'⚠️ У вас вже підключений канал "{current_title}".\n'
-                    "Замінити на новий?",
-                    reply_markup=kb,
-                )
-            except Exception as e:
-                logger.warning("Could not send channel replace prompt to user %s: %s", from_user.id, e)
         else:
-            try:
-                await event.bot.send_message(
-                    from_user.id,
-                    f'✅ Канал знайдено: "{channel_title}"\n\nВикористовувати його для сповіщень?',
-                    reply_markup=kb,
-                )
-            except Exception as e:
-                logger.warning("Could not send channel connect prompt to user %s: %s", from_user.id, e)
+            await _notify(
+                f'✅ Канал знайдено: "{channel_title}"\n\nВикористовувати його для сповіщень?',
+                get_channel_connect_confirm_keyboard(channel_id),
+            )
 
     elif new_status in ("left", "kicked") and old_status in ("administrator", "creator"):
         channel_id = str(chat.id)
