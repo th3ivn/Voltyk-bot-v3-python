@@ -6,8 +6,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
+from bot.services.branding import apply_channel_branding
 from bot.states.fsm import ChannelConversationSG
-from bot.utils.helpers import CHANNEL_NAME_PREFIX
+from bot.utils.branding import MAX_USER_DESC_LEN, MAX_USER_TITLE_LEN, CHANNEL_NAME_PREFIX
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -16,15 +17,15 @@ router = Router(name="channel_conversation")
 
 @router.message(ChannelConversationSG.waiting_for_title)
 async def handle_title(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    if not message.text:
+    if not message.text or not message.text.strip():
         await message.reply("❌ Назва не може бути пустою. Спробуйте ще раз:")
         return
     title = message.text.strip()
-    if not title:
-        await message.reply("❌ Назва не може бути пустою. Спробуйте ще раз:")
-        return
-    if len(title) > 128:
-        await message.reply(f"❌ Назва занадто довга (максимум 128 символів). Зараз: {len(title)}")
+    if len(title) > MAX_USER_TITLE_LEN:
+        await message.reply(
+            f"❌ Назва занадто довга (максимум {MAX_USER_TITLE_LEN} символів без префіксу). "
+            f"Зараз: {len(title)}"
+        )
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
@@ -46,15 +47,15 @@ async def handle_title(message: Message, state: FSMContext, session: AsyncSessio
 
 @router.message(ChannelConversationSG.waiting_for_description)
 async def handle_description(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    if not message.text:
+    if not message.text or not message.text.strip():
         await message.reply("❌ Опис не може бути пустим. Спробуйте ще раз:")
         return
     desc = message.text.strip()
-    if not desc:
-        await message.reply("❌ Опис не може бути пустим. Спробуйте ще раз:")
-        return
-    if len(desc) > 255:
-        await message.reply(f"❌ Опис занадто довгий (максимум 255 символів). Зараз: {len(desc)}")
+    if len(desc) > MAX_USER_DESC_LEN:
+        await message.reply(
+            f"❌ Опис занадто довгий (максимум {MAX_USER_DESC_LEN} символів). "
+            f"Зараз: {len(desc)}"
+        )
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
@@ -62,10 +63,7 @@ async def handle_description(message: Message, state: FSMContext, session: Async
         user.channel_config.channel_user_description = desc
 
     await state.clear()
-
-    from bot.handlers.channel.branding import _apply_branding
-
-    await _apply_branding(message.bot, user)
+    await apply_channel_branding(message.bot, user.channel_config, send_welcome=True, queue=user.queue)
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -90,19 +88,16 @@ async def handle_edit_title(message: Message, state: FSMContext, session: AsyncS
         await message.reply("❌ Назва не може бути пустою.")
         return
     title = message.text.strip()
-    if len(title) > 128:
-        await message.reply("❌ Назва занадто довга (максимум 128 символів).")
+    if len(title) > MAX_USER_TITLE_LEN:
+        await message.reply(
+            f"❌ Назва занадто довга (максимум {MAX_USER_TITLE_LEN} символів без префіксу)."
+        )
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user and user.channel_config:
         user.channel_config.channel_user_title = title
-        full_title = f"{CHANNEL_NAME_PREFIX}{title}"
-        try:
-            await message.bot.set_chat_title(user.channel_config.channel_id, full_title[:128])
-            user.channel_config.channel_title = full_title[:128]
-        except Exception as e:
-            logger.warning("Failed to update title: %s", e)
+        await apply_channel_branding(message.bot, user.channel_config)
 
     await state.clear()
     await message.answer("✅ Назву каналу змінено!")
@@ -114,21 +109,16 @@ async def handle_edit_description(message: Message, state: FSMContext, session: 
         await message.reply("❌ Опис не може бути пустим.")
         return
     desc = message.text.strip()
-    if len(desc) > 255:
-        await message.reply("❌ Опис занадто довгий (максимум 255 символів).")
+    if len(desc) > MAX_USER_DESC_LEN:
+        await message.reply(
+            f"❌ Опис занадто довгий (максимум {MAX_USER_DESC_LEN} символів)."
+        )
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user and user.channel_config:
         user.channel_config.channel_user_description = desc
-        from bot.utils.helpers import CHANNEL_DESCRIPTION_BASE
-
-        full_desc = f"{CHANNEL_DESCRIPTION_BASE}\n\n{desc}"
-        try:
-            await message.bot.set_chat_description(user.channel_config.channel_id, full_desc[:255])
-            user.channel_config.channel_description = full_desc[:255]
-        except Exception as e:
-            logger.warning("Failed to update description: %s", e)
+        await apply_channel_branding(message.bot, user.channel_config)
 
     await state.clear()
     await message.answer("✅ Опис каналу змінено!")
