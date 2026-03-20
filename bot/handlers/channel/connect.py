@@ -47,12 +47,9 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
             "3️⃣ Натисніть \"Додати адміністратора\"\n"
             f"4️⃣ Знайдіть бота: @{bot_me.username}\n"
             "5️⃣ Надайте права на публікацію повідомлень\n\n"
-            "Після цього натисніть кнопку \"✅ Перевірити\" нижче.\n\n"
-            f"💡 Порада: скопіюйте @{bot_me.username} і вставте у пошук",
+            "Після того як ви додасте бота — він знайде канал автоматично.",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Відкрити профіль бота", url=f"https://t.me/{bot_me.username}")],
-                    [InlineKeyboardButton(text="✅ Готово, перевірити", callback_data="channel_connect")],
                     [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
                 ]
             ),
