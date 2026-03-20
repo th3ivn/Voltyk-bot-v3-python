@@ -51,7 +51,7 @@ class Settings(BaseSettings):
         "https://cdn.jsdelivr.net/gh/Baskerville42/outage-data-ua@main/data/{region}.json"
     )
     IMAGE_URL_TEMPLATE: str = (
-        "https://cdn.jsdelivr.net/gh/Baskerville42/outage-data-ua@main/images/{region}/gpv-{queue}-emergency.png"
+        "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/{region}/gpv-{queue}-emergency.png"
     )
 
     SUPPORT_CHANNEL_URL: str = ""

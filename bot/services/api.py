@@ -182,6 +182,7 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers={
                     "User-Agent": "SvitloCheck-Bot/4.0",
+                    "Cache-Control": "no-cache",
                 },
             ) as resp:
                 if resp.status == 200:
