@@ -113,7 +113,7 @@ async def create_new_profile(callback: CallbackQuery, state: FSMContext, session
 
 
 @router.callback_query(WizardSG.region, F.data.startswith("region_"))
-async def wizard_region(callback: CallbackQuery, state: FSMContext) -> None:
+async def wizard_region(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     region_code = callback.data.replace("region_", "")
     if region_code == "request_start":
         return
@@ -122,11 +122,17 @@ async def wizard_region(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await callback.answer()
     region = REGIONS[region_code]
+    data = await state.get_data()
     await state.update_data(region=region_code)
     await state.set_state(WizardSG.queue)
+    current_queue: str | None = None
+    if data.get("mode") in ("edit", "edit_from_schedule"):
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        if user and user.region == region_code:
+            current_queue = user.queue
     await callback.message.edit_text(
         f"✅ Регіон: {region.name}\n\n⚡ Крок 2 із 3 — Оберіть свою чергу:",
-        reply_markup=get_queue_keyboard(region_code),
+        reply_markup=get_queue_keyboard(region_code, current_queue=current_queue),
     )
 
 

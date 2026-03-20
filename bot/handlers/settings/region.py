@@ -35,13 +35,15 @@ async def settings_region(callback: CallbackQuery, session: AsyncSession) -> Non
 
 
 @router.callback_query(F.data == "settings_region_confirm")
-async def settings_region_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+async def settings_region_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    current_region = user.region if user else None
     await state.set_state(WizardSG.region)
     await state.update_data(mode="edit")
     await callback.message.edit_text(
         "1️⃣ Оберіть ваш регіон:",
-        reply_markup=get_region_keyboard(),
+        reply_markup=get_region_keyboard(current_region=current_region),
     )
 
 
