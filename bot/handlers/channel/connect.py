@@ -12,6 +12,7 @@ from bot.db.queries import (
     get_pending_channel_by_telegram_id,
     get_user_by_telegram_id,
 )
+from bot.keyboards.inline import get_understood_keyboard
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.branding import CHANNEL_NAME_PREFIX
 from bot.utils.logger import get_logger
@@ -50,7 +51,8 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
             f"💡 Порада: скопіюйте @{bot_me.username} і вставте у пошук",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Перевірити", callback_data="channel_connect")],
+                    [InlineKeyboardButton(text="📋 Відкрити профіль бота", url=f"https://t.me/{bot_me.username}")],
+                    [InlineKeyboardButton(text="✅ Готово, перевірити", callback_data="channel_connect")],
                     [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
                 ]
             ),
@@ -150,7 +152,7 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
 async def keep_current(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await delete_pending_channel_by_telegram_id(session, callback.from_user.id)
-    await callback.message.edit_text("👌 Добре, залишаємо поточний канал.")
+    await callback.message.edit_text("👌 Добре, залишаємо поточний канал.", reply_markup=get_understood_keyboard())
 
 
 @router.callback_query(F.data == "cancel_channel_connect")
@@ -158,5 +160,6 @@ async def cancel_connect(callback: CallbackQuery, session: AsyncSession) -> None
     await callback.answer()
     await delete_pending_channel_by_telegram_id(session, callback.from_user.id)
     await callback.message.edit_text(
-        "👌 Добре, канал не підключено. Ви можете підключити його пізніше в налаштуваннях."
+        "👌 Добре, канал не підключено. Ви можете підключити його пізніше в налаштуваннях.",
+        reply_markup=get_understood_keyboard(),
     )

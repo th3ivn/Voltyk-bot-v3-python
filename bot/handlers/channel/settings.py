@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
+from bot.keyboards.inline import get_understood_keyboard
 
 router = Router(name="channel_settings")
 
@@ -47,4 +48,4 @@ async def channel_disable_confirm(callback: CallbackQuery, session: AsyncSession
         user.channel_config.channel_title = None
         user.channel_config.channel_status = "disconnected"
     await callback.answer("✅ Публікації вимкнено")
-    await callback.message.edit_text("✅ Публікації вимкнено")
+    await callback.message.edit_text("✅ Публікації вимкнено", reply_markup=get_understood_keyboard())

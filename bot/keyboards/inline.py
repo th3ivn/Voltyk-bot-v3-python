@@ -117,6 +117,12 @@ def get_reminder_keyboard() -> InlineKeyboardMarkup:
     ]])
 
 
+def get_understood_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        _btn("Зрозуміло", "reminder_dismiss", E_SUCCESS),
+    ]])
+
+
 def get_schedule_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
