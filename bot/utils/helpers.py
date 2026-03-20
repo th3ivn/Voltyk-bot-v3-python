@@ -59,17 +59,3 @@ def is_valid_ip_or_domain(address: str) -> dict:
 
     return {"valid": False, "error": "Невірний формат адреси. Приклад: 192.168.1.1 або router.example.com"}
 
-
-CHANNEL_NAME_PREFIX = "СвітлоБот ⚡️ "
-CHANNEL_DESCRIPTION_BASE = (
-    "⚡️ СвітлоБот — слідкує, щоб ви не слідкували.\n\n"
-    "💬 Маєте ідеї або знайшли помилку?"
-)
-def get_channel_welcome_message(queue: str) -> str:
-    return (
-        "👋 Цей канал підключено до СвітлоБота — чат-бота для моніторингу світла.\n\n"
-        "Тут публікуватимуться:\n"
-        "• 📊 Графіки відключень\n"
-        "• ⚡ Сповіщення про стан світла (якщо IP налаштований)\n\n"
-        f"Черга: {queue}"
-    )

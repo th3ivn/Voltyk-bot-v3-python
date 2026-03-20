@@ -12,7 +12,7 @@ from bot.db.queries import (
     get_user_by_telegram_id,
 )
 from bot.states.fsm import ChannelConversationSG
-from bot.utils.helpers import CHANNEL_NAME_PREFIX
+from bot.utils.branding import CHANNEL_NAME_PREFIX
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)

@@ -73,7 +73,7 @@ async def on_startup(bot: Bot) -> None:
             ],
         )
         logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
-    logger.info("🚀 Запуск СвітлоБот v4...")
+    logger.info("🚀 Запуск Вольтик v4...")
     await _run_migrations()
     await init_db()
     logger.info("✅ База даних ініційована")

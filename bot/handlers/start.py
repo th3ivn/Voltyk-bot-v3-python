@@ -75,7 +75,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
     await state.set_state(WizardSG.region)
     await state.update_data(mode="new")
     await message.answer(
-        '<tg-emoji emoji-id="5472055112702629499">👋</tg-emoji> Вітаю! Я СвітлоБот ⚡\n\n'
+        '<tg-emoji emoji-id="5472055112702629499">👋</tg-emoji> Вітаю! Я Вольтик ⚡\n\n'
         "Слідкую за відключеннями світла і одразу\n"
         "повідомлю, як тільки щось зміниться.\n\n"
         "Налаштування займе ~1 хвилину.\n\n"
