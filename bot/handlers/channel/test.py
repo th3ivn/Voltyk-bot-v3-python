@@ -67,7 +67,8 @@ async def test_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
             )
         await callback.answer("✅ Графік опубліковано в канал!")
     except Exception as e:
-        await callback.answer(f"❌ Помилка публікації: {e}")
+        logger.warning("test_schedule failed for user %s: %s", callback.from_user.id, e)
+        await callback.answer("❌ Помилка публікації. Спробуйте пізніше.", show_alert=True)
 
 
 @router.callback_query(F.data == "test_power_on")
@@ -83,7 +84,8 @@ async def test_power_on(callback: CallbackQuery, session: AsyncSession) -> None:
         )
         await callback.answer("✅ Тестове повідомлення опубліковано!")
     except Exception as e:
-        await callback.answer(f"❌ Помилка: {e}")
+        logger.warning("test_power_on failed for user %s: %s", callback.from_user.id, e)
+        await callback.answer("❌ Помилка. Спробуйте пізніше.", show_alert=True)
 
 
 @router.callback_query(F.data == "test_power_off")
@@ -99,7 +101,8 @@ async def test_power_off(callback: CallbackQuery, session: AsyncSession) -> None
         )
         await callback.answer("✅ Тестове повідомлення опубліковано!")
     except Exception as e:
-        await callback.answer(f"❌ Помилка: {e}")
+        logger.warning("test_power_off failed for user %s: %s", callback.from_user.id, e)
+        await callback.answer("❌ Помилка. Спробуйте пізніше.", show_alert=True)
 
 
 @router.callback_query(F.data == "test_custom")

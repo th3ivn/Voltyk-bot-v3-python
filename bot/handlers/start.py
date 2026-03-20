@@ -24,13 +24,6 @@ from bot.utils.logger import get_logger
 logger = get_logger(__name__)
 router = Router(name="start")
 
-DEVELOPMENT_WARNING = (
-    "\n\n⚠️ Бот у активній розробці — деякі функції\n"
-    "можуть працювати нестабільно.\n\n"
-    "Доступні регіони:\n• Київ • Київщина\n• Дніпропетровщина • Одещина\n\n"
-    "Немає вашого регіону? Запропонуйте — додамо!"
-)
-
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) -> None:
@@ -75,13 +68,12 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
     await state.set_state(WizardSG.region)
     await state.update_data(mode="new")
     await message.answer(
-        '<tg-emoji emoji-id="5472055112702629499">👋</tg-emoji> Вітаю! Я Вольтик ⚡\n\n'
+        "👋 Вітаю! Я Вольтик ⚡\n\n"
         "Слідкую за відключеннями світла і одразу\n"
         "повідомлю, як тільки щось зміниться.\n\n"
         "Налаштування займе ~1 хвилину.\n\n"
         "📍 Крок 1 із 3 — Оберіть свій регіон:",
         reply_markup=get_region_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -189,7 +181,7 @@ async def back_to_region(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(WizardSG.region)
     await callback.message.edit_text(
-        "📍 Крок 1 із 3 — Оберіть свій регіон:" + DEVELOPMENT_WARNING,
+        "📍 Крок 1 із 3 — Оберіть свій регіон:",
         reply_markup=get_region_keyboard(),
     )
 

@@ -707,6 +707,18 @@ async def update_ping_error_alert_time(
     )
 
 
+async def get_power_history_week(session: AsyncSession, user_id: int) -> list[PowerHistory]:
+    """Return PowerHistory records for a user from the last 7 days."""
+    from datetime import timedelta
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
+    result = await session.execute(
+        select(PowerHistory)
+        .where(PowerHistory.user_id == user_id, PowerHistory.timestamp >= int(cutoff.timestamp()))
+        .order_by(PowerHistory.timestamp.desc())
+    )
+    return list(result.scalars().all())
+
+
 # ─── Admin Ticket Reminders ───────────────────────────────────────────────
 
 

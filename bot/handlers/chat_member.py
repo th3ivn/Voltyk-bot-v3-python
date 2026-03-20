@@ -82,8 +82,8 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                         reply_markup=kb,
                     )
                     return
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Could not edit instruction message for user %s: %s", from_user.id, e)
             try:
                 await event.bot.send_message(from_user.id, text, reply_markup=kb)
             except Exception as e:
