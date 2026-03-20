@@ -42,87 +42,62 @@ async def close_http_client() -> None:
 
 
 async def check_source_repo_updated() -> bool:
-    """Check if new schedule data is available.
+    """Check if Baskerville42/outage-data-ua has new commits in data/ directory.
 
-    If VOLTYK_DATA_URL is set: calls /version endpoint on the Voltyk-data service.
-    Otherwise: polls GitHub Commits API for th3ivn/Voltyk-data.
+    Uses GitHub Commits API which is not affected by CDN caching.
+    With GITHUB_TOKEN: 5000 requests/hour limit.
+    Without token: 60 requests/hour limit.
 
     Returns True if new data is available or on any error (fail-open).
     Returns False if no changes detected.
     """
     global _last_commit_sha
 
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Voltyk-Bot/4.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+
+    url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits?per_page=1&path=data"
+
     _owned = False
     _session = _http_client
     if _session is None:
         _session = aiohttp.ClientSession()
         _owned = True
-
     try:
-        if settings.VOLTYK_DATA_URL:
-            url = f"{settings.VOLTYK_DATA_URL.rstrip('/')}/version"
-            try:
-                async with _session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json(content_type=None)
-                        new_ts = data.get("updatedAt")
-                        if _last_commit_sha is None:
-                            _last_commit_sha = new_ts
-                            logger.info("Voltyk-data initial updatedAt: %s", new_ts)
-                            return True
-                        if new_ts != _last_commit_sha:
-                            logger.info("Voltyk-data updated: %s -> %s", _last_commit_sha, new_ts)
-                            _last_commit_sha = new_ts
-                            return True
-                        logger.debug("Voltyk-data no changes (updatedAt: %s)", new_ts)
-                        return False
-                    else:
-                        logger.warning("Voltyk-data /version returned %d, falling back to full fetch", resp.status)
+        async with _session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=15),
+            headers=headers,
+        ) as resp:
+            if resp.status == 200:
+                commits = await resp.json(content_type=None)
+                if commits and isinstance(commits, list):
+                    first = commits[0]
+                    if not isinstance(first, dict) or "sha" not in first:
+                        logger.warning("Unexpected commit object structure, falling back to full fetch")
                         return True
-            except Exception as e:
-                logger.warning("Voltyk-data /version check failed: %s, falling back to full fetch", e)
+                    new_sha = first["sha"]
+                    if _last_commit_sha is None:
+                        _last_commit_sha = new_sha
+                        logger.info("Initial commit SHA: %s", new_sha[:8])
+                        return True
+                    if new_sha != _last_commit_sha:
+                        logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
+                        _last_commit_sha = new_sha
+                        return True
+                    logger.debug("No new commits (SHA: %s)", new_sha[:8])
+                    return False
+            else:
+                logger.warning("GitHub Commits API returned %d, falling back to full fetch", resp.status)
                 return True
-
-        # GitHub Commits API fallback
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "Voltyk-Bot/4.0",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        if settings.GITHUB_TOKEN:
-            headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
-
-        url = "https://api.github.com/repos/th3ivn/Voltyk-data/commits?per_page=1&path=data"
-        try:
-            async with _session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=15),
-                headers=headers,
-            ) as resp:
-                if resp.status == 200:
-                    commits = await resp.json(content_type=None)
-                    if commits and isinstance(commits, list):
-                        first = commits[0]
-                        if not isinstance(first, dict) or "sha" not in first:
-                            logger.warning("Unexpected commit object structure, falling back to full fetch")
-                            return True
-                        new_sha = first["sha"]
-                        if _last_commit_sha is None:
-                            _last_commit_sha = new_sha
-                            logger.info("Initial commit SHA: %s", new_sha[:8])
-                            return True
-                        if new_sha != _last_commit_sha:
-                            logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
-                            _last_commit_sha = new_sha
-                            return True
-                        logger.debug("No new commits (SHA: %s)", new_sha[:8])
-                        return False
-                else:
-                    logger.warning("GitHub Commits API returned %d, falling back to full fetch", resp.status)
-                    return True
-        except Exception as e:
-            logger.warning("GitHub Commits API check failed: %s, falling back to full fetch", e)
-            return True
+    except Exception as e:
+        logger.warning("GitHub Commits API check failed: %s, falling back to full fetch", e)
+        return True
     finally:
         if _owned:
             await _session.close()
@@ -143,10 +118,7 @@ async def fetch_schedule_data(
         if now - cached_at < effective_ttl:
             return data
 
-    if settings.VOLTYK_DATA_URL:
-        url = f"{settings.VOLTYK_DATA_URL.rstrip('/')}/data/{region}"
-    else:
-        url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
+    url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
     if force_refresh:
         url += f"?_cb={int(time.time() * 1000)}"
@@ -195,10 +167,7 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
             return data
 
     queue_dashed = queue.replace(".", "-")
-    if settings.VOLTYK_DATA_URL:
-        url = f"{settings.VOLTYK_DATA_URL.rstrip('/')}/image/{region}/gpv-{queue_dashed}-emergency.png"
-    else:
-        url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
+    url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
 
     try:
         _owned = False
