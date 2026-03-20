@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-CHANNEL_NAME_PREFIX = "СвітлоБот ⚡️ "
+CHANNEL_NAME_PREFIX = "Вольтик ⚡️ "
 CHANNEL_DESCRIPTION_BASE = (
-    "⚡️ СвітлоБот — слідкує, щоб ви не слідкували.\n\n"
+    "⚡️ Вольтик — слідкує, щоб ви не слідкували.\n\n"
     "💬 Маєте ідеї або знайшли помилку?"
 )
 
@@ -26,7 +26,7 @@ def build_channel_description(user_desc: str | None) -> str | None:
 
 def get_channel_welcome_message(queue: str) -> str:
     return (
-        "👋 Цей канал підключено до СвітлоБота — чат-бота для моніторингу світла.\n\n"
+        "👋 Цей канал підключено до Вольтика — чат-бота для моніторингу світла.\n\n"
         "Тут публікуватимуться:\n"
         "• 📊 Графіки відключень\n"
         "• ⚡ Сповіщення про стан світла (якщо IP налаштований)\n\n"
