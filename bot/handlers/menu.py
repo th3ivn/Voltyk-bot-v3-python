@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
@@ -23,12 +25,16 @@ from bot.keyboards.inline import (
     get_statistics_keyboard,
     get_support_keyboard,
 )
-from bot.services.api import calculate_schedule_hash, fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
+from bot.services.api import (
+    calculate_schedule_hash,
+    fetch_schedule_data,
+    fetch_schedule_image,
+    find_next_event,
+    parse_schedule_for_queue,
+)
 from bot.states.fsm import WizardSG
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
-
-import time
 
 logger = get_logger(__name__)
 router = Router(name="menu")
