@@ -10,6 +10,7 @@ from bot.db.queries import (
     get_user_by_telegram_id,
     save_pending_channel,
 )
+from bot.keyboards.inline import get_understood_keyboard
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -106,6 +107,7 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
                     int(user.telegram_id),
                     f'⚠️ Мене видалили з каналу "{channel_title}".\n\n'
                     "Сповіщення в цей канал більше не надсилатимуться.",
+                    reply_markup=get_understood_keyboard(),
                 )
             except Exception as e:
                 logger.warning("Could not notify user %s about channel removal: %s", user.telegram_id, e)
