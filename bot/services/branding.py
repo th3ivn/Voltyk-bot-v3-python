@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+
+from aiogram.types import FSInputFile
 
 from bot.db.models import UserChannelConfig
 from bot.utils.branding import (
@@ -11,6 +14,8 @@ from bot.utils.branding import (
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_CHANNEL_PHOTO = Path(__file__).parents[2] / "photo_for_channels.PNG.jpg"
 
 
 async def apply_channel_branding(
@@ -49,6 +54,12 @@ async def apply_channel_branding(
             cc.channel_description = full_desc
         except Exception as e:
             logger.warning("Failed to set channel description for %s: %s", cc.channel_id, e)
+
+    if _CHANNEL_PHOTO.exists():
+        try:
+            await bot.set_chat_photo(cc.channel_id, FSInputFile(_CHANNEL_PHOTO))
+        except Exception as e:
+            logger.warning("Failed to set channel photo for %s: %s", cc.channel_id, e)
 
     cc.channel_branding_updated_at = datetime.now(UTC)
 
