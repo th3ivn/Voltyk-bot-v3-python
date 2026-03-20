@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.queries import get_user_by_telegram_id
 from bot.services.branding import apply_channel_branding
 from bot.states.fsm import ChannelConversationSG
-from bot.utils.branding import MAX_USER_DESC_LEN, MAX_USER_TITLE_LEN, CHANNEL_NAME_PREFIX
+from bot.utils.branding import MAX_USER_DESC_LEN, MAX_USER_TITLE_LEN
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
