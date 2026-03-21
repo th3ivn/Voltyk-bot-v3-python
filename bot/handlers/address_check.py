@@ -56,13 +56,21 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
             "Перевір з'єднання бота з інтернетом."
         )
 
-    error_status = response.get("_error")
-    if error_status:
+    exc_info = response.get("_exception")
+    if exc_info:
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            f"⚠️ ДТЕК повернув помилку HTTP {error_status}.\n"
-            "Можливо, IP бота заблоковано або сайт перевантажений."
+            f"⚠️ Помилка з'єднання з ДТЕК:\n<code>{exc_info}</code>"
+        )
+
+    error_status = response.get("_error")
+    if error_status:
+        body = response.get("_body", "")
+        return (
+            "🔍 Перевірка адреси\n\n"
+            f"📍 {region_name}: {addr}\n\n"
+            f"⚠️ ДТЕК HTTP {error_status}:\n<code>{body[:120]}</code>"
         )
 
     queue = _extract_queue(response, house)
