@@ -289,8 +289,9 @@ async def _check_single_queue(
         if tomorrow_changed and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
-    # Fallback: hash changed but snapshots were absent (e.g. first run) — always notify
-    if not update_type:
+    # Fallback: hash changed but no specific flag was set (e.g. first run or edge case).
+    # Only mark as "updated" for existing regions — initial loads use is_daily_planned formatting.
+    if not update_type and not is_initial:
         update_type["todayUpdated"] = True
 
     # Tag initial loads so the 06:00 flush knows to use a daily-planned message format
@@ -503,7 +504,7 @@ async def _send_schedule_notification(
             fresh_user.queue,
             sched_data,
             next_event,
-            changes=changes if changes and changes.get("added") else None,
+            changes=changes if changes and (changes.get("added") or changes.get("removed")) else None,
             update_type=update_type if update_type else None,
             is_daily_planned=is_daily_planned,
         )
@@ -879,12 +880,16 @@ async def _send_reminder(
     # Delete previous reminder before sending the new one
     await _delete_reminder_messages(bot, str(user.telegram_id))
 
+    event_type = next_event.get("type", "power_off")
     send_to_bot = ns.notify_remind_target != "channel"
+    ch_event_flag = "ch_notify_remind_off" if event_type == "power_off" else "ch_notify_remind_on"
     send_to_channel = (
         cc is not None
         and cc.channel_id
+        and cc.channel_status == "active"
         and not cc.channel_paused
-        and getattr(cc, "ch_notify_remind_off", False)
+        and getattr(cc, ch_event_flag, False)
+        and getattr(cc, _CH_REMIND_FIELDS[remind_m], False)
     )
 
     bot_msg_id: int | None = None
