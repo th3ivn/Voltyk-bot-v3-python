@@ -477,17 +477,6 @@ async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
     logger.info("Daily flush loop started")
 
-    # If the bot starts (or restarts) after 06:00, the scheduled flush for today
-    # was already missed.  Run it immediately so pending quiet-hours notifications
-    # are not held until *tomorrow* 06:00.
-    startup_now = datetime.now(KYIV_TZ)
-    if startup_now.hour >= 6:
-        logger.info("Post-startup flush: time is %s, running immediately", startup_now.strftime("%H:%M"))
-        try:
-            await flush_pending_notifications(bot)
-        except Exception as e:
-            logger.error("Post-startup flush error: %s", e)
-
     while _running:
         now = datetime.now(KYIV_TZ)
         target = now.replace(hour=6, minute=0, second=0, microsecond=0)
