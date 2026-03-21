@@ -93,6 +93,7 @@ async def on_startup(bot: Bot) -> None:
     me = await bot.get_me()
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
+    from bot.services.emergency_monitor import emergency_monitor_loop
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
     from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
 
@@ -102,16 +103,19 @@ async def on_startup(bot: Bot) -> None:
         asyncio.create_task(daily_ping_error_loop(bot)),
         asyncio.create_task(daily_flush_loop(bot)),
         asyncio.create_task(reminder_checker_loop(bot)),
+        asyncio.create_task(emergency_monitor_loop(bot)),
     ])
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
     from bot.services.api import close_http_client
+    from bot.services.emergency_monitor import stop_emergency_monitor
     from bot.services.power_monitor import stop_power_monitor
     from bot.services.scheduler import stop_scheduler
 
     stop_scheduler()
     stop_power_monitor()
+    stop_emergency_monitor()
 
     for task in _bg_tasks:
         task.cancel()
