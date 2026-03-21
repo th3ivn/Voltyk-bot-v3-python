@@ -19,6 +19,7 @@ dependencies = [
     "uvloop>=0.19; sys_platform != 'win32'",
     "aioping>=0.4",
     "sentry-sdk[aiohttp]>=2.0,<3",
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]

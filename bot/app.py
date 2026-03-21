@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
 
 from bot.config import settings
 from bot.db.session import engine, init_db
@@ -42,7 +43,14 @@ def create_bot() -> Bot:
     )
 
 def create_dispatcher() -> Dispatcher:
-    dp = Dispatcher(storage=MemoryStorage())
+    redis_url = settings.REDIS_URL
+    if redis_url and "localhost" not in redis_url:
+        storage = RedisStorage.from_url(redis_url)
+        logger.info("✅ Redis FSM storage (%s)", redis_url.split("@")[-1])
+    else:
+        storage = MemoryStorage()
+        logger.warning("⚠️  MemoryStorage — FSM state буде втрачено при рестарті")
+    dp = Dispatcher(storage=storage)
 
     dp.message.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(DbSessionMiddleware())
