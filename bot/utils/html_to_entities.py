@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from html import unescape
 
+from aiogram.types import MessageEntity
+
 TAG_MAP = {
     "b": "bold", "strong": "bold",
     "i": "italic", "em": "italic",
@@ -130,10 +132,8 @@ def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list
     return full_text, entities
 
 
-def to_aiogram_entities(raw_entities: list[dict]):
+def to_aiogram_entities(raw_entities: list[dict]) -> list[MessageEntity]:
     """Convert raw entity dicts (from html_to_entities/append_timestamp) to aiogram MessageEntity objects."""
-    from aiogram.types import MessageEntity
-
     result = []
     for e in raw_entities:
         params = {"type": e["type"], "offset": e["offset"], "length": e["length"]}
