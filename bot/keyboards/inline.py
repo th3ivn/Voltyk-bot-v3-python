@@ -101,6 +101,7 @@ def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> In
             _btn("Канал", "settings_channel", E_CHANNEL),
         ],
         [_btn("Налаштування", "menu_settings", E_BOT_SETTINGS)],
+        [_btn("🔍 Перевірити адресу", "address_check_start")],
     ]
     if has_channel:
         if channel_paused:
@@ -925,4 +926,28 @@ def get_emergency_cancel_keyboard() -> InlineKeyboardMarkup:
     """Cancel button shown during multi-step address input."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [_btn("Скасувати", "emergency_cancel_to_settings")],
+    ])
+
+
+# ─── Address check ─────────────────────────────────────────────────────────
+
+
+def get_address_check_region_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🏙 Київ", "ac_region_kyiv"), _btn("🏘 Київщина", "ac_region_kyiv-region")],
+        [_btn("🏙 Дніпро", "ac_region_dnipro"), _btn("🏙 Одеса", "ac_region_odesa")],
+        [_btn("✖ Скасувати", "ac_cancel")],
+    ])
+
+
+def get_address_check_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✖ Скасувати", "ac_cancel")],
+    ])
+
+
+def get_address_check_result_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🔍 Перевірити знову", "address_check_start")],
+        [_btn("⤴ Меню", "back_to_main")],
     ])
