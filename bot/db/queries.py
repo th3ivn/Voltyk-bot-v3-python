@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -656,6 +656,18 @@ async def mark_pending_notifications_sent(session: AsyncSession, region: str, qu
         )
         .values(status="sent")
     )
+
+
+async def delete_old_pending_notifications(session: AsyncSession, older_than_hours: int = 48) -> int:
+    """Delete sent notifications and stuck pending notifications older than specified hours.
+
+    Returns number of deleted rows.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=older_than_hours)
+    result = await session.execute(
+        delete(PendingNotification).where(PendingNotification.created_at < cutoff)
+    )
+    return result.rowcount  # type: ignore[return-value]
 
 
 # ─── Ping Error Alerts ────────────────────────────────────────────────────
