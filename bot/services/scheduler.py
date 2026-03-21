@@ -230,6 +230,10 @@ async def _check_single_queue(
     update_type: dict = {}
     changes: dict = {"added": []}
 
+    # Tracks whether we successfully compared today's data with yesterday's snapshot.
+    # Used to avoid false "todayUnchanged" claims and to detect day-rollover correctly.
+    today_comparison_done = False
+
     if snapshot is None:
         # First check of the day — compare today's events with yesterday's tomorrow data
         if yesterday_snapshot is not None:
@@ -239,6 +243,7 @@ async def _check_single_queue(
                     yesterday_sched.get("events", []), today_date
                 )
                 new_today_events = _filter_events_for_date(events, today_date)
+                today_comparison_done = True
                 if yesterday_snapshot.tomorrow_hash != new_today_hash:
                     update_type["todayUpdated"] = True
                     changes = _compute_changes(yesterday_tomorrow_events, new_today_events)
@@ -249,8 +254,8 @@ async def _check_single_queue(
             update_type["tomorrowAppeared"] = True
             _merge_tomorrow_events_into_changes(changes, events, tomorrow_date)
 
-        # Only claim "today unchanged" when we actually compared with yesterday's data
-        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated") and yesterday_snapshot is not None:
+        # Only claim "today unchanged" when comparison actually succeeded
+        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated") and today_comparison_done:
             update_type["todayUnchanged"] = True
     else:
         # Snapshot exists — compare with stored hashes
@@ -289,9 +294,21 @@ async def _check_single_queue(
         if tomorrow_changed and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
+    # Detect pure day-rollover: hash changed only because dates shifted (new day), but
+    # today's actual data matches what was announced yesterday as "tomorrow" and there
+    # is no new tomorrow schedule yet.  In this case no change notification is needed —
+    # the regular 06:00 flush will send the daily-planned message.
+    is_day_rollover = (
+        snapshot is None
+        and today_comparison_done
+        and not update_type  # nothing changed after comparison
+        and not is_initial
+    )
+
     # Fallback: hash changed but no specific flag was set (e.g. first run or edge case).
-    # Only mark as "updated" for existing regions — initial loads use is_daily_planned formatting.
-    if not update_type and not is_initial:
+    # Only mark as "updated" for existing regions, and only when it is NOT a plain
+    # day-rollover (which should be handled silently by the 06:00 flush).
+    if not update_type and not is_initial and not is_day_rollover:
         update_type["todayUpdated"] = True
 
     # Tag initial loads so the 06:00 flush knows to use a daily-planned message format
@@ -311,11 +328,15 @@ async def _check_single_queue(
             session, region, queue, today_date,
             sched_data_json, new_today_hash, new_tomorrow_hash,
         )
-        if quiet:
+        if quiet and not is_day_rollover:
             await save_pending_notification(
                 session, region, queue, sched_data_json, update_type_json, changes_json
             )
         await session.commit()
+
+    if is_day_rollover:
+        logger.debug("Day rollover for %s/%s — snapshot updated, 06:00 flush will send daily message", region, queue)
+        return
 
     if quiet:
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
@@ -328,6 +349,12 @@ async def _check_single_queue(
     await _send_notifications_to_users(
         bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_initial
     )
+
+    # Supersede any pending quiet-hours notifications for this pair — they are
+    # now outdated because a newer notification was just sent by the checker.
+    async with async_session() as session:
+        await mark_pending_notifications_sent(session, region, queue)
+        await session.commit()
 
     # Update existing power notifications to reflect new schedule
     try:
@@ -411,6 +438,18 @@ async def flush_pending_notifications(bot: Bot) -> None:
 async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
     logger.info("Daily flush loop started")
+
+    # If the bot starts (or restarts) after 06:00, the scheduled flush for today
+    # was already missed.  Run it immediately so pending quiet-hours notifications
+    # are not held until *tomorrow* 06:00.
+    startup_now = datetime.now(KYIV_TZ)
+    if startup_now.hour >= 6:
+        logger.info("Post-startup flush: time is %s, running immediately", startup_now.strftime("%H:%M"))
+        try:
+            await flush_pending_notifications(bot)
+        except Exception as e:
+            logger.error("Post-startup flush error: %s", e)
+
     while _running:
         now = datetime.now(KYIV_TZ)
         target = now.replace(hour=6, minute=0, second=0, microsecond=0)
