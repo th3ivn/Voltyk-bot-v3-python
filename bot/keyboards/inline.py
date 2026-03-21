@@ -309,13 +309,13 @@ def _notif_keyboard(
         return "success" if v else "default"
 
     rows = [
-        [_btn("📊 Оновлення графіків", f"{prefix}_toggle_schedule", E_SCHEDULE_CHANGES, style=_s(schedule_changes))],
+        [_btn("Оновлення графіків", f"{prefix}_toggle_schedule", E_SCHEDULE_CHANGES, style=_s(schedule_changes))],
         [
             _btn("1 год", f"{prefix}_time_60", style=_s(remind_1h)),
             _btn("30 хв", f"{prefix}_time_30", style=_s(remind_30m)),
             _btn("15 хв", f"{prefix}_time_15", style=_s(remind_15m)),
         ],
-        [_btn("⏱ Фактично за IP-адресою", f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
+        [_btn("Фактично за IP-адресою", f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
     ]
     last_row = [_btn("← Назад", back_cb)]
     if done_cb:
