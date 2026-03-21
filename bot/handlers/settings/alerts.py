@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,24 @@ from bot.keyboards.inline import (
 
 router = Router(name="settings_alerts")
 
+_MSG_NOT_MODIFIED = "message is not modified"
+
+
+async def _safe_edit(message, text: str, reply_markup=None, parse_mode: str = "HTML") -> None:
+    try:
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest as e:
+        if _MSG_NOT_MODIFIED not in str(e):
+            raise
+
+
+async def _safe_edit_markup(message, reply_markup) -> None:
+    try:
+        await message.edit_reply_markup(reply_markup=reply_markup)
+    except TelegramBadRequest as e:
+        if _MSG_NOT_MODIFIED not in str(e):
+            raise
+
 
 @router.callback_query(F.data.in_({"settings_alerts", "notif_main"}))
 async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> None:
@@ -28,17 +47,18 @@ async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> Non
 
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     if has_channel:
-        await callback.message.edit_text(
+        await _safe_edit(
+            callback.message,
             f'<tg-emoji emoji-id="{E_BELL}">🔔</tg-emoji> Керування сповіщеннями\n\nОберіть, що хочете налаштувати:',
             reply_markup=get_notification_select_keyboard(),
-            parse_mode="HTML",
         )
     else:
         ns = user.notification_settings
         if not ns:
             return
         text = build_notification_settings_message(ns)
-        await callback.message.edit_text(
+        await _safe_edit(
+            callback.message,
             text,
             reply_markup=get_notification_main_keyboard(
                 schedule_changes=ns.notify_schedule_changes,
@@ -61,7 +81,8 @@ async def notif_select_bot(callback: CallbackQuery, session: AsyncSession) -> No
         return
     ns = user.notification_settings
     text = build_notification_settings_message(ns)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
@@ -85,7 +106,8 @@ async def notif_select_channel(callback: CallbackQuery, session: AsyncSession) -
         return
     cc = user.channel_config
     text = build_channel_notification_message(cc)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         text,
         reply_markup=get_channel_notification_keyboard(
             schedule=cc.ch_notify_schedule,
@@ -107,7 +129,8 @@ async def notif_toggle_schedule(callback: CallbackQuery, session: AsyncSession) 
         ns = user.notification_settings
         ns.notify_schedule_changes = not ns.notify_schedule_changes
         text = build_notification_settings_message(ns)
-        await callback.message.edit_text(
+        await _safe_edit(
+            callback.message,
             text,
             reply_markup=get_notification_main_keyboard(
                 schedule_changes=ns.notify_schedule_changes,
@@ -130,7 +153,8 @@ async def notif_reminders(callback: CallbackQuery, session: AsyncSession) -> Non
     if not user or not user.notification_settings:
         return
     ns = user.notification_settings
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         "⏰ Нагадування",
         reply_markup=get_notification_reminders_keyboard(
             remind_off=ns.notify_remind_off,
@@ -168,7 +192,8 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
         elif field == "fact_on":
             ns.notify_fact_off = new_val
     text = build_notification_settings_message(ns)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
@@ -199,7 +224,8 @@ async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
     elif minutes == 60:
         ns.remind_1h = not ns.remind_1h
     text = build_notification_settings_message(ns)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
@@ -220,7 +246,8 @@ async def notif_targets(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     has_ip = bool(user and user.router_ip)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         "📍 Куди надсилати сповіщення",
         reply_markup=get_notification_targets_keyboard(has_ip=has_ip),
     )
@@ -240,7 +267,8 @@ async def notif_target_type(callback: CallbackQuery, session: AsyncSession) -> N
         "power": ns.notify_power_target,
     }
     current = target_map.get(target_type, "bot")
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         "Куди надсилати:",
         reply_markup=get_notification_target_select_keyboard(target_type, current),
     )
@@ -266,7 +294,8 @@ async def notif_target_set(callback: CallbackQuery, session: AsyncSession) -> No
     attr = attr_map.get(target_type)
     if attr:
         setattr(ns, attr, target_value)
-    await callback.message.edit_reply_markup(
+    await _safe_edit_markup(
+        callback.message,
         reply_markup=get_notification_target_select_keyboard(target_type, target_value),
     )
     await callback.answer("✅ Збережено")
@@ -312,7 +341,8 @@ async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> No
             cc.ch_remind_1h = not cc.ch_remind_1h
 
     text = build_channel_notification_message(cc)
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback.message,
         text,
         reply_markup=get_channel_notification_keyboard(
             schedule=cc.ch_notify_schedule,
