@@ -85,10 +85,12 @@ def _compute_date_hash(events: list[dict], date_str: str) -> str | None:
 
 
 def _compute_changes(old_events: list[dict], new_events: list[dict]) -> dict:
-    """Return a changes dict with 'added' events (in new but not in old)."""
+    """Return a changes dict with 'added' and 'removed' events."""
     old_keys = {f"{e['start']}_{e['end']}" for e in old_events}
+    new_keys = {f"{e['start']}_{e['end']}" for e in new_events}
     added = [e for e in new_events if f"{e['start']}_{e['end']}" not in old_keys]
-    return {"added": added}
+    removed = [e for e in old_events if f"{e['start']}_{e['end']}" not in new_keys]
+    return {"added": added, "removed": removed}
 
 
 # ─── Interval ─────────────────────────────────────────────────────────────
@@ -261,8 +263,26 @@ async def _check_single_queue(
         if snapshot.tomorrow_hash is None and new_tomorrow_hash is not None:
             update_type["tomorrowAppeared"] = True
             _merge_tomorrow_events_into_changes(changes, events, tomorrow_date)
+        elif snapshot.tomorrow_hash is not None and new_tomorrow_hash != snapshot.tomorrow_hash:
+            if new_tomorrow_hash is None:
+                update_type["tomorrowCancelled"] = True
+            else:
+                update_type["tomorrowUpdated"] = True
+            try:
+                old_sched = json.loads(snapshot.schedule_data)
+                old_tomorrow_events = _filter_events_for_date(old_sched.get("events", []), tomorrow_date)
+                new_tomorrow_events = _filter_events_for_date(events, tomorrow_date)
+                tomorrow_changes = _compute_changes(old_tomorrow_events, new_tomorrow_events)
+                for ev in tomorrow_changes.get("added", []):
+                    key = f"{ev['start']}_{ev['end']}"
+                    if key not in {f"{e['start']}_{e['end']}" for e in changes["added"]}:
+                        changes["added"].append(ev)
+                changes.setdefault("removed", []).extend(tomorrow_changes.get("removed", []))
+            except Exception as e:
+                logger.warning("Failed to compute tomorrow changes: %s", e)
 
-        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated"):
+        tomorrow_changed = update_type.get("tomorrowAppeared") or update_type.get("tomorrowUpdated") or update_type.get("tomorrowCancelled")
+        if tomorrow_changed and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
     # Fallback: hash changed but snapshots were absent (e.g. first run) — always notify
@@ -271,7 +291,7 @@ async def _check_single_queue(
 
     sched_data_json = json.dumps(sched)
     update_type_json = json.dumps(update_type)
-    changes_json = json.dumps(changes) if changes.get("added") else None
+    changes_json = json.dumps(changes) if (changes.get("added") or changes.get("removed")) else None
 
     quiet = _is_quiet_hours()
 
@@ -350,7 +370,7 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 if notif:
                     sched = json.loads(notif.schedule_data)
                     update_type = json.loads(notif.update_type) if notif.update_type else {}
-                    changes = json.loads(notif.changes) if notif.changes else {"added": []}
+                    changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
 
                     await _send_notifications_to_users(
                         bot, users_in_queue, sched, update_type, changes, is_daily_planned=False

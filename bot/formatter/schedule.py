@@ -112,9 +112,16 @@ def format_schedule_message(
         for e in tomorrow_events
     )
 
-    if tomorrow_events:
+    # Removed events for tomorrow (cancelled outages no longer in schedule)
+    removed_tomorrow = [ev for ev in (changes.get("removed") or []) if ev.get("start", "")[:10] == tomorrow_start.strftime("%Y-%m-%d")] if changes else []
+
+    if tomorrow_events or removed_tomorrow:
         if update_type and update_type.get("tomorrowAppeared"):
             header = f"<i>💡 Зʼявився графік відключень <b>на завтра, {tomorrow_date} ({tomorrow_name}),</b> для черги {queue}:</i>"
+        elif update_type and update_type.get("tomorrowUpdated"):
+            header = f"<i>💡 Оновлено графік відключень <b>на завтра, {tomorrow_date} ({tomorrow_name}),</b> для черги {queue}:</i>"
+        elif update_type and update_type.get("tomorrowCancelled"):
+            header = f"<i>💡 Скасовано всі відключення <b>на завтра, {tomorrow_date} ({tomorrow_name}),</b> для черги {queue}:</i>"
         else:
             header = f"<i>💡 Графік відключень <b>на завтра, {tomorrow_date} ({tomorrow_name}),</b> для черги {queue}:</i>"
         lines.append(header)
@@ -129,13 +136,27 @@ def format_schedule_message(
             possible = " ⚠️" if ev.get("isPossible") else ""
             new_mark = " 🆕" if is_new else ""
             lines.append(f"🪫 <b>{s} - {e} (~{dur_str})</b>{possible}{new_mark}")
-        lines.append(f"Загалом без світла:<b> ~{_total_str(tomorrow_total)}</b>")
+        if removed_tomorrow:
+            for ev in removed_tomorrow:
+                s = _format_time(ev["start"])
+                e = _format_time(ev["end"])
+                dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+                dur_str = _format_duration_from_ms(dur)
+                lines.append(f"❌ <s>{s} - {e} (~{dur_str})</s> <i>скасовано</i>")
+        if tomorrow_events:
+            lines.append(f"Загалом без світла:<b> ~{_total_str(tomorrow_total)}</b>")
+        else:
+            lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
         lines.append("")
 
-    if today_events:
-        if update_type and update_type.get("todayUnchanged") and tomorrow_events:
+    # Removed events for today (cancelled outages no longer in schedule)
+    removed_today = [ev for ev in (changes.get("removed") or []) if ev.get("start", "")[:10] == now.strftime("%Y-%m-%d")] if changes else []
+
+    if today_events or removed_today:
+        tomorrow_section_shown = bool(tomorrow_events or removed_tomorrow)
+        if update_type and update_type.get("todayUnchanged") and tomorrow_section_shown:
             header = f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> без змін:</i>"
-        elif update_type and update_type.get("todayUpdated") and update_type.get("tomorrowAppeared"):
+        elif update_type and update_type.get("todayUpdated") and (update_type.get("tomorrowAppeared") or update_type.get("tomorrowUpdated")):
             header = "<i>💡 Оновлено графік <b>на сьогодні:</b></i>"
         elif update_type and update_type.get("todayUpdated"):
             header = f"<i>💡 Оновлено графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
@@ -153,7 +174,17 @@ def format_schedule_message(
             possible = " ⚠️" if ev.get("isPossible") else ""
             new_mark = " 🆕" if is_new else ""
             lines.append(f"🪫 <b>{s} - {e} (~{dur_str})</b>{possible}{new_mark}")
-        lines.append(f"Загалом без світла:<b> ~{_total_str(today_total)}</b>")
+        if removed_today:
+            for ev in removed_today:
+                s = _format_time(ev["start"])
+                e = _format_time(ev["end"])
+                dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+                dur_str = _format_duration_from_ms(dur)
+                lines.append(f"❌ <s>{s} - {e} (~{dur_str})</s> <i>скасовано</i>")
+        if today_events:
+            lines.append(f"Загалом без світла:<b> ~{_total_str(today_total)}</b>")
+        else:
+            lines.append('<tg-emoji emoji-id="5870509845911702494">✅</tg-emoji> Відключень не заплановано')
     else:
         lines.append(
             f"<i>{base_emoji} Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
