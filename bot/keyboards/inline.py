@@ -889,6 +889,7 @@ def get_emergency_no_address_keyboard() -> InlineKeyboardMarkup:
 def get_emergency_management_keyboard() -> InlineKeyboardMarkup:
     """Screen: emergency address configured — management options."""
     return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("🔍 Перевірити зараз", "emergency_check_now")],
         [
             _btn("✏️ Змінити", "emergency_change"),
             _btn("🗑 Видалити", "emergency_delete_confirm"),
