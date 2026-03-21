@@ -52,8 +52,17 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            "⚠️ Не вдалося отримати дані від ДТЕК.\n"
-            "Сайт тимчасово недоступний або змінив формат відповіді."
+            "⚠️ Таймаут або мережева помилка.\n"
+            "Перевір з'єднання бота з інтернетом."
+        )
+
+    error_status = response.get("_error")
+    if error_status:
+        return (
+            "🔍 Перевірка адреси\n\n"
+            f"📍 {region_name}: {addr}\n\n"
+            f"⚠️ ДТЕК повернув помилку HTTP {error_status}.\n"
+            "Можливо, IP бота заблоковано або сайт перевантажений."
         )
 
     queue = _extract_queue(response, house)

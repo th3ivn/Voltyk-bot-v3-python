@@ -211,8 +211,13 @@ async def emergency_check_now(callback: CallbackQuery, session: AsyncSession) ->
         text = (
             "🚨 Моніторинг аварійних відключень\n\n"
             f"📍 {addr}\n\n"
-            "⚠️ Не вдалося отримати дані від ДТЕК.\n"
-            "Сайт тимчасово недоступний або змінив формат відповіді."
+            "⚠️ Таймаут або мережева помилка."
+        )
+    elif response.get("_error"):
+        text = (
+            "🚨 Моніторинг аварійних відключень\n\n"
+            f"📍 {addr}\n\n"
+            f"⚠️ ДТЕК HTTP {response['_error']} — IP заблоковано або сайт недоступний."
         )
     else:
         house = cfg.house or ""

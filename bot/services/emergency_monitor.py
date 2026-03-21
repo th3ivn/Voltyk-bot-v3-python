@@ -63,7 +63,7 @@ def _build_ajax_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
     if not subdomain:
         return None
-    return f"https://www.dtek-{subdomain}.com.ua/a/ajax"
+    return f"https://www.dtek-{subdomain}.com.ua/ua/ajax"
 
 
 def _build_homepage_url(region: str) -> str | None:
@@ -156,10 +156,12 @@ async def _fetch_region_data(
             ssl=False,
         ) as resp:
             if resp.status != 200:
+                body_preview = (await resp.text())[:200]
                 logger.warning(
-                    "emergency_monitor: DTEK POST returned %d for region %s", resp.status, region
+                    "emergency_monitor: DTEK POST returned %d for region %s. Body: %s",
+                    resp.status, region, body_preview,
                 )
-                return None
+                return {"_error": resp.status}
             return await resp.json(content_type=None)
     except Exception as e:
         logger.warning("emergency_monitor: POST AJAX failed for region %s: %s", region, e)
