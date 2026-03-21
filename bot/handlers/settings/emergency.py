@@ -10,6 +10,7 @@ import re
 
 import aiohttp
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,10 +53,18 @@ def _clean(text: str) -> str:
 async def _safe_edit(message, text: str, **kwargs) -> None:
     try:
         await message.edit_text(text, parse_mode="HTML", **kwargs)
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        logger.warning("_safe_edit TelegramBadRequest: %s", e)
+        try:
+            await message.edit_text(text, **kwargs)
+        except Exception as e2:
+            logger.error("_safe_edit fallback failed: %s", e2)
     except Exception as e:
         logger.warning("_safe_edit failed: %s", e)
         try:
-            await message.edit_text(text)
+            await message.edit_text(text, **kwargs)
         except Exception as e2:
             logger.error("_safe_edit fallback failed: %s", e2)
 
