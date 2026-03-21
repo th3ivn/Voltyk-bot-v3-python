@@ -413,8 +413,10 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                     )
 
+                    sent_hash = calculate_schedule_hash(sched.get("events", []))
                     async with async_session() as session:
                         await mark_pending_notifications_sent(session, region, queue)
+                        await update_schedule_check_time(session, region, queue, last_hash=sent_hash)
                         await session.commit()
             else:
                 # No overnight changes — send daily planned message
@@ -428,6 +430,11 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 await _send_notifications_to_users(
                     bot, users_in_queue, sched, {}, {"added": []}, is_daily_planned=True
                 )
+
+                fresh_hash = calculate_schedule_hash(sched.get("events", []))
+                async with async_session() as session:
+                    await update_schedule_check_time(session, region, queue, last_hash=fresh_hash)
+                    await session.commit()
 
         except Exception as e:
             logger.error("Error flushing notifications for %s/%s: %s", region, queue, e)
