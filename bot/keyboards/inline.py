@@ -352,13 +352,13 @@ def get_notification_main_keyboard(
         return "success" if v else "default"
 
     rows = [
-        [_btn("📊 Оновлення графіків", "notif_toggle_schedule", style=_s(schedule_changes))],
+        [_btn("Оновлення графіків", "notif_toggle_schedule", E_SCHEDULE_CHANGES, style=_s(schedule_changes))],
         [
             _btn("1 год", "notif_time_60", style=_s(remind_1h)),
             _btn("30 хв", "notif_time_30", style=_s(remind_30m)),
             _btn("15 хв", "notif_time_15", style=_s(remind_15m)),
         ],
-        [_btn("⏱ Фактично за IP-адресою", "notif_toggle_fact_off", style=_s(fact_off))],
+        [_btn("Фактично за IP-адресою", "notif_toggle_fact_off", E_FACT, style=_s(fact_off))],
     ]
     if has_channel:
         rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
