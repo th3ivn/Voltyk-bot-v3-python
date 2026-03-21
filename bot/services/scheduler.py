@@ -20,6 +20,7 @@ from bot.db.queries import (
     get_latest_pending_notification,
     get_schedule_check_time,
     get_schedule_hash,
+    get_setting,
     get_user_by_telegram_id,
     mark_pending_notifications_sent,
     save_pending_notification,
@@ -27,6 +28,7 @@ from bot.db.queries import (
     upsert_daily_snapshot,
 )
 from bot.db.session import async_session
+from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_reminder_keyboard, get_schedule_view_keyboard
 from bot.services.api import (
     calculate_schedule_hash,
@@ -36,6 +38,7 @@ from bot.services.api import (
     find_next_event,
     parse_schedule_for_queue,
 )
+from bot.services.power_monitor import update_power_notifications_on_schedule_change
 from bot.utils.helpers import retry_bot_call
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
@@ -118,8 +121,6 @@ def _merge_tomorrow_events_into_changes(
 
 async def _get_schedule_interval() -> int:
     """Read schedule check interval from DB (set via admin panel). Falls back to settings."""
-    from bot.db.queries import get_setting
-
     try:
         async with async_session() as session:
             val = await get_setting(session, "schedule_check_interval")
@@ -367,7 +368,6 @@ async def _check_single_queue(
 
     # Update existing power notifications to reflect new schedule
     try:
-        from bot.services.power_monitor import update_power_notifications_on_schedule_change
         await update_power_notifications_on_schedule_change(bot, region, queue)
     except Exception as e:
         logger.warning("Error updating power notifications on schedule change for %s/%s: %s", region, queue, e)
@@ -549,9 +549,6 @@ async def _send_schedule_notification(
     - Bot   → photo + text + inline keyboard + live timestamp
     - Channel → photo + text only (NO keyboard, NO timestamp)
     """
-    from bot.formatter.schedule import format_schedule_message
-    from bot.services.api import find_next_event
-
     try:
         async with async_session() as session:
             fresh_user = await get_user_by_telegram_id(session, str(user.telegram_id))

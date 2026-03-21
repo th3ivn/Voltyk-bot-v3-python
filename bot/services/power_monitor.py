@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import UTC, datetime
+
 from zoneinfo import ZoneInfo
 
 import aiohttp
+import sentry_sdk
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,6 +30,7 @@ from bot.db.queries import (
     upsert_user_power_state,
 )
 from bot.db.session import async_session
+from bot.keyboards.inline import get_ip_ping_error_keyboard
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
 from bot.utils.helpers import retry_bot_call
 from bot.utils.logger import get_logger
@@ -625,7 +628,6 @@ async def _check_all_ips(bot: Bot) -> None:
 
     except Exception as e:
         logger.error("Error in _check_all_ips: %s", e)
-        import sentry_sdk
         sentry_sdk.capture_exception(e)
     finally:
         _is_checking = False
@@ -833,7 +835,6 @@ async def power_monitor_loop(bot: Bot) -> None:
             await _check_all_ips(bot)
         except Exception as e:
             logger.error("Power monitor check error: %s", e)
-            import sentry_sdk
             sentry_sdk.capture_exception(e)
 
         # Periodic state save (every 5 minutes)
@@ -877,8 +878,6 @@ async def daily_ping_error_loop(bot: Bot) -> None:
 
 async def _send_daily_ping_error_alerts(bot: Bot) -> None:
     """Send daily ping-error messages to users whose router hasn't responded in 24h."""
-    from bot.keyboards.inline import get_ip_ping_error_keyboard
-
     support_url = settings.SUPPORT_CHANNEL_URL or None
 
     try:
@@ -961,10 +960,6 @@ async def update_power_notifications_on_schedule_change(
     Edits the last power-off or power-on message for each affected user,
     replacing the schedule line to reflect the updated timetable.
     """
-    from aiogram.exceptions import TelegramBadRequest
-
-    from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
-
     try:
         schedule_raw = await fetch_schedule_data(region)
         if not schedule_raw:

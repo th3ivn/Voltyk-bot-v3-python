@@ -8,6 +8,8 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
+from bot.formatter.messages import format_live_status_message
+from bot.services.power_monitor import _check_router_http
 from bot.db.queries import (
     deactivate_ping_error_alert,
     get_user_by_telegram_id,
@@ -83,8 +85,6 @@ async def _safe_edit(message, text: str, **kwargs) -> None:
 
 async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None:
     """Helper: show main settings screen (replicates back_to_settings logic)."""
-    from bot.formatter.messages import format_live_status_message
-
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
@@ -102,8 +102,6 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
     Immediately shows the screen with "Перевіряю..." status and keyboard,
     then performs a fresh ping and updates only the text (not the keyboard).
     """
-    from bot.services.power_monitor import _check_router_http
-
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
@@ -324,7 +322,6 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
         'Перевіряю <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>'
     )
     await _safe_edit(callback.message, loading_text)
-    from bot.services.power_monitor import _check_router_http
     is_alive = await _check_router_http(router_ip)
 
     if is_alive:
@@ -360,7 +357,6 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
         parse_mode="HTML",
     )
 
-    from bot.services.power_monitor import _check_router_http
     is_alive = await _check_router_http(result["address"])
 
     if is_alive:
@@ -426,7 +422,6 @@ async def ip_delete(callback: CallbackQuery, session: AsyncSession) -> None:
             await deactivate_ping_error_alert(session, str(user.telegram_id))
         except Exception:
             pass
-    from bot.keyboards.inline import get_ip_deleted_keyboard
     await callback.message.edit_text(
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено.",
