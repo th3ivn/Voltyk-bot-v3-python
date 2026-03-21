@@ -63,7 +63,7 @@ def _build_ajax_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
     if not subdomain:
         return None
-    return f"https://www.dtek-{subdomain}.com.ua/ua/ajax"
+    return f"https://www.dtek-{subdomain}.com.ua/a/ajax"
 
 
 def _build_homepage_url(region: str) -> str | None:
