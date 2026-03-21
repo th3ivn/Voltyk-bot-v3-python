@@ -181,6 +181,8 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
         "fact_off": "notify_fact_off",
         "remind_on": "notify_remind_on",
         "fact_on": "notify_fact_on",
+        "emergency_off": "notify_emergency_off",
+        "emergency_on": "notify_emergency_on",
     }
     attr = field_map.get(field)
     if attr:

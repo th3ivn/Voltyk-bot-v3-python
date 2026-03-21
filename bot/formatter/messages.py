@@ -25,11 +25,17 @@ def format_live_status_message(user, region_name: str | None = None) -> str:
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
     ns = user.notification_settings
     notifications_enabled = has_any_notification_enabled(ns)
+    has_emergency = bool(
+        getattr(user, "emergency_config", None)
+        and user.emergency_config
+        and user.emergency_config.street
+    )
 
     msg += f"📍 <b>{region_name} · {user.queue}</b>\n\n"
     msg += f"📡 IP: {'підключено ✅' if has_ip else 'не підключено 😕'}\n"
     msg += f"📺 Канал: {'підключено ✅' if has_channel else 'не підключено'}\n"
     msg += f"🔔 Сповіщення: {'увімкнено ✅' if notifications_enabled else 'вимкнено'}\n"
+    msg += f"🚨 Аварії: {'моніторинг ✅' if has_emergency else 'не налаштовано'}\n"
 
     if not has_ip:
         msg += "\n<i>💡 Додайте IP для моніторингу світла</i>"
