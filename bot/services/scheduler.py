@@ -221,6 +221,9 @@ async def _check_single_queue(
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
 
+    # First time we've ever seen this region/queue — treat as initial load, not an "update"
+    is_initial = stored_hash is None
+
     new_today_hash = _compute_date_hash(events, today_date)
     new_tomorrow_hash = _compute_date_hash(events, tomorrow_date)
 
@@ -246,7 +249,8 @@ async def _check_single_queue(
             update_type["tomorrowAppeared"] = True
             _merge_tomorrow_events_into_changes(changes, events, tomorrow_date)
 
-        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated"):
+        # Only claim "today unchanged" when we actually compared with yesterday's data
+        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated") and yesterday_snapshot is not None:
             update_type["todayUnchanged"] = True
     else:
         # Snapshot exists — compare with stored hashes
@@ -289,6 +293,10 @@ async def _check_single_queue(
     if not update_type:
         update_type["todayUpdated"] = True
 
+    # Tag initial loads so the 06:00 flush knows to use a daily-planned message format
+    if is_initial:
+        update_type["initial"] = True
+
     sched_data_json = json.dumps(sched)
     update_type_json = json.dumps(update_type)
     changes_json = json.dumps(changes) if (changes.get("added") or changes.get("removed")) else None
@@ -317,7 +325,7 @@ async def _check_single_queue(
         users_in_queue = await get_active_users_by_region(session, region, queue=queue)
 
     await _send_notifications_to_users(
-        bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
+        bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_initial
     )
 
     # Update existing power notifications to reflect new schedule
@@ -371,9 +379,10 @@ async def flush_pending_notifications(bot: Bot) -> None:
                     sched = json.loads(notif.schedule_data)
                     update_type = json.loads(notif.update_type) if notif.update_type else {}
                     changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
+                    is_daily_planned_flag = bool(update_type.get("initial"))
 
                     await _send_notifications_to_users(
-                        bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
+                        bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                     )
 
                     async with async_session() as session:

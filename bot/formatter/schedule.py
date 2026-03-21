@@ -156,7 +156,7 @@ def format_schedule_message(
         tomorrow_section_shown = bool(tomorrow_events or removed_tomorrow)
         if update_type and update_type.get("todayUnchanged") and tomorrow_section_shown:
             header = f"<i>💡 Графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> без змін:</i>"
-        elif update_type and update_type.get("todayUpdated") and (update_type.get("tomorrowAppeared") or update_type.get("tomorrowUpdated")):
+        elif update_type and update_type.get("todayUpdated") and (update_type.get("tomorrowAppeared") or update_type.get("tomorrowUpdated") or update_type.get("tomorrowCancelled")):
             header = "<i>💡 Оновлено графік <b>на сьогодні:</b></i>"
         elif update_type and update_type.get("todayUpdated"):
             header = f"<i>💡 Оновлено графік відключень <b>на сьогодні, {today_date} ({today_name}),</b> для черги {queue}:</i>"
