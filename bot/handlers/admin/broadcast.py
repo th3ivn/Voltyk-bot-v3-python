@@ -5,7 +5,7 @@ import asyncio
 from aiogram import F, Router
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
@@ -48,9 +48,6 @@ async def broadcast_text(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(broadcast_text=message.text)
     await state.set_state(BroadcastSG.preview)
-
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Відправити", callback_data="broadcast_confirm_send")],

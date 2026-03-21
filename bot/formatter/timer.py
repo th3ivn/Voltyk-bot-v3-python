@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 
 def _format_time(dt: datetime | str) -> str:
@@ -60,18 +63,18 @@ def format_timer_popup(next_event: dict | None, schedule_data: dict | None = Non
         lines.append("🎉 Сьогодні без відключень!")
         lines.append("")
         if schedule_data and schedule_data.get("events"):
-            from datetime import timedelta
-
-            tomorrow = datetime.now() + timedelta(days=1)
+            tomorrow = datetime.now(KYIV_TZ) + timedelta(days=1)
             tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
             tomorrow_end = tomorrow_start + timedelta(days=1)
+
+            def _parse_ev_dt(v) -> datetime:
+                dt = datetime.fromisoformat(v) if isinstance(v, str) else v
+                return dt if dt.tzinfo is not None else dt.replace(tzinfo=KYIV_TZ)
 
             tomorrow_events = [
                 ev
                 for ev in schedule_data["events"]
-                if tomorrow_start
-                <= (datetime.fromisoformat(ev["start"]) if isinstance(ev["start"], str) else ev["start"])
-                < tomorrow_end
+                if tomorrow_start <= _parse_ev_dt(ev["start"]) < tomorrow_end
             ]
             if tomorrow_events:
                 lines.append("📅 Завтра:")

@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile
@@ -19,6 +20,7 @@ from bot.db.queries import (
     get_latest_pending_notification,
     get_schedule_check_time,
     get_schedule_hash,
+    get_setting,
     get_user_by_telegram_id,
     mark_pending_notifications_sent,
     save_pending_notification,
@@ -26,6 +28,7 @@ from bot.db.queries import (
     upsert_daily_snapshot,
 )
 from bot.db.session import async_session
+from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_reminder_keyboard, get_schedule_view_keyboard
 from bot.services.api import (
     calculate_schedule_hash,
@@ -35,6 +38,7 @@ from bot.services.api import (
     find_next_event,
     parse_schedule_for_queue,
 )
+from bot.services.power_monitor import update_power_notifications_on_schedule_change
 from bot.utils.helpers import retry_bot_call
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
@@ -46,6 +50,11 @@ _running = False
 DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
+
+# Mutex that prevents the 06:00 flush and the periodic checker from running
+# concurrently. Without it, both can read the same stale stored_hash on startup
+# and send duplicate notifications to every user.
+_notify_lock = asyncio.Lock()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -85,10 +94,12 @@ def _compute_date_hash(events: list[dict], date_str: str) -> str | None:
 
 
 def _compute_changes(old_events: list[dict], new_events: list[dict]) -> dict:
-    """Return a changes dict with 'added' events (in new but not in old)."""
+    """Return a changes dict with 'added' and 'removed' events."""
     old_keys = {f"{e['start']}_{e['end']}" for e in old_events}
+    new_keys = {f"{e['start']}_{e['end']}" for e in new_events}
     added = [e for e in new_events if f"{e['start']}_{e['end']}" not in old_keys]
-    return {"added": added}
+    removed = [e for e in old_events if f"{e['start']}_{e['end']}" not in new_keys]
+    return {"added": added, "removed": removed}
 
 
 # ─── Interval ─────────────────────────────────────────────────────────────
@@ -110,8 +121,6 @@ def _merge_tomorrow_events_into_changes(
 
 async def _get_schedule_interval() -> int:
     """Read schedule check interval from DB (set via admin panel). Falls back to settings."""
-    from bot.db.queries import get_setting
-
     try:
         async with async_session() as session:
             val = await get_setting(session, "schedule_check_interval")
@@ -138,7 +147,6 @@ async def schedule_checker_loop(bot: Bot) -> None:
             await _check_all_schedules(bot, interval)
         except Exception as e:
             logger.error("Schedule check error: %s", e)
-            import sentry_sdk
             sentry_sdk.capture_exception(e)
 
         logger.debug("Next schedule check in %ds", interval)
@@ -155,27 +163,29 @@ async def _check_all_schedules(
         return
     logger.info("Source repo updated, checking all schedules")
 
-    region_queue_pairs: set[tuple[str, str]] = set()
-    batch_size_inner = _DB_SCAN_BATCH_SIZE
-    offset = 0
-    while True:
-        async with async_session() as session:
-            batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
-        if not batch:
-            break
-        for user in batch:
-            region_queue_pairs.add((user.region, user.queue))
-        if len(batch) < batch_size_inner:
-            break
-        offset += batch_size_inner
+    # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
+    # cannot race with the checker and send duplicate notifications.
+    async with _notify_lock:
+        region_queue_pairs: set[tuple[str, str]] = set()
+        batch_size_inner = _DB_SCAN_BATCH_SIZE
+        offset = 0
+        while True:
+            async with async_session() as session:
+                batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
+            if not batch:
+                break
+            for user in batch:
+                region_queue_pairs.add((user.region, user.queue))
+            if len(batch) < batch_size_inner:
+                break
+            offset += batch_size_inner
 
-    for region, queue in region_queue_pairs:
-        try:
-            await _check_single_queue(bot, region, queue, interval_s=interval)
-        except Exception as e:
-            logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
-            import sentry_sdk
-            sentry_sdk.capture_exception(e)
+        for region, queue in region_queue_pairs:
+            try:
+                await _check_single_queue(bot, region, queue, interval_s=interval)
+            except Exception as e:
+                logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
+                sentry_sdk.capture_exception(e)
 
 
 async def _check_single_queue(
@@ -219,11 +229,18 @@ async def _check_single_queue(
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
 
+    # First time we've ever seen this region/queue — treat as initial load, not an "update"
+    is_initial = stored_hash is None
+
     new_today_hash = _compute_date_hash(events, today_date)
     new_tomorrow_hash = _compute_date_hash(events, tomorrow_date)
 
     update_type: dict = {}
-    changes: dict = {"added": []}
+    changes: dict = {"added": [], "removed": []}
+
+    # Tracks whether we successfully compared today's data with yesterday's snapshot.
+    # Used to avoid false "todayUnchanged" claims and to detect day-rollover correctly.
+    today_comparison_done = False
 
     if snapshot is None:
         # First check of the day — compare today's events with yesterday's tomorrow data
@@ -234,6 +251,7 @@ async def _check_single_queue(
                     yesterday_sched.get("events", []), today_date
                 )
                 new_today_events = _filter_events_for_date(events, today_date)
+                today_comparison_done = True
                 if yesterday_snapshot.tomorrow_hash != new_today_hash:
                     update_type["todayUpdated"] = True
                     changes = _compute_changes(yesterday_tomorrow_events, new_today_events)
@@ -244,7 +262,8 @@ async def _check_single_queue(
             update_type["tomorrowAppeared"] = True
             _merge_tomorrow_events_into_changes(changes, events, tomorrow_date)
 
-        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated"):
+        # Only claim "today unchanged" when comparison actually succeeded
+        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated") and today_comparison_done:
             update_type["todayUnchanged"] = True
     else:
         # Snapshot exists — compare with stored hashes
@@ -261,17 +280,54 @@ async def _check_single_queue(
         if snapshot.tomorrow_hash is None and new_tomorrow_hash is not None:
             update_type["tomorrowAppeared"] = True
             _merge_tomorrow_events_into_changes(changes, events, tomorrow_date)
+        elif snapshot.tomorrow_hash is not None and new_tomorrow_hash != snapshot.tomorrow_hash:
+            if new_tomorrow_hash is None:
+                update_type["tomorrowCancelled"] = True
+            else:
+                update_type["tomorrowUpdated"] = True
+            try:
+                old_sched = json.loads(snapshot.schedule_data)
+                old_tomorrow_events = _filter_events_for_date(old_sched.get("events", []), tomorrow_date)
+                new_tomorrow_events = _filter_events_for_date(events, tomorrow_date)
+                tomorrow_changes = _compute_changes(old_tomorrow_events, new_tomorrow_events)
+                existing_added_keys = {f"{e['start']}_{e['end']}" for e in changes["added"]}
+                for ev in tomorrow_changes.get("added", []):
+                    key = f"{ev['start']}_{ev['end']}"
+                    if key not in existing_added_keys:
+                        changes["added"].append(ev)
+                        existing_added_keys.add(key)
+                changes["removed"].extend(tomorrow_changes.get("removed", []))
+            except Exception as e:
+                logger.warning("Failed to compute tomorrow changes: %s", e)
 
-        if update_type.get("tomorrowAppeared") and not update_type.get("todayUpdated"):
+        tomorrow_changed = update_type.get("tomorrowAppeared") or update_type.get("tomorrowUpdated") or update_type.get("tomorrowCancelled")
+        if tomorrow_changed and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
-    # Fallback: hash changed but snapshots were absent (e.g. first run) — always notify
-    if not update_type:
+    # Detect pure day-rollover: hash changed only because dates shifted (new day), but
+    # today's actual data matches what was announced yesterday as "tomorrow" and there
+    # is no new tomorrow schedule yet.  In this case no change notification is needed —
+    # the regular 06:00 flush will send the daily-planned message.
+    is_day_rollover = (
+        snapshot is None
+        and today_comparison_done
+        and not update_type  # nothing changed after comparison
+        and not is_initial
+    )
+
+    # Fallback: hash changed but no specific flag was set (e.g. first run or edge case).
+    # Only mark as "updated" for existing regions, and only when it is NOT a plain
+    # day-rollover (which should be handled silently by the 06:00 flush).
+    if not update_type and not is_initial and not is_day_rollover:
         update_type["todayUpdated"] = True
+
+    # Tag initial loads so the 06:00 flush knows to use a daily-planned message format
+    if is_initial:
+        update_type["initial"] = True
 
     sched_data_json = json.dumps(sched)
     update_type_json = json.dumps(update_type)
-    changes_json = json.dumps(changes) if changes.get("added") else None
+    changes_json = json.dumps(changes) if (changes.get("added") or changes.get("removed")) else None
 
     quiet = _is_quiet_hours()
 
@@ -282,11 +338,15 @@ async def _check_single_queue(
             session, region, queue, today_date,
             sched_data_json, new_today_hash, new_tomorrow_hash,
         )
-        if quiet:
+        if quiet and not is_day_rollover:
             await save_pending_notification(
                 session, region, queue, sched_data_json, update_type_json, changes_json
             )
         await session.commit()
+
+    if is_day_rollover:
+        logger.debug("Day rollover for %s/%s — snapshot updated, 06:00 flush will send daily message", region, queue)
+        return
 
     if quiet:
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
@@ -297,12 +357,17 @@ async def _check_single_queue(
         users_in_queue = await get_active_users_by_region(session, region, queue=queue)
 
     await _send_notifications_to_users(
-        bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
+        bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_initial
     )
+
+    # Supersede any pending quiet-hours notifications for this pair — they are
+    # now outdated because a newer notification was just sent by the checker.
+    async with async_session() as session:
+        await mark_pending_notifications_sent(session, region, queue)
+        await session.commit()
 
     # Update existing power notifications to reflect new schedule
     try:
-        from bot.services.power_monitor import update_power_notifications_on_schedule_change
         await update_power_notifications_on_schedule_change(bot, region, queue)
     except Exception as e:
         logger.warning("Error updating power notifications on schedule change for %s/%s: %s", region, queue, e)
@@ -320,47 +385,61 @@ async def flush_pending_notifications(bot: Bot) -> None:
     """
     logger.info("Running 06:00 notification flush")
 
-    async with async_session() as session:
-        pending_pairs = await get_all_pending_region_queue_pairs(session)
-    pending_set = set(tuple(p) for p in pending_pairs)
-
-    # Collect all active region/queue pairs
-    all_pairs: set[tuple[str, str]] = set()
-    offset = 0
-    batch_size_inner = _DB_SCAN_BATCH_SIZE
-    while True:
+    # Hold the lock so the periodic checker cannot race with this flush and
+    # send duplicate notifications for the same schedule data.
+    async with _notify_lock:
         async with async_session() as session:
-            batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
-        if not batch:
-            break
-        for user in batch:
-            all_pairs.add((user.region, user.queue))
-        if len(batch) < batch_size_inner:
-            break
-        offset += batch_size_inner
+            pending_pairs = await get_all_pending_region_queue_pairs(session)
+        pending_set = set(tuple(p) for p in pending_pairs)
 
-    for region, queue in all_pairs:
-        try:
-            if (region, queue) in pending_set:
-                # Fetch users and pending notification in a single session
-                async with async_session() as session:
-                    users_in_queue = await get_active_users_by_region(session, region, queue=queue)
-                    notif = await get_latest_pending_notification(session, region, queue)
+        # Collect all active region/queue pairs
+        all_pairs: set[tuple[str, str]] = set()
+        offset = 0
+        batch_size_inner = _DB_SCAN_BATCH_SIZE
+        while True:
+            async with async_session() as session:
+                batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
+            if not batch:
+                break
+            for user in batch:
+                all_pairs.add((user.region, user.queue))
+            if len(batch) < batch_size_inner:
+                break
+            offset += batch_size_inner
 
-                if notif:
-                    sched = json.loads(notif.schedule_data)
-                    update_type = json.loads(notif.update_type) if notif.update_type else {}
-                    changes = json.loads(notif.changes) if notif.changes else {"added": []}
+        for region, queue in all_pairs:
+            try:
+                if (region, queue) in pending_set:
+                    # Fetch users and pending notification in a single session
+                    async with async_session() as session:
+                        users_in_queue = await get_active_users_by_region(session, region, queue=queue)
+                        notif = await get_latest_pending_notification(session, region, queue)
 
-                    await _send_notifications_to_users(
-                        bot, users_in_queue, sched, update_type, changes, is_daily_planned=False
+                    if notif:
+                        sched = json.loads(notif.schedule_data)
+                        update_type = json.loads(notif.update_type) if notif.update_type else {}
+                        changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
+                        is_daily_planned_flag = bool(update_type.get("initial"))
+
+                        await _send_notifications_to_users(
+                            bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
+                        )
+
+                        sent_hash = calculate_schedule_hash(sched.get("events", []))
+                        async with async_session() as session:
+                            await mark_pending_notifications_sent(session, region, queue)
+                            await update_schedule_check_time(session, region, queue, last_hash=sent_hash)
+                            await session.commit()
+                        continue
+
+                    # Pending row disappeared between collection and fetch (e.g. already
+                    # consumed by a concurrent checker run) — fall through to daily-planned.
+                    logger.warning(
+                        "Pending notification for %s/%s not found at flush time, sending daily-planned",
+                        region, queue,
                     )
 
-                    async with async_session() as session:
-                        await mark_pending_notifications_sent(session, region, queue)
-                        await session.commit()
-            else:
-                # No overnight changes — send daily planned message
+                # No overnight changes (or pending row was already consumed) — send daily planned
                 async with async_session() as session:
                     users_in_queue = await get_active_users_by_region(session, region, queue=queue)
                 data = await fetch_schedule_data(region, force_refresh=True)
@@ -369,11 +448,16 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 sched = parse_schedule_for_queue(data, queue)
 
                 await _send_notifications_to_users(
-                    bot, users_in_queue, sched, {}, {"added": []}, is_daily_planned=True
+                    bot, users_in_queue, sched, {}, {"added": [], "removed": []}, is_daily_planned=True
                 )
 
-        except Exception as e:
-            logger.error("Error flushing notifications for %s/%s: %s", region, queue, e)
+                fresh_hash = calculate_schedule_hash(sched.get("events", []))
+                async with async_session() as session:
+                    await update_schedule_check_time(session, region, queue, last_hash=fresh_hash)
+                    await session.commit()
+
+            except Exception as e:
+                logger.error("Error flushing notifications for %s/%s: %s", region, queue, e)
 
     logger.info("06:00 flush complete")
 
@@ -381,6 +465,18 @@ async def flush_pending_notifications(bot: Bot) -> None:
 async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
     logger.info("Daily flush loop started")
+
+    # If the bot starts (or restarts) after 06:00, the scheduled flush for today
+    # was already missed.  Run it immediately so pending quiet-hours notifications
+    # are not held until *tomorrow* 06:00.
+    startup_now = datetime.now(KYIV_TZ)
+    if startup_now.hour >= 6:
+        logger.info("Post-startup flush: time is %s, running immediately", startup_now.strftime("%H:%M"))
+        try:
+            await flush_pending_notifications(bot)
+        except Exception as e:
+            logger.error("Post-startup flush error: %s", e)
+
     while _running:
         now = datetime.now(KYIV_TZ)
         target = now.replace(hour=6, minute=0, second=0, microsecond=0)
@@ -453,9 +549,6 @@ async def _send_schedule_notification(
     - Bot   → photo + text + inline keyboard + live timestamp
     - Channel → photo + text only (NO keyboard, NO timestamp)
     """
-    from bot.formatter.schedule import format_schedule_message
-    from bot.services.api import find_next_event
-
     try:
         async with async_session() as session:
             fresh_user = await get_user_by_telegram_id(session, str(user.telegram_id))
@@ -474,7 +567,7 @@ async def _send_schedule_notification(
             fresh_user.queue,
             sched_data,
             next_event,
-            changes=changes if changes and changes.get("added") else None,
+            changes=changes if changes and (changes.get("added") or changes.get("removed")) else None,
             update_type=update_type if update_type else None,
             is_daily_planned=is_daily_planned,
         )
@@ -850,12 +943,16 @@ async def _send_reminder(
     # Delete previous reminder before sending the new one
     await _delete_reminder_messages(bot, str(user.telegram_id))
 
+    event_type = next_event.get("type", "power_off")
     send_to_bot = ns.notify_remind_target != "channel"
+    ch_event_flag = "ch_notify_remind_off" if event_type == "power_off" else "ch_notify_remind_on"
     send_to_channel = (
         cc is not None
         and cc.channel_id
+        and cc.channel_status == "active"
         and not cc.channel_paused
-        and getattr(cc, "ch_notify_remind_off", False)
+        and getattr(cc, ch_event_flag, False)
+        and getattr(cc, _CH_REMIND_FIELDS[remind_m], False)
     )
 
     bot_msg_id: int | None = None

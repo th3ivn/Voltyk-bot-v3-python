@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
@@ -40,8 +40,6 @@ async def admin_router_set_ip(callback: CallbackQuery, state: FSMContext) -> Non
         return
     await callback.answer()
     await state.set_state(AdminRouterIpSG.waiting_for_ip)
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
     await callback.message.edit_text(
         "✏️ Введіть IP-адресу роутера:",
         reply_markup=InlineKeyboardMarkup(

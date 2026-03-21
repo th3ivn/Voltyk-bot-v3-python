@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
@@ -92,8 +92,6 @@ async def format_schedule_text(callback: CallbackQuery) -> None:
         "{region} — назва регіону\n"
         "<br> — перенос рядка"
     )
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Змінити підпис", callback_data="format_schedule_caption")],

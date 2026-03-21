@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
+from bot.formatter.messages import format_main_menu_message
 from bot.keyboards.inline import get_main_menu
 from bot.utils.logger import get_logger
 
@@ -40,8 +41,6 @@ async def channel_pause_confirm(callback: CallbackQuery, session: AsyncSession) 
         except Exception as e:
             logger.warning("Could not send pause notice to channel %s: %s", user.channel_config.channel_id, e)
     await callback.answer("✅ Канал зупинено")
-    from bot.formatter.messages import format_main_menu_message
-
     text = format_main_menu_message(user)
     await callback.message.edit_text(
         text,
@@ -77,8 +76,6 @@ async def channel_resume_confirm(callback: CallbackQuery, session: AsyncSession)
         except Exception as e:
             logger.warning("Could not send resume notice to channel %s: %s", user.channel_config.channel_id, e)
     await callback.answer("✅ Канал відновлено")
-    from bot.formatter.messages import format_main_menu_message
-
     text = format_main_menu_message(user)
     await callback.message.edit_text(
         text,

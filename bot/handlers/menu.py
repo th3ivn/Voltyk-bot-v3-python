@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
+from bot.db.models import User
 from bot.db.queries import get_power_history_week, get_schedule_check_time, get_setting, get_user_by_telegram_id
 from bot.formatter.messages import format_live_status_message, format_main_menu_message
 from bot.formatter.schedule import format_schedule_message
@@ -290,8 +294,6 @@ async def stats_week(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "stats_device")
 async def stats_device(callback: CallbackQuery, session: AsyncSession) -> None:
-    from datetime import UTC
-    from zoneinfo import ZoneInfo
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
@@ -564,10 +566,6 @@ async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("timer_"))
 async def timer_callback(callback: CallbackQuery, session: AsyncSession) -> None:
     user_id_str = callback.data.replace("timer_", "")
-    from sqlalchemy import select
-
-    from bot.db.models import User
-
     result = await session.execute(select(User).where(User.id == int(user_id_str)))
     user = result.scalars().first()
     if not user:

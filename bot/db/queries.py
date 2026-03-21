@@ -665,8 +665,6 @@ async def upsert_ping_error_alert(
     session: AsyncSession, telegram_id: str, router_ip: str
 ) -> None:
     """Create or update a ping-error alert record for a user."""
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
     stmt = pg_insert(PingErrorAlert).values(
         telegram_id=telegram_id,
         router_ip=router_ip,
