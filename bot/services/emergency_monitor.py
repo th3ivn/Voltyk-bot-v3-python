@@ -166,19 +166,45 @@ async def _fetch_region_data(
         return None
 
 
+def _get_house_entry(data: dict[str, Any], house: str) -> dict | None:
+    """
+    Find the house entry in the DTEK response.
+    Handles both 'data' (lowercase, current format) and 'Data' (legacy format).
+    """
+    house_dict = data.get("data") or data.get("Data") or {}
+    house_normalized = house.strip().upper()
+    for key, entry in house_dict.items():
+        if str(key).strip().upper() == house_normalized:
+            return entry
+    return None
+
+
 def _find_outage_for_house(data: dict[str, Any], house: str) -> dict | None:
     """
-    Search the DTEK response Data dict for the user's house number.
-    Returns the outage entry dict or None.
+    Search the DTEK response for the user's house number.
+    Returns the entry only if there is an active emergency (non-empty sub_type + start_date).
     """
     if not data.get("showCurOutageParam"):
         return None
-    outage_data = data.get("Data") or {}
-    house_normalized = house.strip().upper()
-    for key, outage in outage_data.items():
-        if str(key).strip().upper() == house_normalized:
-            return outage
+    entry = _get_house_entry(data, house)
+    if entry and entry.get("sub_type") and entry.get("start_date"):
+        return entry
     return None
+
+
+def _extract_queue(data: dict[str, Any], house: str) -> str | None:
+    """
+    Extract the scheduled outage queue (черга) for a house from the DTEK response.
+    Returns e.g. '3.1' parsed from 'GPV3.1', or None if not found.
+    """
+    entry = _get_house_entry(data, house)
+    if not entry:
+        return None
+    reasons = entry.get("sub_type_reason") or []
+    if not reasons:
+        return None
+    raw = str(reasons[0])  # e.g. "GPV3.1"
+    return raw[3:] if raw.upper().startswith("GPV") else raw
 
 
 # ─── State change logic ───────────────────────────────────────────────────

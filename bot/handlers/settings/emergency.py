@@ -31,7 +31,7 @@ from bot.keyboards.inline import (
     get_emergency_saved_keyboard,
     get_settings_keyboard,
 )
-from bot.services.emergency_monitor import _fetch_region_data, _find_outage_for_house
+from bot.services.emergency_monitor import _extract_queue, _fetch_region_data, _find_outage_for_house
 from bot.states.fsm import EmergencySetupSG
 from bot.utils.logger import get_logger
 
@@ -215,21 +215,26 @@ async def emergency_check_now(callback: CallbackQuery, session: AsyncSession) ->
             "Сайт тимчасово недоступний або змінив формат відповіді."
         )
     else:
-        outage = _find_outage_for_house(response, cfg.house or "")
+        house = cfg.house or ""
+        queue = _extract_queue(response, house)
+        outage = _find_outage_for_house(response, house)
+        queue_line = f"🔢 Черга: <b>{queue}</b>" if queue else "🔢 Черга: не визначено"
         if outage:
             start = outage.get("start_date", "—")
             end = outage.get("end_date", "—")
             sub_type = outage.get("sub_type", "Аварійне відключення")
             text = (
                 "🚨 Моніторинг аварійних відключень\n\n"
-                f"📍 {addr}\n\n"
+                f"📍 {addr}\n"
+                f"{queue_line}\n\n"
                 f"🚨 {sub_type}\n"
                 f"⏰ {start} – {end}"
             )
         else:
             text = (
                 "🚨 Моніторинг аварійних відключень\n\n"
-                f"📍 {addr}\n\n"
+                f"📍 {addr}\n"
+                f"{queue_line}\n\n"
                 "✅ Аварійних відключень не виявлено"
             )
 
