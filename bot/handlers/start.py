@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.constants.regions import REGIONS
@@ -323,8 +323,6 @@ async def wizard_bot_done(callback: CallbackQuery, state: FSMContext, session: A
         "⤵ Меню — перейти в головне меню\n"
         "📢 Новини бота — канал з оновленнями"
     )
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⤵ Меню", callback_data="back_to_main")],
