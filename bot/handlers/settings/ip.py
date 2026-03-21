@@ -8,13 +8,12 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings as app_settings
-from bot.formatter.messages import format_live_status_message
-from bot.services.power_monitor import _check_router_http
 from bot.db.queries import (
     deactivate_ping_error_alert,
     get_user_by_telegram_id,
     upsert_ping_error_alert,
 )
+from bot.formatter.messages import format_live_status_message
 from bot.keyboards.inline import (
     get_ip_change_confirm_keyboard,
     get_ip_delete_confirm_keyboard,
@@ -27,6 +26,7 @@ from bot.keyboards.inline import (
     get_ip_saved_success_keyboard,
     get_settings_keyboard,
 )
+from bot.services.power_monitor import _check_router_http
 from bot.states.fsm import IpSetupSG
 from bot.utils.helpers import is_valid_ip_or_domain
 from bot.utils.logger import get_logger
