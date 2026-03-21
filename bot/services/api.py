@@ -158,6 +158,18 @@ async def fetch_schedule_data(
     return None
 
 
+def invalidate_image_cache(region: str, queue: str) -> None:
+    """Remove a specific region/queue image from the in-memory cache.
+
+    Call this whenever the schedule for that pair changes so the next
+    fetch_schedule_image() call always pulls a fresh image from GitHub.
+    """
+    cache_key = f"{region}_{queue}"
+    if cache_key in _image_cache:
+        del _image_cache[cache_key]
+        logger.debug("Image cache invalidated for %s/%s", region, queue)
+
+
 async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
     cache_key = f"{region}_{queue}"
     now = datetime.now()
