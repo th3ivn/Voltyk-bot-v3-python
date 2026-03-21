@@ -37,6 +37,7 @@ from bot.services.api import (
     fetch_schedule_data,
     fetch_schedule_image,
     find_next_event,
+    invalidate_image_cache,
     parse_schedule_for_queue,
 )
 from bot.services.power_monitor import update_power_notifications_on_schedule_change
@@ -229,6 +230,7 @@ async def _check_single_queue(
 
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
+    invalidate_image_cache(region, queue)
 
     # First time we've ever seen this region/queue — treat as initial load, not an "update"
     is_initial = stored_hash is None
