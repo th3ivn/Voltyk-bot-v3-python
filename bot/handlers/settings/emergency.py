@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 
+import aiohttp
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -29,6 +30,7 @@ from bot.keyboards.inline import (
     get_emergency_saved_keyboard,
     get_settings_keyboard,
 )
+from bot.services.emergency_monitor import _fetch_region_data, _find_outage_for_house
 from bot.states.fsm import EmergencySetupSG
 from bot.utils.logger import get_logger
 
@@ -167,6 +169,62 @@ async def emergency_setup(callback: CallbackQuery, state: FSMContext, session: A
         await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
         return
     await _start_address_input(callback, state, user.region)
+
+
+# ─── Check now ────────────────────────────────────────────────────────────
+
+
+@router.callback_query(F.data == "emergency_check_now")
+async def emergency_check_now(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer("Перевіряю ДТЕК...")
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if not user or not user.emergency_config:
+        await callback.message.edit_text("❌ Адреса не налаштована.")
+        return
+
+    cfg = user.emergency_config
+    addr = _format_address(cfg)
+
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as http_session:
+        try:
+            response = await _fetch_region_data(
+                http_session,
+                user.region,
+                cfg.street or "",
+                cfg.city,
+            )
+        except Exception as e:
+            logger.error("emergency_check_now fetch error: %s", e)
+            response = None
+
+    if response is None:
+        text = (
+            "🚨 Моніторинг аварійних відключень\n\n"
+            f"📍 {addr}\n\n"
+            "⚠️ Не вдалося отримати дані від ДТЕК.\n"
+            "Сайт тимчасово недоступний або змінив формат відповіді."
+        )
+    else:
+        outage = _find_outage_for_house(response, cfg.house or "")
+        if outage:
+            start = outage.get("start_date", "—")
+            end = outage.get("end_date", "—")
+            sub_type = outage.get("sub_type", "Аварійне відключення")
+            text = (
+                "🚨 Моніторинг аварійних відключень\n\n"
+                f"📍 {addr}\n\n"
+                f"🚨 {sub_type}\n"
+                f"⏰ {start} – {end}"
+            )
+        else:
+            text = (
+                "🚨 Моніторинг аварійних відключень\n\n"
+                f"📍 {addr}\n\n"
+                "✅ Аварійних відключень не виявлено"
+            )
+
+    await _safe_edit(callback.message, text, reply_markup=get_emergency_management_keyboard())
 
 
 # ─── Change confirm ───────────────────────────────────────────────────────
