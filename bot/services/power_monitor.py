@@ -396,7 +396,7 @@ async def _handle_power_state_change(
                 logger.debug("Could not deactivate ping error alert for user %s: %s", telegram_id, e)
 
         # ── Update stable state bookkeeping ──────────────────────────
-        user_state["last_stable_at"] = changed_at.isoformat()
+        user_state["last_stable_at"] = changed_at
         user_state["last_stable_state"] = new_state
         user_state["instability_start"] = None
         user_state["switch_count"] = 0
@@ -435,9 +435,7 @@ async def _check_user_power(bot: Bot, user) -> None:
                 user_state["current_state"] = pt.power_state
                 user_state["last_stable_state"] = pt.power_state
                 if not user_state["last_stable_at"]:
-                    user_state["last_stable_at"] = (
-                        pt.power_changed_at.isoformat() if pt.power_changed_at else None
-                    )
+                    user_state["last_stable_at"] = pt.power_changed_at
                 user_state["is_first_check"] = False
                 logger.debug("User %s: Restored state from DB: %s", telegram_id, pt.power_state)
             else:
@@ -506,7 +504,7 @@ async def _check_user_power(bot: Bot, user) -> None:
             user_state["debounce_task"] = None
 
         if user_state["pending_state"] is None:
-            user_state["instability_start"] = datetime.now(KYIV_TZ).isoformat()
+            user_state["instability_start"] = datetime.now(KYIV_TZ)
             user_state["switch_count"] = 1
             logger.debug(
                 "User %s: Instability start, %s → %s",
@@ -518,8 +516,8 @@ async def _check_user_power(bot: Bot, user) -> None:
 
         user_state["pending_state"] = new_state
         original_change_time = datetime.now(KYIV_TZ)
-        user_state["pending_state_time"] = original_change_time.isoformat()
-        user_state["original_change_time"] = original_change_time.isoformat()
+        user_state["pending_state_time"] = original_change_time
+        user_state["original_change_time"] = original_change_time
 
         # Persist pending to DB
         try:
@@ -557,16 +555,7 @@ async def _check_user_power(bot: Bot, user) -> None:
                 await asyncio.sleep(debounce_s)
                 logger.info("User %s: Debounce done — confirming %s", telegram_id, new_state)
 
-                # Parse original_change_time for the notification timestamp
-                orig_dt = None
-                orig_str = user_state.get("original_change_time")
-                if orig_str:
-                    try:
-                        orig_dt = datetime.fromisoformat(orig_str)
-                        if orig_dt.tzinfo is None:
-                            orig_dt = orig_dt.replace(tzinfo=KYIV_TZ)
-                    except Exception:
-                        pass
+                orig_dt = user_state.get("original_change_time")
 
                 user_state["current_state"] = new_state
                 user_state["consecutive_checks"] = 0
@@ -730,32 +719,20 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
     count = 0
     for telegram_id, user_state in list(_user_states.items()):
         if user_state.get("pending_state") and user_state.get("debounce_task") is None:
-            pending_state_time_str = user_state.get("pending_state_time")
-            original_change_time_str = user_state.get("original_change_time") or pending_state_time_str
+            pending_state_time = user_state.get("pending_state_time")
             remaining_s = debounce_s
 
-            if pending_state_time_str:
-                try:
-                    pending_at = datetime.fromisoformat(pending_state_time_str)
-                    if pending_at.tzinfo is None:
-                        pending_at = pending_at.replace(tzinfo=KYIV_TZ)
-                    elapsed = (now - pending_at).total_seconds()
-                    remaining_s = max(0, debounce_s - elapsed)
-                except Exception:
-                    pass
+            if isinstance(pending_state_time, datetime):
+                pending_at = pending_state_time
+                if pending_at.tzinfo is None:
+                    pending_at = pending_at.replace(tzinfo=KYIV_TZ)
+                elapsed = (now - pending_at).total_seconds()
+                remaining_s = max(0, debounce_s - elapsed)
 
             new_state = user_state["pending_state"]
             old_state = user_state.get("current_state")
 
-            # Parse original_change_time for notification
-            orig_dt = None
-            if original_change_time_str:
-                try:
-                    orig_dt = datetime.fromisoformat(original_change_time_str)
-                    if orig_dt.tzinfo is None:
-                        orig_dt = orig_dt.replace(tzinfo=KYIV_TZ)
-                except Exception:
-                    pass
+            orig_dt = user_state.get("original_change_time") or pending_state_time
 
             logger.info(
                 "User %s: Restarting pending debounce for %s (%.0fs remaining)",

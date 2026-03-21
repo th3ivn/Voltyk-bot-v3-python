@@ -13,6 +13,7 @@ from aiogram.types import BufferedInputFile
 from bot.config import settings
 from bot.constants.regions import REGIONS
 from bot.db.queries import (
+    delete_old_pending_notifications,
     get_active_users_by_region,
     get_active_users_paginated,
     get_all_pending_region_queue_pairs,
@@ -460,6 +461,16 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 logger.error("Error flushing notifications for %s/%s: %s", region, queue, e)
 
     logger.info("06:00 flush complete")
+
+    # Purge old notification rows to prevent unbounded table growth
+    try:
+        async with async_session() as session:
+            deleted = await delete_old_pending_notifications(session)
+            await session.commit()
+        if deleted:
+            logger.info("Purged %d old pending_notifications rows (>48h)", deleted)
+    except Exception as e:
+        logger.warning("Could not purge old pending_notifications: %s", e)
 
 
 async def daily_flush_loop(bot: Bot) -> None:

@@ -329,10 +329,10 @@ class UserPowerState(Base):
     telegram_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     current_state: Mapped[str | None] = mapped_column(String(16))
     pending_state: Mapped[str | None] = mapped_column(String(16))
-    pending_state_time: Mapped[str | None] = mapped_column(String(64))  # TODO: migrate to DateTime
+    pending_state_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_stable_state: Mapped[str | None] = mapped_column(String(16))
-    last_stable_at: Mapped[str | None] = mapped_column(String(64))  # TODO: migrate to DateTime
-    instability_start: Mapped[str | None] = mapped_column(String(64))  # TODO: migrate to DateTime
+    last_stable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    instability_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     switch_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_notification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
