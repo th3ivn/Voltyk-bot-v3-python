@@ -66,15 +66,16 @@ def _build_homepage_url(region: str) -> str | None:
 
 async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
     """
-    Type *value* into the input, wait for the autocomplete list to appear,
-    click the first item and return its text (the canonical DTEK name).
-    Returns None if the autocomplete list never appeared.
+    Click the input, type *value* character-by-character (to trigger JS autocomplete),
+    wait for the dropdown to appear, click the first item and return its canonical text.
+    Returns None if the field is not ready or no autocomplete appeared.
     """
     try:
         inp = page.locator(input_sel).first
         await inp.wait_for(state="visible", timeout=_TIMEOUT_MS)
-        await inp.fill("")
-        await inp.type(value, delay=50)      # human-like typing triggers JS autocomplete
+        await inp.click()                            # focus so autocomplete JS attaches
+        await page.keyboard.press("Control+A")       # select all existing text
+        await inp.press_sequentially(value, delay=80)  # triggers input/keyup events
     except Exception as e:
         logger.warning("emergency_monitor[pw]: input %r not ready: %s", input_sel, e)
         return None
@@ -82,7 +83,7 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
     # autocomplete items are <div> children of the list container
     first_item = page.locator(f"{list_sel} div").first
     try:
-        await first_item.wait_for(state="visible", timeout=8_000)
+        await first_item.wait_for(state="visible", timeout=10_000)
         canonical = (await first_item.inner_text()).strip()
         await first_item.click()
         logger.info("emergency_monitor[pw]: autocomplete '%s' → '%s'", value, canonical)
@@ -132,19 +133,20 @@ async def _fetch_region_data(
     try:
         logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
+        # Give page JS time to fully initialize after DOM is ready
+        await page.wait_for_timeout(1_500)
 
         # ── Fill city (regions that require it) ──────────────────────────
         if needs_city and city:
             canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
             if not canonical_city:
-                # Autocomplete failed — type directly and hope for the best
-                await page.locator("#city").first.fill(city)
-            await page.wait_for_timeout(400)
+                return {"_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)"}
+            await page.wait_for_timeout(500)
 
         # ── Fill street ───────────────────────────────────────────────────
         canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
         if not canonical_street:
-            await page.locator("#street").first.fill(street)
+            return {"_exception": f"No AJAX response after autocomplete (street '{street}' not found in DTEK)"}
 
         # The street autocomplete click triggers the AJAX call automatically.
         # Wait up to 10 s for it to arrive.
