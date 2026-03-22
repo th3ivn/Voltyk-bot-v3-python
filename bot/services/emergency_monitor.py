@@ -84,6 +84,7 @@ async def _fill_and_pick(
     try:
         inp = page.locator(input_sel).first
         await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
+        await inp.scroll_into_view_if_needed()
         await inp.click()
         await inp.fill("")
         await inp.press_sequentially(value, delay=80)
@@ -260,29 +261,20 @@ async def _fetch_region_data(
             }
 
         # ── Select house number ───────────────────────────────────────────
-        # AJAX fires when house is selected, not on street selection.
-        # #house is a <select> that becomes active after street is picked.
+        # DOM confirmed: #house is <input type="text"> with custom autocomplete,
+        # same as #street. It becomes visible after street is picked.
         await page.wait_for_timeout(1_500)
-        house_sel = page.locator("#house").first
-        try:
-            await house_sel.wait_for(state="attached", timeout=8_000)
-            try:
-                await house_sel.select_option(label=house)
-            except Exception:
-                try:
-                    await house_sel.select_option(value=house)
-                except Exception:
-                    # Fallback: type + ArrowDown+Enter for custom autocomplete
-                    await house_sel.click()
-                    await house_sel.fill("")
-                    await house_sel.press_sequentially(house, delay=80)
-                    await page.wait_for_timeout(1_000)
-                    await house_sel.press("ArrowDown")
-                    await page.wait_for_timeout(200)
-                    await house_sel.press("Enter")
-            logger.info("emergency_monitor[pw]: house '%s' selected", house)
-        except Exception as e:
-            logger.warning("emergency_monitor[pw]: house selection failed for '%s': %s", house, e)
+        if house:
+            canonical_house = await _fill_and_pick(
+                page, "#house", "#houseautocomplete-list", house, use_keyboard=True
+            )
+            if canonical_house:
+                logger.info("emergency_monitor[pw]: house '%s' → '%s'", house, canonical_house)
+            else:
+                logger.warning(
+                    "emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding anyway",
+                    house,
+                )
 
         # Wait up to 10 s for AJAX response (triggered by house selection)
         for _ in range(100):
