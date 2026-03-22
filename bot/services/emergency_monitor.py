@@ -56,6 +56,10 @@ _GET_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
+    # max-age=0 forces CDN to revalidate with origin server (not serve stale cache).
+    # Without this the CDN serves a cached response that has no Set-Cookie headers,
+    # so the bot never receives the session / CSRF cookies and POST fails with 400.
+    "Cache-Control": "max-age=0",
     "Sec-Ch-Ua": '"Chromium";v="146", "Not-A-Brand";v="24", "Google Chrome";v="146"',
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Ch-Ua-Platform": '"Windows"',
@@ -269,10 +273,11 @@ async def _fetch_region_data(
             timeout=aiohttp.ClientTimeout(total=settings.DTEK_REQUEST_TIMEOUT_S),
             ssl=False,
         ) as resp:
+            set_cookie_headers = resp.headers.getall("Set-Cookie", [])
             cookies_received = {c.key: c.value for c in resp.cookies.values()}
             logger.info(
-                "emergency_monitor: GET %s -> %d, cookies=%s",
-                homepage_url, resp.status, list(cookies_received.keys()),
+                "emergency_monitor: GET %s -> %d, set-cookie-count=%d, cookie-keys=%s",
+                homepage_url, resp.status, len(set_cookie_headers), list(cookies_received.keys()),
             )
             if resp.status == 200:
                 html = await resp.text()
