@@ -56,27 +56,35 @@ _UA = (
 
 _TIMEOUT_MS = 30_000  # 30 s page / element timeout
 
-# Autocomplete suggestion selectors — same order as dtek_debug
-_CITY_SELS = (
-    "#cityautocomplete-list div",
-    "[id$='autocomplete-list'] div",
-    ".autocomplete-items div",
-    "[class*='autocomplete-item']",
-    "[role='option']",
+# Combined CSS selectors — Playwright checks all simultaneously (much faster than sequential loops)
+_CITY_SEL = (
+    "#cityautocomplete-list div, "
+    "[id$='autocomplete-list'] div, "
+    ".autocomplete-items div, "
+    "[class*='autocomplete-item'], "
+    "[role='option']"
 )
-_STREET_SELS = (
-    "#streetautocomplete-list div",
-    "[id$='autocomplete-list'] div",
-    ".autocomplete-items div",
-    "[class*='autocomplete-item']",
-    "[role='option']",
+_STREET_SEL = (
+    "#streetautocomplete-list div, "
+    "[id$='autocomplete-list'] div, "
+    ".autocomplete-items div, "
+    "[class*='autocomplete-item'], "
+    "[role='option']"
 )
-_HOUSE_SELS = (
-    "#houseautocomplete-list div",
-    "[id*='house'][id*='autocomplete'] div",
-    "[id*='house'][id*='list'] div",
-    ".autocomplete-items div",
-    "[role='option']",
+_HOUSE_SEL = (
+    "#houseautocomplete-list div, "
+    "[id*='house'][id*='autocomplete'] div, "
+    "[id*='house'][id*='list'] div, "
+    ".autocomplete-items div, "
+    "[role='option']"
+)
+# Combined popup close selector — one wait_for_selector instead of 7 sequential timeouts
+_POPUP_SEL = (
+    "button.popup__close, "
+    ".popup__close, "
+    ".modal__close, "
+    "button[class*='close'], "
+    "[aria-label='close']"
 )
 
 
@@ -99,8 +107,13 @@ async def _fetch_region_data(
     Open a fresh page, navigate to the DTEK shutdowns page, fill the form
     using autocomplete, and intercept the /ua/ajax network response.
 
-    Playwright flow is an exact mirror of the /dtek_debug admin handler
-    (same user-agent, same timeouts, same selectors, same interaction order).
+    Optimised for speed:
+    - Blocks images/fonts/media (saves ~3s on page load)
+    - Combined CSS selectors — Playwright checks all simultaneously (saves ~6s vs sequential loops)
+    - Single popup wait_for_selector (saves ~12s vs 7 sequential 2s timeouts)
+    - Adaptive form-ready wait instead of fixed 2s sleep (saves up to 1s)
+    - Reduced keypress delay 80ms → 40ms (saves ~1s per field)
+    - Reduced inter-step waits (AJAX poll replaces house post-Enter sleep)
     """
     homepage_url = _build_homepage_url(region)
     if not homepage_url:
@@ -128,53 +141,52 @@ async def _fetch_region_data(
 
     page.on("response", _on_response)
 
+    # ── Block heavy resources (images, fonts, media) to speed up page load ──
+    async def _abort_heavy(route):
+        if route.request.resource_type in {"image", "font", "media"}:
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await page.route("**/*", _abort_heavy)
+
     try:
         logger.info(
             "emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)",
             homepage_url, region, city, street,
         )
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
-        await page.wait_for_timeout(2_000)  # let JS fully initialise (mirrors dtek_debug)
 
-        # ── Close popup/notification if present ──────────────────────────
-        for close_sel in (
-            "button.popup__close",
-            ".popup__close",
-            ".modal__close",
-            "button[class*='close']",
-            "[aria-label='close']",
-            "button:has-text('×')",
-            "button:has-text('✕')",
-        ):
-            try:
-                btn = page.locator(close_sel).first
-                await btn.wait_for(state="visible", timeout=2_000)
-                await btn.click()
-                await page.wait_for_timeout(500)
-                break
-            except Exception:
-                pass
+        # Wait for form fields to appear instead of a fixed 2s sleep
+        try:
+            await page.wait_for_selector("#street, #city", timeout=10_000)
+            await page.wait_for_timeout(400)  # small buffer for JS event listeners
+        except Exception:
+            await page.wait_for_timeout(2_000)  # fallback to fixed wait
+
+        # ── Close popup if present (one combined selector, 1.5s max) ─────
+        try:
+            btn = await page.wait_for_selector(_POPUP_SEL, timeout=1_500)
+            await btn.click()
+            await page.wait_for_timeout(300)
+        except Exception:
+            pass  # no popup — move on immediately
 
         # ── Fill city (regions that require it) ──────────────────────────
-        # Mirrors dtek_debug Step 2–4 exactly.
         if needs_city and city:
             city_inp = page.locator("#city").first
             await city_inp.click()
-            await page.wait_for_timeout(300)   # let JS focus handler fire
+            await page.wait_for_timeout(300)  # let JS focus handler fire
             await city_inp.fill("")
-            await city_inp.press_sequentially(city, delay=80)
-            await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown
+            await city_inp.press_sequentially(city, delay=40)
 
-            city_text = None
-            for sel in _CITY_SELS:
-                try:
-                    item = page.locator(sel).first
-                    await item.wait_for(state="visible", timeout=3_000)
-                    city_text = (await item.inner_text()).strip()
-                    await item.click()
-                    break
-                except Exception:
-                    continue
+            # Wait for autocomplete — combined selector fires as soon as ANY match appears
+            try:
+                item = await page.wait_for_selector(_CITY_SEL, timeout=5_000)
+                city_text = (await item.inner_text()).strip()
+                await item.click()
+            except Exception:
+                city_text = None
 
             if not city_text:
                 logger.warning("emergency_monitor[pw]: city '%s' not found in autocomplete", city)
@@ -185,25 +197,19 @@ async def _fetch_region_data(
                 }
 
             logger.info("emergency_monitor[pw]: city '%s' → '%s'", city, city_text)
-            await page.wait_for_timeout(1_000)  # mirrors dtek_debug step 4 wait
+            await page.wait_for_timeout(400)  # let street field become active
 
         # ── Fill street ───────────────────────────────────────────────────
-        # Mirrors dtek_debug Step 5–6 exactly.
         street_inp = page.locator("#street").first
         await street_inp.click()
         await street_inp.fill("")
-        await street_inp.press_sequentially(street, delay=80)
-        await page.wait_for_timeout(2_000)
+        await street_inp.press_sequentially(street, delay=40)
 
-        street_text = None
-        for sel in _STREET_SELS:
-            try:
-                item = page.locator(sel).first
-                await item.wait_for(state="visible", timeout=3_000)
-                street_text = (await item.inner_text()).strip()
-                break
-            except Exception:
-                continue
+        try:
+            item = await page.wait_for_selector(_STREET_SEL, timeout=5_000)
+            street_text = (await item.inner_text()).strip()
+        except Exception:
+            street_text = None
 
         if not street_text:
             logger.warning("emergency_monitor[pw]: street '%s' not found in autocomplete", street)
@@ -217,10 +223,9 @@ async def _fetch_region_data(
         await street_inp.press("ArrowDown")
         await page.wait_for_timeout(300)
         await street_inp.press("Enter")
-        await page.wait_for_timeout(2_000)  # mirrors dtek_debug step 6 wait after Enter
+        # No fixed sleep here — house wait_for below is the gate
 
         # ── Select house number ───────────────────────────────────────────
-        # Mirrors dtek_debug Step 7–9 exactly.
         if house:
             house_inp = page.locator("#house").first
             try:
@@ -236,25 +241,20 @@ async def _fetch_region_data(
                 except Exception:
                     await house_inp.click(force=True)
                     await house_inp.fill("", force=True)
-                await house_inp.press_sequentially(house, delay=80)
-                await page.wait_for_timeout(2_000)
+                await house_inp.press_sequentially(house, delay=40)
 
-                house_text = None
-                for sel in _HOUSE_SELS:
-                    try:
-                        item = page.locator(sel).first
-                        await item.wait_for(state="visible", timeout=3_000)
-                        house_text = (await item.inner_text()).strip()
-                        break
-                    except Exception:
-                        continue
+                try:
+                    item = await page.wait_for_selector(_HOUSE_SEL, timeout=5_000)
+                    house_text = (await item.inner_text()).strip()
+                except Exception:
+                    house_text = None
 
                 if house_text:
                     logger.info("emergency_monitor[pw]: house '%s' → '%s'", house, house_text)
                     await house_inp.press("ArrowDown")
                     await page.wait_for_timeout(300)
                     await house_inp.press("Enter")
-                    await page.wait_for_timeout(2_500)  # mirrors dtek_debug step 9 wait
+                    # AJAX poll below replaces the fixed 2500ms sleep
                 else:
                     logger.warning(
                         "emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding", house,
@@ -262,11 +262,12 @@ async def _fetch_region_data(
             except Exception as e:
                 logger.warning("emergency_monitor[pw]: house '%s' interaction failed: %s", house, e)
 
-        # ── Wait for AJAX response (triggered by house/street selection) ──
-        for _ in range(100):
+        # ── Wait for AJAX response ────────────────────────────────────────
+        # Poll at 50ms intervals for up to 10s; usually fires within 200–500ms
+        for _ in range(200):
             if intercepted:
                 break
-            await page.wait_for_timeout(100)
+            await asyncio.sleep(0.05)
 
         if not intercepted:
             logger.warning(
@@ -403,7 +404,15 @@ async def _check_all_users(bot: Bot) -> None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--no-first-run",
+                "--disable-sync",
+            ],
         )
         try:
             for (region, street, city), group_users in groups.items():

@@ -159,7 +159,15 @@ async def _fetch_and_show(
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--no-first-run",
+                "--disable-sync",
+            ],
         )
         try:
             response = await _fetch_region_data(browser, region, street, city, house)
