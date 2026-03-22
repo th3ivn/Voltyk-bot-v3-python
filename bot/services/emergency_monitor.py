@@ -4,20 +4,25 @@ Periodically polls the DTEK AJAX API for each supported region and notifies
 users when an emergency outage starts, ends, or its time changes.
 
 Key design decisions:
-- One HTTP request per region (not per user) — max 4 requests per cycle.
-- Uses a two-step flow: GET homepage to obtain CSRF token, then POST AJAX.
+- One Playwright browser page per region (not per user) — max 4 pages per cycle.
+- Playwright runs real Chromium, which bypasses Incapsula bot-protection that
+  blocks plain HTTP requests.
+- The browser navigates to the DTEK shutdowns page (establishing session cookies
+  automatically), then executes the AJAX call from within the page JS context
+  so CSRF tokens and cookies are handled by the browser automatically.
 - State is persisted to DB so notifications are not re-sent after restart.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 
-import aiohttp
 import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from playwright.async_api import async_playwright
 
 from bot.config import settings
 from bot.db.queries import (
@@ -45,55 +50,13 @@ _DTEK_SUBDOMAINS: dict[str, str] = {
 _REGIONS_NEEDING_CITY = {"kyiv-region", "dnipro", "odesa"}
 
 _UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/146.0.0.0 Safari/537.36"
+    "Chrome/143.0.0.0 Safari/537.36"
 )
 
-# Headers for the initial GET (page load — not XHR)
-_GET_HEADERS = {
-    "User-Agent": _UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    # max-age=0 forces CDN to revalidate with origin server (not serve stale cache).
-    # Without this the CDN serves a cached response that has no Set-Cookie headers,
-    # so the bot never receives the session / CSRF cookies and POST fails with 400.
-    "Cache-Control": "max-age=0",
-    "Sec-Ch-Ua": '"Chromium";v="146", "Not-A-Brand";v="24", "Google Chrome";v="146"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-}
 
-# Headers for the AJAX POST
-_AJAX_HEADERS = {
-    "User-Agent": _UA,
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Sec-Ch-Ua": '"Chromium";v="146", "Not-A-Brand";v="24", "Google Chrome";v="146"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
-    "X-Requested-With": "XMLHttpRequest",
-}
-
-
-# ─── DTEK fetcher ─────────────────────────────────────────────────────────
-
-
-def _build_ajax_url(region: str) -> str | None:
-    subdomain = _DTEK_SUBDOMAINS.get(region)
-    if not subdomain:
-        return None
-    return f"https://www.dtek-{subdomain}.com.ua/ua/ajax"
+# ─── URL helpers ──────────────────────────────────────────────────────────
 
 
 def _build_homepage_url(region: str) -> str | None:
@@ -103,245 +66,109 @@ def _build_homepage_url(region: str) -> str | None:
     return f"https://www.dtek-{subdomain}.com.ua/ua/shutdowns"
 
 
-def _extract_csrf_token(html: str) -> str | None:
-    """Extract CSRF token from <meta name='csrf-token' content='...'> (any attribute order)."""
-    import re
-    # name before content
-    m = re.search(r'<meta[^>]+name=["\']csrf-token["\'][^>]+content=["\']([^"\']+)["\']', html)
-    if m:
-        return m.group(1)
-    # content before name
-    m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']csrf-token["\']', html)
-    if m:
-        return m.group(1)
-    # fallback: search JS variable (some Yii2 apps embed it in JS)
-    m = re.search(r'csrfToken["\s]*[:=]["\s]*["\']([^"\']{20,})["\']', html)
-    if m:
-        return m.group(1)
-    return None
+# ─── Playwright fetcher ───────────────────────────────────────────────────
 
+# JS executed inside the Playwright page to make the AJAX call.
+# The browser context already has session cookies + CSRF cookie set,
+# so the fetch() call succeeds where a plain HTTP POST would fail.
+_AJAX_JS = """
+async ([city, street, needsCity]) => {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const csrfToken = meta ? meta.getAttribute('content') : '';
 
-# Ukrainian settlement and street type prefixes used in DTEK canonical names
-_LOCATION_PREFIXES = (
-    "с.", "м.", "смт.", "сщ.", "с-щ.", "кмт.", "сел.",
-    "вул.", "пр.", "просп.", "пров.", "б-р", "бульв.", "пл.", "шосе",
-)
+    // Try to read updateFact that DTEK embeds in the page JS
+    let updateFact = '';
+    try {
+        const m = document.documentElement.innerHTML.match(/"updateFact":"([^"]+)"/);
+        if (m) updateFact = m[1];
+    } catch(e) {}
 
+    const formData = new URLSearchParams();
+    formData.append('method', 'getHomeNum');
 
-def _extract_locations_from_html(html: str) -> list[str]:
-    """Extract canonical city/street names embedded in the DTEK page HTML.
+    let idx = 0;
+    if (needsCity && city) {
+        formData.append('data[' + idx + '][name]', 'city');
+        formData.append('data[' + idx + '][value]', city);
+        idx++;
+    }
+    formData.append('data[' + idx + '][name]', 'street');
+    formData.append('data[' + idx + '][value]', street);
+    idx++;
+    formData.append('data[' + idx + '][name]', 'updateFact');
+    formData.append('data[' + idx + '][value]', updateFact);
 
-    DTEK uses client-side autocomplete, so all location names are embedded
-    in the page (inside <option> elements or JS data structures).
-    Returns a deduplicated list of found names, or empty list.
-    """
-    import re
+    const resp = await fetch('/ua/ajax', {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-Token': csrfToken,
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: formData.toString(),
+    });
 
-    candidates: list[str] = []
-
-    # Pattern 1: <option ...>Value</option> or <option value="Value">
-    for m in re.findall(r'<option[^>]*value=["\']([^"\']*)["\'][^>]*>', html):
-        m = m.strip()
-        if m:
-            candidates.append(m)
-    for m in re.findall(r'<option[^>]*>([^<]+)</option>', html):
-        m = m.strip()
-        if m:
-            candidates.append(m)
-
-    # Pattern 2: JSON/JS string values that look like Ukrainian location names
-    # e.g. "с. Нижча Дубечня" or 'вул. Деснянська'
-    for m in re.findall(r'["\']([А-ЯІЇЄа-яіїє][^\n"\']{1,80})["\']', html):
-        m = m.strip()
-        if m:
-            candidates.append(m)
-
-    # Filter to only Ukrainian location names (must start with a known prefix)
-    result: list[str] = []
-    seen: set[str] = set()
-    for c in candidates:
-        c_low = c.strip().lower()
-        if any(c_low.startswith(p + " ") or c_low.startswith(p.rstrip(".") + " ") for p in _LOCATION_PREFIXES):
-            if c_low not in seen:
-                seen.add(c_low)
-                result.append(c.strip())
-
-    return result
-
-
-def _normalize_location(user_input: str, candidates: list[str]) -> str:
-    """Find canonical DTEK location name for user-provided input.
-
-    Tries exact match first, then match after stripping the type prefix
-    (e.g. user enters "Нижча Дубечня", finds "с. Нижча Дубечня").
-    Falls back to original input if no match is found.
-    """
-    import re
-
-    if not candidates:
-        return user_input
-
-    user_clean = user_input.strip().lower()
-
-    # 1. Exact match (case-insensitive)
-    for c in candidates:
-        if c.strip().lower() == user_clean:
-            return c
-
-    # 2. Match after stripping the type prefix ("с. ", "вул. ", etc.)
-    for c in candidates:
-        name_part = re.sub(r'^[А-ЯІЇЄа-яіїє][а-яіїє\-]*\.\s*', '', c.strip(), count=1).strip().lower()
-        if name_part == user_clean:
-            return c
-
-    # 3. Substring match (user input is contained in candidate)
-    for c in candidates:
-        if user_clean in c.strip().lower():
-            return c
-
-    logger.debug("emergency_monitor: no canonical match for %r in %d candidates", user_input, len(candidates))
-    return user_input
-
-
-def _extract_update_fact(html: str) -> str | None:
-    """Extract the updateFact timestamp embedded in DTEK page JS.
-
-    DTEK embeds the last-update timestamp in the page as:
-      {"updateFact":"21.03.2026 17:43"}
-    This value must be sent as-is in the POST body — sending the
-    current datetime causes a 400 validation error.
-    """
-    import re
-    m = re.search(r'"updateFact"\s*:\s*"([^"]+)"', html)
-    if m:
-        return m.group(1)
-    # fallback: "update":"21.03.2026 17:43" (alternative key name)
-    m = re.search(r'"update"\s*:\s*"(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})"', html)
-    if m:
-        return m.group(1)
-    return None
-
-
-def _build_post_body(region: str, street: str, city: str | None, update_fact: str | None = None) -> dict[str, str]:
-    """Build the form data dict for the DTEK AJAX POST request."""
-    if update_fact is None:
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        update_fact = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
-
-    data: dict[str, str] = {"method": "getHomeNum"}
-
-    idx = 0
-    if region in _REGIONS_NEEDING_CITY and city:
-        data[f"data[{idx}][name]"] = "city"
-        data[f"data[{idx}][value]"] = city
-        idx += 1
-
-    data[f"data[{idx}][name]"] = "street"
-    data[f"data[{idx}][value]"] = street
-    idx += 1
-
-    data[f"data[{idx}][name]"] = "updateFact"
-    data[f"data[{idx}][value]"] = update_fact
-
-    return data
+    const text = await resp.text();
+    return { status: resp.status, body: text, csrfLen: csrfToken.length, updateFact: updateFact };
+}
+"""
 
 
 async def _fetch_region_data(
-    session: aiohttp.ClientSession,
+    browser,
     region: str,
     street: str,
     city: str | None,
 ) -> dict[str, Any] | None:
     """
-    Fetch DTEK emergency data for a given region/street combo.
-    Returns the parsed JSON dict, or None on failure.
+    Open a fresh browser page, navigate to the DTEK shutdowns page,
+    then perform the AJAX call from within the browser JS context.
+    Returns parsed JSON dict, or a dict with '_error'/'_exception' key on failure.
     """
     homepage_url = _build_homepage_url(region)
-    ajax_url = _build_ajax_url(region)
-    if not homepage_url or not ajax_url:
+    if not homepage_url:
         logger.warning("emergency_monitor: unknown region '%s'", region)
         return None
 
-    csrf_token = None
-    update_fact = None
-    locations: list[str] = []
+    needs_city = region in _REGIONS_NEEDING_CITY
+    page = await browser.new_page()
     try:
-        async with session.get(
+        logger.info("emergency_monitor[pw]: GET %s (region=%s)", homepage_url, region)
+        await page.goto(
             homepage_url,
-            headers=_GET_HEADERS,
-            timeout=aiohttp.ClientTimeout(total=settings.DTEK_REQUEST_TIMEOUT_S),
-            ssl=False,
-        ) as resp:
-            set_cookie_headers = resp.headers.getall("Set-Cookie", [])
-            cookies_received = {c.key: c.value for c in resp.cookies.values()}
-            logger.info(
-                "emergency_monitor: GET %s -> %d, set-cookie-count=%d, cookie-keys=%s",
-                homepage_url, resp.status, len(set_cookie_headers), list(cookies_received.keys()),
-            )
-            if resp.status == 200:
-                html = await resp.text()
-                csrf_token = _extract_csrf_token(html)
-                if csrf_token:
-                    logger.info("emergency_monitor: CSRF token extracted for region %s (len=%d)", region, len(csrf_token))
-                else:
-                    logger.warning("emergency_monitor: no CSRF token found for region %s, html_start=%r", region, html[:300])
-                update_fact = _extract_update_fact(html)
-                logger.info("emergency_monitor: updateFact for region %s: %r", region, update_fact)
-                locations = _extract_locations_from_html(html)
-                logger.info("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
-    except Exception as e:
-        logger.warning("emergency_monitor: GET homepage failed for region %s: %s", region, e)
-
-    # Normalize city and street to canonical DTEK names (e.g. "Нижча Дубечня" → "с. Нижча Дубечня")
-    normalized_city = _normalize_location(city, locations) if city else city
-    normalized_street = _normalize_location(street, locations)
-    if normalized_city != city:
-        logger.info("emergency_monitor: city normalized: %r → %r", city, normalized_city)
-    if normalized_street != street:
-        logger.info("emergency_monitor: street normalized: %r → %r", street, normalized_street)
-
-    post_data = _build_post_body(region, normalized_street, normalized_city, update_fact)
-    base_url = homepage_url.rsplit("/ua/", 1)[0]
-    headers = dict(_AJAX_HEADERS)
-    headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
-    headers["Referer"] = homepage_url
-    headers["Origin"] = base_url
-    if csrf_token:
-        headers["X-CSRF-Token"] = csrf_token
-    logger.info("emergency_monitor: POST city=%r street=%r csrf=%s", normalized_city, normalized_street, bool(csrf_token))
-
-    try:
-        async with session.post(
-            ajax_url,
-            data=post_data,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=settings.DTEK_REQUEST_TIMEOUT_S),
-            ssl=False,
-        ) as resp:
-            if resp.status != 200:
-                body_preview = (await resp.text())[:300]
-                logger.warning(
-                    "emergency_monitor: DTEK POST returned %d for region %s. Body: %s",
-                    resp.status, region, body_preview,
-                )
-                return {"_error": resp.status, "_body": body_preview}
-            return await resp.json(content_type=None)
-    except Exception as e:
-        exc_type = type(e).__name__
-        exc_msg = str(e)
-        logger.warning(
-            "emergency_monitor: POST AJAX exception for region %s: %s: %s",
-            region, exc_type, exc_msg,
+            wait_until="domcontentloaded",
+            timeout=settings.DTEK_REQUEST_TIMEOUT_S * 1000,
         )
-        return {"_exception": f"{exc_type}: {exc_msg}"}
+
+        result = await page.evaluate(_AJAX_JS, [city, street, needs_city])
+
+        logger.info(
+            "emergency_monitor[pw]: POST region=%s status=%s csrf_len=%s updateFact=%r city=%r street=%r",
+            region, result.get("status"), result.get("csrfLen"), result.get("updateFact"), city, street,
+        )
+
+        if result["status"] != 200:
+            body = result.get("body", "")[:300]
+            logger.warning(
+                "emergency_monitor[pw]: DTEK POST %d for region %s. Body: %s",
+                result["status"], region, body,
+            )
+            return {"_error": result["status"], "_body": body}
+
+        return json.loads(result["body"])
+
+    except Exception as e:
+        exc_info = f"{type(e).__name__}: {e}"
+        logger.warning("emergency_monitor[pw]: error for region %s: %s", region, exc_info)
+        return {"_exception": exc_info}
+    finally:
+        await page.close()
+
+
+# ─── House / outage helpers ───────────────────────────────────────────────
 
 
 def _get_house_entry(data: dict[str, Any], house: str) -> dict | None:
-    """
-    Find the house entry in the DTEK response.
-    Handles both 'data' (lowercase, current format) and 'Data' (legacy format).
-    """
     house_dict = data.get("data") or data.get("Data") or {}
     house_normalized = house.strip().upper()
     for key, entry in house_dict.items():
@@ -351,10 +178,7 @@ def _get_house_entry(data: dict[str, Any], house: str) -> dict | None:
 
 
 def _find_outage_for_house(data: dict[str, Any], house: str) -> dict | None:
-    """
-    Search the DTEK response for the user's house number.
-    Returns the entry only if there is an active emergency (non-empty sub_type + start_date).
-    """
+    """Return the outage entry only if there is an active emergency."""
     if not data.get("showCurOutageParam"):
         return None
     entry = _get_house_entry(data, house)
@@ -364,21 +188,17 @@ def _find_outage_for_house(data: dict[str, Any], house: str) -> dict | None:
 
 
 def _extract_queue(data: dict[str, Any], house: str) -> str | None:
-    """
-    Extract the scheduled outage queue (черга) for a house from the DTEK response.
-    Returns e.g. '3.1' parsed from 'GPV3.1', or None if not found.
-    """
     entry = _get_house_entry(data, house)
     if not entry:
         return None
     reasons = entry.get("sub_type_reason") or []
     if not reasons:
         return None
-    raw = str(reasons[0])  # e.g. "GPV3.1"
+    raw = str(reasons[0])
     return raw[3:] if raw.upper().startswith("GPV") else raw
 
 
-# ─── State change logic ───────────────────────────────────────────────────
+# ─── State change / notification logic ────────────────────────────────────
 
 
 async def _notify_user(bot: Bot, telegram_id: str, text: str) -> None:
@@ -397,10 +217,6 @@ async def _handle_state_change(
     user,
     current_outage: dict | None,
 ) -> None:
-    """
-    Compare current outage data with stored state and send notification if changed.
-    Updates the persistent state in DB.
-    """
     prev = user.emergency_state
     prev_status = prev.status if prev else "none"
     prev_start = prev.start_date if prev else None
@@ -414,7 +230,6 @@ async def _handle_state_change(
         sub_type = current_outage.get("sub_type", "Аварійне відключення")
 
         if prev_status == "none":
-            # Outage appeared
             if ns and ns.notify_emergency_off:
                 text = (
                     f"🚨 {sub_type}\n"
@@ -422,7 +237,6 @@ async def _handle_state_change(
                 )
                 await _notify_user(bot, user.telegram_id, text)
         elif prev_start != new_start or prev_end != new_end:
-            # Outage times updated
             if ns and ns.notify_emergency_off:
                 text = (
                     f"🔄 Оновлено терміни аварійного відключення\n"
@@ -443,7 +257,6 @@ async def _handle_state_change(
                 )
     else:
         if prev_status == "active":
-            # Outage ended
             if ns and ns.notify_emergency_on:
                 text = "✅ Аварійне відключення завершено"
                 await _notify_user(bot, user.telegram_id, text)
@@ -465,8 +278,8 @@ async def _handle_state_change(
 
 async def _check_all_users(bot: Bot) -> None:
     """
-    Main check: fetch DTEK data per unique (region, street, city) combo,
-    then evaluate each user against the cached response.
+    Main check: launch a Playwright Chromium browser, fetch DTEK data per
+    unique (region, street, city) combo, then evaluate each user.
     """
     async with async_session() as db_session:
         users = await get_users_with_emergency_address(db_session)
@@ -474,33 +287,39 @@ async def _check_all_users(bot: Bot) -> None:
     if not users:
         return
 
-    # Group users by (region, street, city) — one DTEK request per group
+    # Group users by (region, street, city) — one browser page per group
     groups: dict[tuple[str, str, str | None], list] = {}
     for user in users:
         cfg = user.emergency_config
         key = (user.region, cfg.street or "", cfg.city)
         groups.setdefault(key, []).append(user)
 
-    connector = aiohttp.TCPConnector(ssl=False, limit=10)
-    async with aiohttp.ClientSession(connector=connector, cookie_jar=aiohttp.CookieJar(unsafe=True)) as http_session:
-        for (region, street, city), group_users in groups.items():
-            try:
-                response = await _fetch_region_data(http_session, region, street, city)
-            except Exception as e:
-                logger.error("emergency_monitor: _fetch_region_data error [%s]: %s", region, e)
-                response = None
-
-            for user in group_users:
-                cfg = user.emergency_config
-                house = cfg.house or ""
-                current_outage = _find_outage_for_house(response or {}, house) if response else None
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            for (region, street, city), group_users in groups.items():
                 try:
-                    await _handle_state_change(bot, user, current_outage)
+                    response = await _fetch_region_data(browser, region, street, city)
                 except Exception as e:
-                    logger.error(
-                        "emergency_monitor: _handle_state_change error for user %s: %s",
-                        user.telegram_id, e,
-                    )
+                    logger.error("emergency_monitor: _fetch_region_data error [%s]: %s", region, e)
+                    response = None
+
+                for user in group_users:
+                    cfg = user.emergency_config
+                    house = cfg.house or ""
+                    current_outage = _find_outage_for_house(response or {}, house) if response else None
+                    try:
+                        await _handle_state_change(bot, user, current_outage)
+                    except Exception as e:
+                        logger.error(
+                            "emergency_monitor: _handle_state_change error for user %s: %s",
+                            user.telegram_id, e,
+                        )
+        finally:
+            await browser.close()
 
 
 async def emergency_monitor_loop(bot: Bot) -> None:
