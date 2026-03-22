@@ -85,8 +85,14 @@ async def _fill_and_pick(
         inp = page.locator(input_sel).first
         await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
         await inp.scroll_into_view_if_needed()
-        await inp.click()
-        await inp.fill("")
+        try:
+            await inp.click()
+            await inp.fill("")
+        except Exception:
+            # Element not visible (e.g. house field hidden until DTEK AJAX loads) –
+            # force interaction bypasses actionability checks.
+            await inp.click(force=True)
+            await inp.fill("", force=True)
         await inp.press_sequentially(value, delay=80)
     except Exception as e:
         logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
@@ -261,10 +267,15 @@ async def _fetch_region_data(
             }
 
         # ── Select house number ───────────────────────────────────────────
-        # DOM confirmed: #house is <input type="text"> with custom autocomplete,
-        # same as #street. It becomes visible after street is picked.
+        # DOM confirmed: #house is <input type="text"> with custom autocomplete.
+        # DTEK makes it visible only after an AJAX call that loads houses for
+        # the selected street, so we wait up to 6 s for it to appear.
         await page.wait_for_timeout(1_500)
         if house:
+            try:
+                await page.locator("#house").first.wait_for(state="visible", timeout=6_000)
+            except Exception:
+                logger.warning("emergency_monitor[pw]: #house not visible after 6s, trying force")
             canonical_house = await _fill_and_pick(
                 page, "#house", "#houseautocomplete-list", house, use_keyboard=True
             )
