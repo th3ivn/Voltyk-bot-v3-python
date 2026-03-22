@@ -144,6 +144,39 @@ async def _fetch_region_data(
         logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
 
+        # ── Close popup/notification if present ──────────────────────────
+        # DTEK sometimes shows an emergency notification modal on load that
+        # covers the form. Try Escape first, then common close-button selectors.
+        popup_closed = False
+        for close_sel in (
+            "button.popup__close",
+            ".popup__close",
+            ".modal__close",
+            "button[class*='close']",
+            "[aria-label='close']",
+            "[aria-label='Close']",
+            ".notification__close",
+            ".alert__close",
+            # broad fallback: any visible button whose text is × or ✕
+            "button:has-text('×')",
+            "button:has-text('✕')",
+        ):
+            try:
+                btn = page.locator(close_sel).first
+                await btn.wait_for(state="visible", timeout=2_000)
+                await btn.click()
+                logger.info("emergency_monitor[pw]: closed popup via selector %r", close_sel)
+                await page.wait_for_timeout(500)
+                popup_closed = True
+                break
+            except Exception:
+                pass
+
+        if not popup_closed:
+            # Last resort: Escape key closes most modal dialogs
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(300)
+
         # ── Fill city (regions that require it) ──────────────────────────
         if needs_city and city:
             canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
