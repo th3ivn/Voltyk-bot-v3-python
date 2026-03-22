@@ -278,12 +278,22 @@ async def dtek_debug(message: Message) -> None:
 
             # ── Step 8: type house number and watch autocomplete ──────────
             try:
+                await house_inp.scroll_into_view_if_needed()
                 await house_inp.click()
                 await house_inp.fill("")
                 await house_inp.press_sequentially(_HOUSE, delay=80)
                 await page.wait_for_timeout(2_000)
             except Exception as e:
                 await message.answer(f"⚠️ Не вдалося клікнути/ввести в #house: {html.escape(str(e))}")
+                # Dump page HTML to help diagnose visibility issue
+                try:
+                    body_snippet = await page.locator("body").inner_html()
+                    await message.answer_document(
+                        BufferedInputFile(body_snippet[:8000].encode("utf-8"), "house_step_body.txt"),
+                        caption="🔍 HTML сторінки на момент помилки #house",
+                    )
+                except Exception:
+                    pass
 
             shot8 = await page.screenshot(full_page=True)
             await message.answer_photo(
