@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -91,6 +92,71 @@ _POPUP_SEL = (
 def _build_homepage_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
     return f"https://www.dtek-{subdomain}.com.ua/ua/shutdowns" if subdomain else None
+
+
+# ─── City autocomplete best-match selection ───────────────────────────────
+
+# Ukrainian settlement-type prefixes to strip before comparing with user input
+_UA_PREFIX_RE = re.compile(
+    r"^(м\.|с\.|смт\.|сел\.|с-ще\.|хут\.|мкр\.)\s*",
+    re.IGNORECASE,
+)
+
+
+def _normalize_city_suggestion(text: str) -> str:
+    """Strip settlement prefix (м., с., etc.) and district suffix (in parentheses)."""
+    main = text.split("(")[0]            # drop "...  (Вишгородська громада)"
+    main = _UA_PREFIX_RE.sub("", main)   # drop "м.", "с.", "смт.", etc.
+    return main.strip().lower()
+
+
+async def _pick_best_city(page, user_input: str, sel: str, timeout: int = 5_000):
+    """
+    Wait for city autocomplete suggestions, then pick the best match for user_input.
+
+    Priority:
+      0 — exact match after normalization (e.g. "вишгород" == "вишгород")
+      1 — starts with user input
+      2 — user input contained in suggestion
+      3 — fallback: first suggestion (original behaviour)
+
+    Returns (element_handle, display_text) or (None, None) on timeout.
+    """
+    try:
+        await page.wait_for_selector(sel, timeout=timeout)
+    except Exception:
+        return None, None
+
+    items = await page.query_selector_all(sel)
+    if not items:
+        return None, None
+
+    query = user_input.strip().lower()
+    best_item = items[0]
+    best_text = (await items[0].inner_text()).strip()
+    best_priority = 3  # start at fallback
+
+    for el in items:
+        text = (await el.inner_text()).strip()
+        norm = _normalize_city_suggestion(text)
+        if norm == query:
+            priority = 0
+        elif norm.startswith(query):
+            priority = 1
+        elif query in norm:
+            priority = 2
+        else:
+            priority = 3
+
+        if priority < best_priority:
+            best_priority = priority
+            best_item = el
+            best_text = text
+
+        if best_priority == 0:
+            break  # can't do better than exact match
+
+    return best_item, best_text
 
 
 # ─── Playwright form interaction ──────────────────────────────────────────
@@ -180,13 +246,11 @@ async def _fetch_region_data(
             await city_inp.fill("")
             await city_inp.press_sequentially(city, delay=40)
 
-            # Wait for autocomplete — combined selector fires as soon as ANY match appears
-            try:
-                item = await page.wait_for_selector(_CITY_SEL, timeout=5_000)
-                city_text = (await item.inner_text()).strip()
+            # Pick best-matching suggestion (not just first) to avoid wrong-city selection
+            # e.g. "Вишгород" → first result may be "с. Лісовичі (Вишгородська)" not "м. Вишгород"
+            item, city_text = await _pick_best_city(page, city, _CITY_SEL)
+            if item:
                 await item.click()
-            except Exception:
-                city_text = None
 
             if not city_text:
                 logger.warning("emergency_monitor[pw]: city '%s' not found in autocomplete", city)
