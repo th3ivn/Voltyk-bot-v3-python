@@ -66,14 +66,18 @@ def _build_homepage_url(region: str) -> str | None:
 
 async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
     """
-    Click the input (by CSS selector), clear it, type *value* character-by-character
-    to trigger JS autocomplete, then click the first suggestion.
-    Returns the canonical text of the clicked suggestion, or None on failure.
+    Click the input, type *value* to trigger JS autocomplete, then select
+    the first suggestion using ArrowDown+Enter (most reliable) with a click
+    fallback.
 
-    The form fields (#city, #street) are plain <input type="text"> elements —
-    confirmed via DOM inspection of dtek-krem.com.ua.
+    Returns the canonical text of the selected suggestion, or None on failure.
+
+    DOM notes (confirmed via dtek-krem.com.ua inspection):
+    - #city and #street are plain <input type="text">
+    - Autocomplete items are <div> containing text + <input type="hidden">
+    - Clicking the <div> does NOT reliably trigger JS — ArrowDown+Enter does
     """
-    # Step 1: wait for the input to be editable (street starts disabled until city is chosen)
+    # Step 1: wait for the input to be editable and type value
     try:
         inp = page.locator(input_sel).first
         await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
@@ -84,13 +88,13 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
         logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
         return None
 
-    # Step 2: find and click the first autocomplete suggestion.
-    # Try multiple selectors so we are not fragile to exact id/class names.
+    # Step 2: wait for autocomplete list to appear and read canonical text
+    canonical = None
     for sel in (
-        f"{list_sel} div",          # e.g. #cityautocomplete-list div  (original)
+        f"{list_sel} div",
         f"{list_sel} > *",
-        "[id$='autocomplete-list'] div",   # any element whose id ends with autocomplete-list
-        ".ui-autocomplete .ui-menu-item",  # jQuery UI autocomplete
+        "[id$='autocomplete-list'] div",
+        ".ui-autocomplete .ui-menu-item",
         ".ui-autocomplete li",
         ".autocomplete-items div",
         "[class*='autocomplete-item']",
@@ -102,27 +106,39 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
             item = page.locator(sel).first
             await item.wait_for(state="visible", timeout=4_000)
             canonical = (await item.inner_text()).strip()
-            await item.click()
-            logger.info(
-                "emergency_monitor[pw]: autocomplete '%s' → '%s' (matched sel=%s)",
-                value, canonical, sel,
-            )
-            return canonical
+            break
         except Exception:
             continue
 
-    # All selectors failed — log page state for diagnostics
+    if canonical is None:
+        try:
+            body_html = await page.locator("body").inner_html()
+            logger.warning(
+                "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
+                value, body_html[:4000],
+            )
+        except Exception as dbg_e:
+            logger.warning(
+                "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
+            )
+        return None
+
+    # Step 3: select via ArrowDown+Enter (clicking the div does not trigger JS)
     try:
-        body_html = await page.locator("body").inner_html()
-        logger.warning(
-            "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
-            value, body_html[:4000],
+        await inp.press("ArrowDown")
+        await page.wait_for_timeout(300)
+        await inp.press("Enter")
+        await page.wait_for_timeout(500)
+        logger.info(
+            "emergency_monitor[pw]: autocomplete '%s' → '%s' (ArrowDown+Enter)",
+            value, canonical,
         )
-    except Exception as dbg_e:
+        return canonical
+    except Exception as e:
         logger.warning(
-            "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
+            "emergency_monitor[pw]: ArrowDown+Enter failed for %r: %s", value, e,
         )
-    return None
+        return None
 
 
 async def _fetch_region_data(

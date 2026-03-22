@@ -142,47 +142,41 @@ async def dtek_debug(message: Message) -> None:
                 caption=f"📸 Крок 3: після введення «{_CITY}»\nЧи з'явився список підказок?",
             )
 
-            # ── Step 4: try to click autocomplete suggestion ──────────────
-            clicked_sel = None
-            clicked_text = None
+            # ── Step 4: ArrowDown+Enter to select city suggestion ────────────
+            city_text = None
             for sel in (
                 "#cityautocomplete-list div",
                 "[id$='autocomplete-list'] div",
-                ".ui-autocomplete .ui-menu-item",
-                ".ui-autocomplete li",
                 ".autocomplete-items div",
                 "[class*='autocomplete-item']",
-                "[class*='autocomplete'] li",
                 "[role='option']",
-                "[role='listbox'] div",
             ):
                 try:
                     item = page.locator(sel).first
                     await item.wait_for(state="visible", timeout=3_000)
-                    clicked_text = (await item.inner_text()).strip()
-                    await item.click()
-                    clicked_sel = sel
+                    city_text = (await item.inner_text()).strip()
                     break
                 except Exception:
                     continue
 
-            await page.wait_for_timeout(1_000)
+            if city_text:
+                await city_inp.press("ArrowDown")
+                await page.wait_for_timeout(300)
+                await city_inp.press("Enter")
+                await page.wait_for_timeout(1_000)
+
             shot4 = await page.screenshot(full_page=True)
             await message.answer_photo(
                 BufferedInputFile(shot4, "step4_after_city_pick.png"),
-                caption=(
-                    f"📸 Крок 4: після кліку на підказку міста\n"
-                    f"sel={clicked_sel}\ntext={clicked_text}"
-                ),
+                caption=f"📸 Крок 4: після вибору міста (ArrowDown+Enter)\ntext={city_text}",
             )
 
-            if not clicked_sel:
-                # dump autocomplete area HTML for inspection
+            if not city_text:
                 try:
                     ac_html = await page.locator("body").inner_html()
                     await message.answer_document(
                         BufferedInputFile(ac_html[:6000].encode("utf-8"), "autocomplete_html.txt"),
-                        caption="❌ Підказку не знайдено — HTML сторінки після введення",
+                        caption="❌ Підказку міста не знайдено — HTML",
                     )
                 except Exception:
                     pass
@@ -212,67 +206,41 @@ async def dtek_debug(message: Message) -> None:
                 await message.answer("❌ #street досі disabled після вибору міста")
                 return
 
-            # ── Step 6: dump autocomplete HTML then click street suggestion ──
-            try:
-                ac_html = await page.locator("#streetautocomplete-list").inner_html()
-                await message.answer_document(
-                    BufferedInputFile(ac_html[:4000].encode("utf-8"), "street_ac_html.txt"),
-                    caption="📄 HTML #streetautocomplete-list перед кліком",
-                )
-            except Exception:
-                pass
-
-            street_clicked_sel = None
-            street_clicked_text = None
-
-            # Try 1: direct click on autocomplete item
+            # ── Step 6: ArrowDown+Enter to select street suggestion ───────────
+            street_text = None
             for sel in (
                 "#streetautocomplete-list div",
                 "[id$='autocomplete-list'] div",
-                ".ui-autocomplete .ui-menu-item",
-                ".ui-autocomplete li",
                 ".autocomplete-items div",
                 "[class*='autocomplete-item']",
-                "[class*='autocomplete'] li",
                 "[role='option']",
-                "[role='listbox'] div",
             ):
                 try:
                     item = page.locator(sel).first
                     await item.wait_for(state="visible", timeout=3_000)
-                    street_clicked_text = (await item.inner_text()).strip()
-                    await item.click()
-                    street_clicked_sel = sel
+                    street_text = (await item.inner_text()).strip()
                     break
                 except Exception:
                     continue
 
-            await page.wait_for_timeout(1_500)
-
-            # Check if form accepted the street (house should become visible)
-            house_accepted = await page.locator("#house").first.is_visible()
-
-            if not house_accepted and street_clicked_sel:
-                # Try 2: keyboard navigation ArrowDown + Enter
-                await street_inp.click()
-                await page.wait_for_timeout(300)
+            if street_text:
                 await street_inp.press("ArrowDown")
                 await page.wait_for_timeout(300)
                 await street_inp.press("Enter")
-                await page.wait_for_timeout(1_500)
-                house_accepted = await page.locator("#house").first.is_visible()
+                await page.wait_for_timeout(2_000)
 
+            # Check if #house became visible
+            house_visible_after = await page.locator("#house").first.is_visible()
             shot6 = await page.screenshot(full_page=True)
             await message.answer_photo(
                 BufferedInputFile(shot6, "step6_after_street_pick.png"),
                 caption=(
-                    f"📸 Крок 6: після вибору вулиці\n"
-                    f"sel={street_clicked_sel}\ntext={street_clicked_text}\n"
-                    f"#house visible після: {house_accepted}"
+                    f"📸 Крок 6: після вибору вулиці (ArrowDown+Enter)\n"
+                    f"text={street_text}\n#house visible: {house_visible_after}"
                 ),
             )
 
-            if not street_clicked_sel:
+            if not street_text:
                 try:
                     body_html = await page.locator("body").inner_html()
                     await message.answer_document(
@@ -283,84 +251,63 @@ async def dtek_debug(message: Message) -> None:
                     pass
                 return
 
-            if not house_accepted:
-                await message.answer("❌ #house не з'явився після вибору вулиці — форма не прийняла вибір")
+            if not house_visible_after:
+                await message.answer("❌ #house не з'явився після вибору вулиці")
                 return
 
-            # ── Step 7: select house number ───────────────────────────────
+            # ── Step 7: select house — #house is a <select> dropdown ─────────
             _HOUSE = "1"
-            await page.wait_for_timeout(800)
             house_inp = page.locator("#house").first
-            house_visible = await house_inp.is_visible()
-            house_disabled = await house_inp.is_disabled()
-            await message.answer(
-                f"ℹ️ #house: visible={house_visible} disabled={house_disabled}"
-            )
 
-            # wait for house to become visible (JS may enable it async)
+            # dump house HTML to see options
             try:
-                await house_inp.wait_for(state="visible", timeout=5_000)
-                house_visible = await house_inp.is_visible()
-                house_disabled = await house_inp.is_disabled()
+                house_html = await house_inp.inner_html()
+                await message.answer_document(
+                    BufferedInputFile(house_html[:3000].encode("utf-8"), "house_options.txt"),
+                    caption="📄 HTML #house (options)",
+                )
             except Exception:
-                house_visible = False
-                house_disabled = True
+                pass
 
-            await message.answer(
-                f"ℹ️ #house після wait: visible={house_visible} disabled={house_disabled}"
+            # Try select_option first (works for <select>)
+            house_selected = False
+            try:
+                await house_inp.select_option(label=_HOUSE)
+                house_selected = True
+            except Exception:
+                pass
+
+            if not house_selected:
+                try:
+                    await house_inp.select_option(value=_HOUSE)
+                    house_selected = True
+                except Exception:
+                    pass
+
+            if not house_selected:
+                # Fallback: autocomplete style (type + ArrowDown+Enter)
+                try:
+                    await house_inp.click()
+                    await house_inp.fill("")
+                    await house_inp.press_sequentially(_HOUSE, delay=80)
+                    await page.wait_for_timeout(1_500)
+                    await house_inp.press("ArrowDown")
+                    await page.wait_for_timeout(300)
+                    await house_inp.press("Enter")
+                    house_selected = True
+                except Exception:
+                    pass
+
+            await page.wait_for_timeout(1_500)
+            shot7 = await page.screenshot(full_page=True)
+            await message.answer_photo(
+                BufferedInputFile(shot7, "step7_after_house.png"),
+                caption=f"📸 Крок 7: після вибору будинку «{_HOUSE}»\nselected={house_selected}",
             )
 
-            if house_visible and not house_disabled:
-                await house_inp.click()
-                await house_inp.fill("")
-                await house_inp.press_sequentially(_HOUSE, delay=80)
-                await page.wait_for_timeout(2_000)
-                shot7a = await page.screenshot(full_page=True)
-                await message.answer_photo(
-                    BufferedInputFile(shot7a, "step7_after_house_type.png"),
-                    caption=f"📸 Крок 7а: після введення будинку «{_HOUSE}»",
-                )
-
-                # try click house suggestion
-                house_clicked_sel = None
-                house_clicked_text = None
-                for sel in (
-                    "#houseautocomplete-list div",
-                    "[id$='autocomplete-list'] div",
-                    ".autocomplete-items div",
-                    "[class*='autocomplete-item']",
-                    "[role='option']",
-                    "[role='listbox'] div",
-                ):
-                    try:
-                        item = page.locator(sel).first
-                        await item.wait_for(state="visible", timeout=3_000)
-                        house_clicked_text = (await item.inner_text()).strip()
-                        await item.click()
-                        house_clicked_sel = sel
-                        break
-                    except Exception:
-                        continue
-
-                await page.wait_for_timeout(1_500)
-                shot7b = await page.screenshot(full_page=True)
-                await message.answer_photo(
-                    BufferedInputFile(shot7b, "step7_after_house_pick.png"),
-                    caption=(
-                        f"📸 Крок 7б: після вибору будинку\n"
-                        f"sel={house_clicked_sel}\ntext={house_clicked_text}"
-                    ),
-                )
-
-                await message.answer(
-                    "✅ Діагностика завершена! Перевір графік відключень на скріншоті вище."
-                )
-            else:
-                shot_final = await page.screenshot(full_page=True)
-                await message.answer_photo(
-                    BufferedInputFile(shot_final, "step7_house_not_visible.png"),
-                    caption="❌ #house не став visible/enabled після вибору вулиці",
-                )
+            await message.answer(
+                "✅ Діагностика завершена! Перевір графік відключень на скріншоті вище."
+            )
 
         except Exception as e:
             logger.exception("dtek_debug error: %s", e)
