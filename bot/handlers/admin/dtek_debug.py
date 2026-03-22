@@ -187,7 +187,7 @@ async def dtek_debug(message: Message) -> None:
                 return
 
             # ── Step 5: fill street ───────────────────────────────────────
-            _STREET = "Дубечнянська"
+            _STREET = "Деснянська"
             await page.wait_for_timeout(800)
             street_inp = page.locator("#street").first
             street_visible = await street_inp.is_visible()
@@ -208,6 +208,106 @@ async def dtek_debug(message: Message) -> None:
                 )
             else:
                 await message.answer("❌ #street досі disabled після вибору міста")
+                return
+
+            # ── Step 6: click street autocomplete suggestion ──────────────
+            street_clicked_sel = None
+            street_clicked_text = None
+            for sel in (
+                "#streetautocomplete-list div",
+                "[id$='autocomplete-list'] div",
+                ".ui-autocomplete .ui-menu-item",
+                ".ui-autocomplete li",
+                ".autocomplete-items div",
+                "[class*='autocomplete-item']",
+                "[class*='autocomplete'] li",
+                "[role='option']",
+                "[role='listbox'] div",
+            ):
+                try:
+                    item = page.locator(sel).first
+                    await item.wait_for(state="visible", timeout=3_000)
+                    street_clicked_text = (await item.inner_text()).strip()
+                    await item.click()
+                    street_clicked_sel = sel
+                    break
+                except Exception:
+                    continue
+
+            await page.wait_for_timeout(1_000)
+            shot6 = await page.screenshot(full_page=True)
+            await message.answer_photo(
+                BufferedInputFile(shot6, "step6_after_street_pick.png"),
+                caption=(
+                    f"📸 Крок 6: після кліку на підказку вулиці\n"
+                    f"sel={street_clicked_sel}\ntext={street_clicked_text}"
+                ),
+            )
+
+            if not street_clicked_sel:
+                try:
+                    body_html = await page.locator("body").inner_html()
+                    await message.answer_document(
+                        BufferedInputFile(body_html[:6000].encode("utf-8"), "street_autocomplete.txt"),
+                        caption="❌ Підказку вулиці не знайдено — HTML",
+                    )
+                except Exception:
+                    pass
+                return
+
+            # ── Step 7: select house number ───────────────────────────────
+            _HOUSE = "1"
+            await page.wait_for_timeout(800)
+            house_inp = page.locator("#house").first
+            house_visible = await house_inp.is_visible()
+            house_disabled = await house_inp.is_disabled()
+            await message.answer(
+                f"ℹ️ #house: visible={house_visible} disabled={house_disabled}"
+            )
+
+            if not house_disabled:
+                await house_inp.click()
+                await house_inp.fill("")
+                await house_inp.press_sequentially(_HOUSE, delay=80)
+                await page.wait_for_timeout(2_000)
+                shot7a = await page.screenshot(full_page=True)
+                await message.answer_photo(
+                    BufferedInputFile(shot7a, "step7_after_house_type.png"),
+                    caption=f"📸 Крок 7а: після введення будинку «{_HOUSE}»",
+                )
+
+                # try click house suggestion
+                house_clicked_sel = None
+                house_clicked_text = None
+                for sel in (
+                    "#houseautocomplete-list div",
+                    "[id$='autocomplete-list'] div",
+                    ".autocomplete-items div",
+                    "[class*='autocomplete-item']",
+                    "[role='option']",
+                    "[role='listbox'] div",
+                ):
+                    try:
+                        item = page.locator(sel).first
+                        await item.wait_for(state="visible", timeout=3_000)
+                        house_clicked_text = (await item.inner_text()).strip()
+                        await item.click()
+                        house_clicked_sel = sel
+                        break
+                    except Exception:
+                        continue
+
+                await page.wait_for_timeout(1_500)
+                shot7b = await page.screenshot(full_page=True)
+                await message.answer_photo(
+                    BufferedInputFile(shot7b, "step7_after_house_pick.png"),
+                    caption=(
+                        f"📸 Крок 7б: після вибору будинку\n"
+                        f"sel={house_clicked_sel}\ntext={house_clicked_text}"
+                    ),
+                )
+            else:
+                await message.answer("❌ #house досі disabled після вибору вулиці")
 
         except Exception as e:
             logger.exception("dtek_debug error: %s", e)
