@@ -188,7 +188,7 @@ async def _fetch_region_data(
         return None
 
     needs_city = region in _REGIONS_NEEDING_CITY
-    page = await browser.new_page()
+    page = await browser.new_page(user_agent=_UA)
 
     # Collect the intercepted AJAX response here
     intercepted: dict[str, Any] = {}
