@@ -87,7 +87,7 @@ def _build_post_body(region: str, street: str, city: str | None) -> dict[str, st
     from datetime import datetime
     from zoneinfo import ZoneInfo
     kyiv_tz = ZoneInfo("Europe/Kyiv")
-    now_str = datetime.now(kyiv_tz).strftime("%d.%m.%Y, %H:%M:%S")
+    now_str = datetime.now(kyiv_tz).strftime("%d.%m.%Y %H:%M")
 
     data: dict[str, str] = {"method": "getHomeNum"}
 
