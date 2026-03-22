@@ -66,18 +66,21 @@ def _build_homepage_url(region: str) -> str | None:
 
 async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
     """
-    Click the input, type *value* character-by-character (to trigger JS autocomplete),
-    wait for the dropdown to appear, click the first item and return its canonical text.
-    Returns None if the field is not ready or no autocomplete appeared.
+    Wait for the input to be editable (not disabled), click it, clear it,
+    then type *value* character-by-character to trigger JS autocomplete.
+    Clicks the first suggestion and returns its canonical text.
+    Returns None if field stays disabled, or no autocomplete appeared.
     """
     try:
         inp = page.locator(input_sel).first
-        await inp.wait_for(state="visible", timeout=_TIMEOUT_MS)
-        await inp.click()                            # focus so autocomplete JS attaches
-        await page.keyboard.press("Control+A")       # select all existing text
-        await inp.press_sequentially(value, delay=80)  # triggers input/keyup events
+        # "editable" waits until the field is enabled AND visible — critical for
+        # fields that are disabled until a prior step completes (e.g. street after city)
+        await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
+        await inp.click()          # focus so autocomplete JS attaches
+        await inp.fill("")         # clear existing text (no keyboard events needed)
+        await inp.press_sequentially(value, delay=80)  # key events trigger autocomplete
     except Exception as e:
-        logger.warning("emergency_monitor[pw]: input %r not ready: %s", input_sel, e)
+        logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
         return None
 
     # autocomplete items are <div> children of the list container
@@ -133,15 +136,16 @@ async def _fetch_region_data(
     try:
         logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
-        # Give page JS time to fully initialize after DOM is ready
-        await page.wait_for_timeout(1_500)
 
         # ── Fill city (regions that require it) ──────────────────────────
         if needs_city and city:
             canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
             if not canonical_city:
                 return {"_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)"}
-            await page.wait_for_timeout(500)
+            # After city selection the street field becomes enabled asynchronously;
+            # wait_for(state="editable") in _fill_and_pick will handle it, but a
+            # small pause lets the JS enable the field before we touch it.
+            await page.wait_for_timeout(800)
 
         # ── Fill street ───────────────────────────────────────────────────
         canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
