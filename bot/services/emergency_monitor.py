@@ -79,17 +79,6 @@ _HOUSE_SEL = (
     ".autocomplete-items div, "
     "[role='option']"
 )
-# Combined popup close selector — one wait_for_selector instead of 7 sequential timeouts
-# Includes DTEK micromodal ([data-micromodal-close]) which intercepts city field clicks
-_POPUP_SEL = (
-    "[data-micromodal-close], "
-    "button.popup__close, "
-    ".popup__close, "
-    ".modal__close, "
-    "button[class*='close'], "
-    "[aria-label='close']"
-)
-
 
 def _build_homepage_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
@@ -232,23 +221,9 @@ async def _fetch_region_data(
         except Exception:
             await page.wait_for_timeout(2_000)  # fallback to fixed wait
 
-        # ── Close popup/modal if present ─────────────────────────────────
-        # DTEK opens a micromodal (#modal-attention) after page load that blocks
-        # all clicks — must close it before filling the form.
-        try:
-            btn = await page.wait_for_selector(_POPUP_SEL, timeout=3_000)
-            await btn.click()
-            await page.wait_for_timeout(400)
-        except Exception:
-            pass  # no popup — move on
-        # Escape as a last resort in case no close button was matched
-        try:
-            modal = page.locator("#modal-attention.is-open, .micromodal-slide.is-open").first
-            if await modal.is_visible():
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(300)
-        except Exception:
-            pass
+        # ── Dismiss any popup/modal (Esc works on DTEK attention modals) ──
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(300)
 
         # ── Fill city (regions that require it) ──────────────────────────
         if needs_city and city:
