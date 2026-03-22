@@ -17,9 +17,12 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
+import aiohttp
 import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -37,6 +40,26 @@ from bot.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _running = False
+
+
+# ─── HTTP session cache ───────────────────────────────────────────────────
+
+
+@dataclass
+class _DTEKSession:
+    subdomain: str
+    city_canonical: str        # e.g. "м. Вишгород" (from autocomplete)
+    street_canonical: str      # e.g. "вул. Грушевського"
+    cookies: list[dict] = field(default_factory=list)
+    csrf_token: str = ""
+    acquired_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def is_valid(self) -> bool:
+        return (datetime.now(UTC) - self.acquired_at).total_seconds() < 3600
+
+
+# key: (region, city, street) — same grouping key used in _check_all_users
+_session_cache: dict[tuple[str, str | None, str], _DTEKSession] = {}
 
 # ─── DTEK region config ───────────────────────────────────────────────────
 
@@ -150,6 +173,46 @@ async def _pick_best_city(page, user_input: str, sel: str, timeout: int = 5_000)
     return best_item, best_text
 
 
+# ─── Direct HTTP fetch (session reuse) ───────────────────────────────────
+
+
+async def _fetch_via_http(session: _DTEKSession, house: str) -> dict[str, Any] | None:
+    """POST directly to /ua/ajax using a cached Incapsula session (no Playwright)."""
+    timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")
+    url = f"https://www.dtek-{session.subdomain}.com.ua/ua/ajax"
+    cookie_jar = {c["name"]: c["value"] for c in session.cookies}
+    post_data = (
+        "method=getHomeNum"
+        f"&data%5B0%5D%5Bname%5D=city&data%5B0%5D%5Bvalue%5D={quote(session.city_canonical)}"
+        f"&data%5B1%5D%5Bname%5D=street&data%5B1%5D%5Bvalue%5D={quote(session.street_canonical)}"
+        f"&data%5B2%5D%5Bname%5D=updateFact&data%5B2%5D%5Bvalue%5D={quote(timestamp)}"
+    )
+    headers = {
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "x-csrf-token": session.csrf_token,
+        "x-requested-with": "XMLHttpRequest",
+        "referer": f"https://www.dtek-{session.subdomain}.com.ua/ua/shutdowns",
+        "origin": f"https://www.dtek-{session.subdomain}.com.ua",
+        "user-agent": _UA,
+    }
+    try:
+        async with aiohttp.ClientSession(cookies=cookie_jar) as client:
+            async with client.post(
+                url, data=post_data, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json(content_type=None)
+                logger.warning(
+                    "emergency_monitor[http]: POST %d for %s/%s",
+                    resp.status, session.subdomain, session.street_canonical,
+                )
+    except Exception as e:
+        logger.warning("emergency_monitor[http]: request failed: %s", e)
+    return None
+
+
 # ─── Playwright form interaction ──────────────────────────────────────────
 
 
@@ -180,8 +243,13 @@ async def _fetch_region_data(
     needs_city = region in _REGIONS_NEEDING_CITY
     page = await browser.new_page(user_agent=_UA)
 
-    # Collect the intercepted AJAX response here
+    # Collect the intercepted AJAX request + response here
     intercepted: dict[str, Any] = {}
+    intercepted_req: dict[str, Any] = {}
+
+    async def _on_request(request):
+        if "/ua/ajax" in request.url:
+            intercepted_req["csrf"] = request.headers.get("x-csrf-token", "")
 
     async def _on_response(response):
         if "/ua/ajax" in response.url:
@@ -196,7 +264,12 @@ async def _fetch_region_data(
             except Exception as e:
                 logger.warning("emergency_monitor[pw]: failed to read ajax response: %s", e)
 
+    page.on("request", _on_request)
     page.on("response", _on_response)
+
+    # Canonical names discovered via autocomplete (used for session caching)
+    city_text: str = ""
+    street_text: str = ""
 
     # ── Block heavy resources (images, fonts, media) to speed up page load ──
     async def _abort_heavy(route):
@@ -235,11 +308,11 @@ async def _fetch_region_data(
 
             # Pick best-matching suggestion (not just first) to avoid wrong-city selection
             # e.g. "Вишгород" → first result may be "с. Лісовичі (Вишгородська)" not "м. Вишгород"
-            item, city_text = await _pick_best_city(page, city, _CITY_SEL)
+            item, _city_text = await _pick_best_city(page, city, _CITY_SEL)
             if item:
                 await item.click()
 
-            if not city_text:
+            if not _city_text:
                 logger.warning("emergency_monitor[pw]: city '%s' not found in autocomplete", city)
                 screenshot_bytes = await page.screenshot(full_page=True)
                 return {
@@ -247,6 +320,7 @@ async def _fetch_region_data(
                     "_debug_screenshot": screenshot_bytes,
                 }
 
+            city_text = _city_text
             logger.info("emergency_monitor[pw]: city '%s' → '%s'", city, city_text)
             await page.wait_for_timeout(400)  # let street field become active
 
@@ -260,7 +334,7 @@ async def _fetch_region_data(
             item = await page.wait_for_selector(_STREET_SEL, timeout=5_000)
             street_text = (await item.inner_text()).strip()
         except Exception:
-            street_text = None
+            pass  # street_text stays "" → caught by the check below
 
         if not street_text:
             logger.warning("emergency_monitor[pw]: street '%s' not found in autocomplete", street)
@@ -334,6 +408,27 @@ async def _fetch_region_data(
             )
             return {"_error": intercepted["status"], "_body": body_preview}
 
+        # ── Cache session for future HTTP-only requests ───────────────────
+        subdomain = _DTEK_SUBDOMAINS.get(region, "")
+        csrf = intercepted_req.get("csrf", "")
+        if subdomain and csrf and street_text:
+            try:
+                cookies = await page.context.cookies()
+                _session_cache[(region, city, street)] = _DTEKSession(
+                    subdomain=subdomain,
+                    city_canonical=city_text,
+                    street_canonical=street_text,
+                    cookies=cookies,
+                    csrf_token=csrf,
+                    acquired_at=datetime.now(UTC),
+                )
+                logger.info(
+                    "emergency_monitor[pw]: session cached for %s/%s city=%r",
+                    region, street_text, city_text,
+                )
+            except Exception as e:
+                logger.warning("emergency_monitor[pw]: failed to cache session: %s", e)
+
         return json.loads(intercepted["body"])
 
     except Exception as e:
@@ -342,6 +437,33 @@ async def _fetch_region_data(
         return {"_exception": exc_info}
     finally:
         await page.close()
+
+
+# ─── Smart fetch: HTTP cache → Playwright fallback ───────────────────────
+
+
+async def _fetch_region_data_smart(
+    browser,
+    region: str,
+    street: str,
+    city: str | None,
+    house: str,
+) -> dict[str, Any] | None:
+    """Try a cached HTTP session first; fall back to Playwright on miss or failure."""
+    cache_key = (region, city, street)
+    session = _session_cache.get(cache_key)
+    if session and session.is_valid():
+        result = await _fetch_via_http(session, house)
+        if result is not None:
+            logger.info("emergency_monitor[http]: cache hit for %s/%s", region, street)
+            return result
+        logger.warning(
+            "emergency_monitor[http]: cache hit but request failed for %s/%s — falling back to Playwright",
+            region, street,
+        )
+        _session_cache.pop(cache_key, None)
+
+    return await _fetch_region_data(browser, region, street, city, house)
 
 
 # ─── House / outage helpers ───────────────────────────────────────────────
@@ -469,7 +591,7 @@ async def _check_all_users(bot: Bot) -> None:
             for (region, street, city), group_users in groups.items():
                 house = group_users[0].emergency_config.house or ""
                 try:
-                    response = await _fetch_region_data(browser, region, street, city, house)
+                    response = await _fetch_region_data_smart(browser, region, street, city, house)
                 except Exception as e:
                     logger.error("emergency_monitor: _fetch_region_data error [%s]: %s", region, e)
                     response = None
