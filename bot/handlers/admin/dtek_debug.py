@@ -219,23 +219,6 @@ async def dtek_debug(message: Message) -> None:
                 except Exception:
                     continue
 
-            if street_text:
-                await street_inp.press("ArrowDown")
-                await page.wait_for_timeout(300)
-                await street_inp.press("Enter")
-                await page.wait_for_timeout(2_000)
-
-            # Check if #house became visible
-            house_visible_after = await page.locator("#house").first.is_visible()
-            shot6 = await page.screenshot(full_page=True)
-            await message.answer_photo(
-                BufferedInputFile(shot6, "step6_after_street_pick.png"),
-                caption=(
-                    f"📸 Крок 6: після вибору вулиці (ArrowDown+Enter)\n"
-                    f"text={street_text}\n#house visible: {house_visible_after}"
-                ),
-            )
-
             if not street_text:
                 try:
                     body_html = await page.locator("body").inner_html()
@@ -247,23 +230,37 @@ async def dtek_debug(message: Message) -> None:
                     pass
                 return
 
-            if not house_visible_after:
-                await message.answer("❌ #house не з'явився після вибору вулиці")
-                return
+            if street_text:
+                await street_inp.press("ArrowDown")
+                await page.wait_for_timeout(300)
+                await street_inp.press("Enter")
+                await page.wait_for_timeout(2_000)
 
-            # ── Step 7: select house — #house is a <select> dropdown ─────────
+            shot6 = await page.screenshot(full_page=True)
+            await message.answer_photo(
+                BufferedInputFile(shot6, "step6_after_street_pick.png"),
+                caption=f"📸 Крок 6: після вибору вулиці (ArrowDown+Enter)\ntext={street_text}",
+            )
+
+            # ── Step 7: select house — wait for it to appear ──────────────────
             _HOUSE = "1"
             house_inp = page.locator("#house").first
 
-            # dump house HTML to see options
+            # wait up to 8s for house to attach/become interactable
+            try:
+                await house_inp.wait_for(state="attached", timeout=8_000)
+            except Exception:
+                pass
+
+            # dump house HTML to see options/structure
             try:
                 house_html = await house_inp.inner_html()
                 await message.answer_document(
                     BufferedInputFile(house_html[:3000].encode("utf-8"), "house_options.txt"),
                     caption="📄 HTML #house (options)",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                await message.answer(f"⚠️ Не вдалося отримати HTML #house: {html.escape(str(e))}")
 
             # Try select_option first (works for <select>)
             house_selected = False

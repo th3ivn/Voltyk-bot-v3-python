@@ -165,6 +165,7 @@ async def _fetch_region_data(
     region: str,
     street: str,
     city: str | None,
+    house: str = "",
 ) -> dict[str, Any] | None:
     """
     Open a fresh page, navigate to the DTEK shutdowns page, fill the form
@@ -254,12 +255,36 @@ async def _fetch_region_data(
         if not canonical_street:
             screenshot_bytes = await page.screenshot(full_page=True)
             return {
-                "_exception": f"No AJAX response after autocomplete (street '{street}' not found in DTEK)",
+                "_exception": f"Street '{street}' not found in DTEK autocomplete",
                 "_debug_screenshot": screenshot_bytes,
             }
 
-        # The street autocomplete click triggers the AJAX call automatically.
-        # Wait up to 10 s for it to arrive.
+        # ── Select house number ───────────────────────────────────────────
+        # AJAX fires when house is selected, not on street selection.
+        # #house is a <select> that becomes active after street is picked.
+        await page.wait_for_timeout(1_500)
+        house_sel = page.locator("#house").first
+        try:
+            await house_sel.wait_for(state="attached", timeout=8_000)
+            try:
+                await house_sel.select_option(label=house)
+            except Exception:
+                try:
+                    await house_sel.select_option(value=house)
+                except Exception:
+                    # Fallback: type + ArrowDown+Enter for custom autocomplete
+                    await house_sel.click()
+                    await house_sel.fill("")
+                    await house_sel.press_sequentially(house, delay=80)
+                    await page.wait_for_timeout(1_000)
+                    await house_sel.press("ArrowDown")
+                    await page.wait_for_timeout(200)
+                    await house_sel.press("Enter")
+            logger.info("emergency_monitor[pw]: house '%s' selected", house)
+        except Exception as e:
+            logger.warning("emergency_monitor[pw]: house selection failed for '%s': %s", house, e)
+
+        # Wait up to 10 s for AJAX response (triggered by house selection)
         for _ in range(100):
             if intercepted:
                 break
@@ -267,7 +292,7 @@ async def _fetch_region_data(
 
         if not intercepted:
             logger.warning("emergency_monitor[pw]: no AJAX response intercepted for region %s", region)
-            return {"_exception": "No AJAX response after autocomplete (street not found in DTEK?)"}
+            return {"_exception": "No AJAX response after house selection (house not found in DTEK?)"}
 
         if intercepted["status"] != 200:
             body_preview = intercepted["body"][:300]
@@ -399,8 +424,9 @@ async def _check_all_users(bot: Bot) -> None:
         )
         try:
             for (region, street, city), group_users in groups.items():
+                house = group_users[0].emergency_config.house or ""
                 try:
-                    response = await _fetch_region_data(browser, region, street, city)
+                    response = await _fetch_region_data(browser, region, street, city, house)
                 except Exception as e:
                     logger.error("emergency_monitor: _fetch_region_data error [%s]: %s", region, e)
                     response = None
