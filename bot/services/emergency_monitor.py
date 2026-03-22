@@ -138,13 +138,13 @@ async def _fetch_region_data(
             canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
             if not canonical_city:
                 # Autocomplete failed — type directly and hope for the best
-                await page.locator("#city").fill(city)
+                await page.locator("#city").first.fill(city)
             await page.wait_for_timeout(400)
 
         # ── Fill street ───────────────────────────────────────────────────
         canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
         if not canonical_street:
-            await page.locator("#street").fill(street)
+            await page.locator("#street").first.fill(street)
 
         # The street autocomplete click triggers the AJAX call automatically.
         # Wait up to 10 s for it to arrive.
