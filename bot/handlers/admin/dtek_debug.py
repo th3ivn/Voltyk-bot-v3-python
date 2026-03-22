@@ -246,26 +246,31 @@ async def dtek_debug(message: Message) -> None:
             _HOUSE = "1"
             house_inp = page.locator("#house").first
 
-            # wait up to 8s for house to appear in DOM
+            # Wait up to 8s for house to become VISIBLE (DTEK loads house list via AJAX)
+            house_visible = False
             try:
-                await house_inp.wait_for(state="attached", timeout=8_000)
+                await house_inp.wait_for(state="visible", timeout=8_000)
+                house_visible = True
             except Exception:
                 pass
 
-            # dump outerHTML + state of #house and surrounding form area
+            # dump outerHTML + grandparent HTML to reveal any custom dropdown wrapper
             house_info: dict = await page.evaluate("""() => {
                 const el = document.getElementById('house');
                 if (!el) return {found: false};
+                const gp = el.parentElement?.parentElement;
                 return {
                     found: true,
                     tag: el.tagName,
                     type: el.type || '',
                     disabled: el.disabled,
+                    visible: el.offsetParent !== null,
                     placeholder: el.placeholder || '',
                     className: el.className || '',
                     value: el.value || '',
                     outerHTML: el.outerHTML.slice(0, 500),
                     parentHTML: el.parentElement ? el.parentElement.outerHTML.slice(0, 1000) : '',
+                    grandparentHTML: gp ? gp.outerHTML.slice(0, 2000) : '',
                 };
             }""")
             await message.answer_document(
@@ -273,24 +278,38 @@ async def dtek_debug(message: Message) -> None:
                     str(house_info).encode("utf-8"),
                     "house_info.txt",
                 ),
-                caption=f"📄 #house element info\nfound={house_info.get('found')} tag={house_info.get('tag')} disabled={house_info.get('disabled')}",
+                caption=(
+                    f"📄 #house element info\n"
+                    f"found={house_info.get('found')} tag={house_info.get('tag')} "
+                    f"disabled={house_info.get('disabled')} visible={house_info.get('visible')}\n"
+                    f"pw_visible={house_visible}"
+                ),
             )
 
             # ── Step 8: type house number and watch autocomplete ──────────
             try:
                 await house_inp.scroll_into_view_if_needed()
-                await house_inp.click()
-                await house_inp.fill("")
+                try:
+                    await house_inp.click()
+                    await house_inp.fill("")
+                except Exception:
+                    await house_inp.click(force=True)
+                    await house_inp.fill("", force=True)
                 await house_inp.press_sequentially(_HOUSE, delay=80)
                 await page.wait_for_timeout(2_000)
             except Exception as e:
                 await message.answer(f"⚠️ Не вдалося клікнути/ввести в #house: {html.escape(str(e))}")
-                # Dump page HTML to help diagnose visibility issue
+                # Dump grandparent HTML to diagnose visibility issue
                 try:
-                    body_snippet = await page.locator("body").inner_html()
+                    ctx_html = await page.evaluate("""() => {
+                        const el = document.getElementById('house');
+                        if (!el) return 'not found';
+                        const gp = el.parentElement?.parentElement?.parentElement;
+                        return gp ? gp.outerHTML.slice(0, 5000) : el.parentElement?.outerHTML || 'no parent';
+                    }""")
                     await message.answer_document(
-                        BufferedInputFile(body_snippet[:8000].encode("utf-8"), "house_step_body.txt"),
-                        caption="🔍 HTML сторінки на момент помилки #house",
+                        BufferedInputFile(ctx_html.encode("utf-8"), "house_context.txt"),
+                        caption="🔍 HTML навколо #house на момент помилки",
                     )
                 except Exception:
                     pass
