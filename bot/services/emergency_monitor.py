@@ -238,7 +238,7 @@ def _build_post_body(region: str, street: str, city: str | None, update_fact: st
     idx += 1
 
     data[f"data[{idx}][name]"] = "updateFact"
-    data[f"data[{idx}][value]"] = now_str
+    data[f"data[{idx}][value]"] = update_fact
 
     return data
 
