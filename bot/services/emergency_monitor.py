@@ -44,14 +44,40 @@ _DTEK_SUBDOMAINS: dict[str, str] = {
 # Regions where city field must be included in the POST body
 _REGIONS_NEEDING_CITY = {"kyiv-region", "dnipro", "odesa"}
 
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/146.0.0.0 Safari/537.36"
+)
+
+# Headers for the initial GET (page load — not XHR)
+_GET_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Ch-Ua": '"Chromium";v="146", "Not-A-Brand";v="24", "Google Chrome";v="146"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+# Headers for the AJAX POST
+_AJAX_HEADERS = {
+    "User-Agent": _UA,
     "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Ch-Ua": '"Chromium";v="146", "Not-A-Brand";v="24", "Google Chrome";v="146"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
     "X-Requested-With": "XMLHttpRequest",
 }
 
@@ -74,11 +100,20 @@ def _build_homepage_url(region: str) -> str | None:
 
 
 def _extract_csrf_token(html: str) -> str | None:
-    """Extract <meta name='csrf-token' content='...'> from HTML."""
+    """Extract CSRF token from <meta name='csrf-token' content='...'> (any attribute order)."""
     import re
-    match = re.search(r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']', html)
-    if match:
-        return match.group(1)
+    # name before content
+    m = re.search(r'<meta[^>]+name=["\']csrf-token["\'][^>]+content=["\']([^"\']+)["\']', html)
+    if m:
+        return m.group(1)
+    # content before name
+    m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']csrf-token["\']', html)
+    if m:
+        return m.group(1)
+    # fallback: search JS variable (some Yii2 apps embed it in JS)
+    m = re.search(r'csrfToken["\s]*[:=]["\s]*["\']([^"\']{20,})["\']', html)
+    if m:
+        return m.group(1)
     return None
 
 
@@ -210,17 +245,24 @@ async def _fetch_region_data(
     try:
         async with session.get(
             homepage_url,
-            headers=_BROWSER_HEADERS,
+            headers=_GET_HEADERS,
             timeout=aiohttp.ClientTimeout(total=settings.DTEK_REQUEST_TIMEOUT_S),
             ssl=False,
         ) as resp:
+            cookies_received = {c.key: c.value for c in resp.cookies.values()}
+            logger.info(
+                "emergency_monitor: GET %s -> %d, cookies=%s",
+                homepage_url, resp.status, list(cookies_received.keys()),
+            )
             if resp.status == 200:
                 html = await resp.text()
                 csrf_token = _extract_csrf_token(html)
-                if not csrf_token:
-                    logger.debug("emergency_monitor: no CSRF token found for region %s", region)
+                if csrf_token:
+                    logger.info("emergency_monitor: CSRF token extracted for region %s (len=%d)", region, len(csrf_token))
+                else:
+                    logger.warning("emergency_monitor: no CSRF token found for region %s, html_start=%r", region, html[:300])
                 locations = _extract_locations_from_html(html)
-                logger.debug("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
+                logger.info("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
     except Exception as e:
         logger.warning("emergency_monitor: GET homepage failed for region %s: %s", region, e)
 
@@ -228,17 +270,19 @@ async def _fetch_region_data(
     normalized_city = _normalize_location(city, locations) if city else city
     normalized_street = _normalize_location(street, locations)
     if normalized_city != city:
-        logger.debug("emergency_monitor: city normalized: %r → %r", city, normalized_city)
+        logger.info("emergency_monitor: city normalized: %r → %r", city, normalized_city)
     if normalized_street != street:
-        logger.debug("emergency_monitor: street normalized: %r → %r", street, normalized_street)
+        logger.info("emergency_monitor: street normalized: %r → %r", street, normalized_street)
 
     post_data = _build_post_body(region, normalized_street, normalized_city)
-    headers = dict(_BROWSER_HEADERS)
+    base_url = homepage_url.rsplit("/ua/", 1)[0]
+    headers = dict(_AJAX_HEADERS)
     headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
     headers["Referer"] = homepage_url
-    headers["Origin"] = homepage_url.rsplit("/ua/", 1)[0]
+    headers["Origin"] = base_url
     if csrf_token:
         headers["X-CSRF-Token"] = csrf_token
+    logger.info("emergency_monitor: POST city=%r street=%r csrf=%s", normalized_city, normalized_street, bool(csrf_token))
 
     try:
         async with session.post(
@@ -411,7 +455,7 @@ async def _check_all_users(bot: Bot) -> None:
         groups.setdefault(key, []).append(user)
 
     connector = aiohttp.TCPConnector(ssl=False, limit=10)
-    async with aiohttp.ClientSession(connector=connector) as http_session:
+    async with aiohttp.ClientSession(connector=connector, cookie_jar=aiohttp.CookieJar(unsafe=True)) as http_session:
         for (region, street, city), group_users in groups.items():
             try:
                 response = await _fetch_region_data(http_session, region, street, city)
