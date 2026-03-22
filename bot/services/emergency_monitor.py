@@ -64,68 +64,64 @@ def _build_homepage_url(region: str) -> str | None:
 # ─── Playwright form interaction ──────────────────────────────────────────
 
 
-async def _fill_and_pick(page: Page, trigger_or_sel, list_sel: str, value: str) -> str | None:
+async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
     """
-    Click the visible dropdown trigger to open it, then type *value* via keyboard
-    into whatever input receives focus (the search field inside the opened dropdown).
-    Clicks the first autocomplete suggestion and returns its canonical text.
+    Click the input (by CSS selector), clear it, type *value* character-by-character
+    to trigger JS autocomplete, then click the first suggestion.
+    Returns the canonical text of the clicked suggestion, or None on failure.
 
-    trigger_or_sel — visible dropdown wrapper: a CSS selector string or Playwright Locator.
+    The form fields (#city, #street) are plain <input type="text"> elements —
+    confirmed via DOM inspection of dtek-krem.com.ua.
     """
-    # Step 1: click the visible trigger to open the dropdown
+    # Step 1: wait for the input to be editable (street starts disabled until city is chosen)
     try:
-        trigger = page.locator(trigger_or_sel).first if isinstance(trigger_or_sel, str) else trigger_or_sel
-        await trigger.wait_for(state="visible", timeout=_TIMEOUT_MS)
-        await trigger.click()
-        await page.wait_for_timeout(500)   # give JS time to open the dropdown
+        inp = page.locator(input_sel).first
+        await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
+        await inp.click()
+        await inp.fill("")
+        await inp.press_sequentially(value, delay=80)
     except Exception as e:
-        label = trigger_or_sel if isinstance(trigger_or_sel, str) else repr(trigger_or_sel)
-        logger.warning("emergency_monitor[pw]: trigger click failed %r: %s", label, e)
+        logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
         return None
 
-    # Step 2: type into whichever element received focus after the click
-    # (the search input inside the now-open dropdown)
-    try:
-        await page.keyboard.press("Control+a")
-        await page.keyboard.press("Backspace")
-        await page.keyboard.type(value, delay=80)
-    except Exception as e:
-        logger.warning("emergency_monitor[pw]: keyboard type failed for %r: %s", value, e)
-        return None
-
-    # Step 3: wait for and click the first suggestion
-    # Try multiple selectors — different DTEK sites may use different list structures
+    # Step 2: find and click the first autocomplete suggestion.
+    # Try multiple selectors so we are not fragile to exact id/class names.
     for sel in (
-        f"{list_sel} div",
+        f"{list_sel} div",          # e.g. #cityautocomplete-list div  (original)
         f"{list_sel} > *",
-        "[id$='autocomplete-list'] div",
+        "[id$='autocomplete-list'] div",   # any element whose id ends with autocomplete-list
+        ".ui-autocomplete .ui-menu-item",  # jQuery UI autocomplete
+        ".ui-autocomplete li",
         ".autocomplete-items div",
         "[class*='autocomplete-item']",
+        "[class*='autocomplete'] li",
         "[role='option']",
-        "[role='listbox'] [role='option']",
         "[role='listbox'] div",
-        "li[class*='suggestion']",
-        "li[class*='option']",
     ):
         try:
             item = page.locator(sel).first
-            await item.wait_for(state="visible", timeout=3_000)
+            await item.wait_for(state="visible", timeout=4_000)
             canonical = (await item.inner_text()).strip()
             await item.click()
-            logger.info("emergency_monitor[pw]: autocomplete '%s' → '%s' (list_sel=%s)", value, canonical, sel)
+            logger.info(
+                "emergency_monitor[pw]: autocomplete '%s' → '%s' (matched sel=%s)",
+                value, canonical, sel,
+            )
             return canonical
         except Exception:
             continue
 
-    # All selectors failed — log form HTML for diagnostics
+    # All selectors failed — log page state for diagnostics
     try:
-        html_snippet = await page.locator("form").first.inner_html()
+        body_html = await page.locator("body").inner_html()
         logger.warning(
-            "emergency_monitor[pw]: no autocomplete for %r. Form HTML:\n%s",
-            value, html_snippet[:3000],
+            "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
+            value, body_html[:4000],
         )
     except Exception as dbg_e:
-        logger.warning("emergency_monitor[pw]: no autocomplete for %r; html dump failed: %s", value, dbg_e)
+        logger.warning(
+            "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
+        )
     return None
 
 
@@ -204,36 +200,22 @@ async def _fetch_region_data(
             await page.wait_for_timeout(300)
 
         # ── Fill city (regions that require it) ──────────────────────────
-        # The visible form fields are custom dropdown components (not plain <input>).
-        # We find them by ARIA role="combobox" (most specific) with fallback to
-        # any element containing the visible placeholder text "Почніть вводити".
-        # Clicking the wrapper opens the dropdown; keyboard.type() then goes into
-        # the search input that receives focus.
+        # DOM inspection confirmed: #city and #street are plain <input type="text">
+        # elements. #city is enabled on load; #street starts disabled and JS enables
+        # it after a city suggestion is selected.
         if needs_city and city:
-            city_trigger = (
-                page.get_by_role("combobox").nth(0)
-                if await page.get_by_role("combobox").count() > 0
-                else page.get_by_text("Почніть вводити", exact=False).nth(0)
-            )
-            canonical_city = await _fill_and_pick(page, city_trigger, "#cityautocomplete-list", city)
+            canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
             if not canonical_city:
                 screenshot_bytes = await page.screenshot(full_page=True)
                 return {
                     "_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)",
                     "_debug_screenshot": screenshot_bytes,
                 }
-            # After city selection the street field becomes enabled asynchronously.
+            # Street becomes enabled asynchronously after city selection.
             await page.wait_for_timeout(800)
 
         # ── Fill street ───────────────────────────────────────────────────
-        street_combobox_idx = 1 if (needs_city and city) else 0
-        combobox_count = await page.get_by_role("combobox").count()
-        street_trigger = (
-            page.get_by_role("combobox").nth(street_combobox_idx)
-            if combobox_count > street_combobox_idx
-            else page.get_by_text("Почніть вводити", exact=False).nth(street_combobox_idx)
-        )
-        canonical_street = await _fill_and_pick(page, street_trigger, "#streetautocomplete-list", street)
+        canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
         if not canonical_street:
             screenshot_bytes = await page.screenshot(full_page=True)
             return {
