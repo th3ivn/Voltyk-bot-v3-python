@@ -4,12 +4,11 @@ Periodically polls the DTEK AJAX API for each supported region and notifies
 users when an emergency outage starts, ends, or its time changes.
 
 Key design decisions:
-- One Playwright browser page per region (not per user) — max 4 pages per cycle.
-- Playwright runs real Chromium, which bypasses Incapsula bot-protection that
-  blocks plain HTTP requests.
-- The browser navigates to the DTEK shutdowns page (establishing session cookies
-  automatically), then executes the AJAX call from within the page JS context
-  so CSRF tokens and cookies are handled by the browser automatically.
+- Uses Playwright (real Chromium) to bypass Incapsula bot-protection.
+- Interacts with the DTEK form via autocomplete (fill → select first suggestion)
+  so the canonical DTEK name is always used regardless of how the user typed it
+  (e.g. "Деснянська" → autocomplete finds "вул. Деснянська").
+- Intercepts the /ua/ajax network response directly via page.route().
 - State is persisted to DB so notifications are not re-sent after restart.
 """
 from __future__ import annotations
@@ -22,7 +21,7 @@ from typing import Any
 import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from playwright.async_api import async_playwright
+from playwright.async_api import Page, async_playwright
 
 from bot.config import settings
 from bot.db.queries import (
@@ -46,7 +45,6 @@ _DTEK_SUBDOMAINS: dict[str, str] = {
     "odesa": "oem",
 }
 
-# Regions where city field must be included in the POST body
 _REGIONS_NEEDING_CITY = {"kyiv-region", "dnipro", "odesa"}
 
 _UA = (
@@ -55,63 +53,39 @@ _UA = (
     "Chrome/143.0.0.0 Safari/537.36"
 )
 
-
-# ─── URL helpers ──────────────────────────────────────────────────────────
+_TIMEOUT_MS = 30_000  # 30 s page / element timeout
 
 
 def _build_homepage_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
-    if not subdomain:
+    return f"https://www.dtek-{subdomain}.com.ua/ua/shutdowns" if subdomain else None
+
+
+# ─── Playwright form interaction ──────────────────────────────────────────
+
+
+async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
+    """
+    Type *value* into the input, wait for the autocomplete list to appear,
+    click the first item and return its text (the canonical DTEK name).
+    Returns None if the autocomplete list never appeared.
+    """
+    inp = page.locator(input_sel)
+    await inp.wait_for(state="visible", timeout=_TIMEOUT_MS)
+    await inp.fill("")
+    await inp.type(value, delay=50)          # human-like typing triggers JS autocomplete
+
+    # autocomplete items are <div> children of the list container
+    first_item = page.locator(f"{list_sel} div").first
+    try:
+        await first_item.wait_for(state="visible", timeout=8_000)
+        canonical = (await first_item.inner_text()).strip()
+        await first_item.click()
+        logger.info("emergency_monitor[pw]: autocomplete '%s' → '%s'", value, canonical)
+        return canonical
+    except Exception:
+        logger.warning("emergency_monitor[pw]: no autocomplete for %r (input=%s)", value, input_sel)
         return None
-    return f"https://www.dtek-{subdomain}.com.ua/ua/shutdowns"
-
-
-# ─── Playwright fetcher ───────────────────────────────────────────────────
-
-# JS executed inside the Playwright page to make the AJAX call.
-# The browser context already has session cookies + CSRF cookie set,
-# so the fetch() call succeeds where a plain HTTP POST would fail.
-_AJAX_JS = """
-async ([city, street, needsCity]) => {
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    const csrfToken = meta ? meta.getAttribute('content') : '';
-
-    // Try to read updateFact that DTEK embeds in the page JS
-    let updateFact = '';
-    try {
-        const m = document.documentElement.innerHTML.match(/"updateFact":"([^"]+)"/);
-        if (m) updateFact = m[1];
-    } catch(e) {}
-
-    const formData = new URLSearchParams();
-    formData.append('method', 'getHomeNum');
-
-    let idx = 0;
-    if (needsCity && city) {
-        formData.append('data[' + idx + '][name]', 'city');
-        formData.append('data[' + idx + '][value]', city);
-        idx++;
-    }
-    formData.append('data[' + idx + '][name]', 'street');
-    formData.append('data[' + idx + '][value]', street);
-    idx++;
-    formData.append('data[' + idx + '][name]', 'updateFact');
-    formData.append('data[' + idx + '][value]', updateFact);
-
-    const resp = await fetch('/ua/ajax', {
-        method: 'POST',
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-Token': csrfToken,
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        },
-        body: formData.toString(),
-    });
-
-    const text = await resp.text();
-    return { status: resp.status, body: text, csrfLen: csrfToken.length, updateFact: updateFact };
-}
-"""
 
 
 async def _fetch_region_data(
@@ -121,9 +95,9 @@ async def _fetch_region_data(
     city: str | None,
 ) -> dict[str, Any] | None:
     """
-    Open a fresh browser page, navigate to the DTEK shutdowns page,
-    then perform the AJAX call from within the browser JS context.
-    Returns parsed JSON dict, or a dict with '_error'/'_exception' key on failure.
+    Open a fresh page, navigate to the DTEK shutdowns page, fill the form
+    using autocomplete (which gives us the canonical address names), and
+    intercept the /ua/ajax network response.
     """
     homepage_url = _build_homepage_url(region)
     if not homepage_url:
@@ -132,30 +106,59 @@ async def _fetch_region_data(
 
     needs_city = region in _REGIONS_NEEDING_CITY
     page = await browser.new_page()
+
+    # Collect the intercepted AJAX response here
+    intercepted: dict[str, Any] = {}
+
+    async def _on_response(response):
+        if "/ua/ajax" in response.url:
+            try:
+                body = await response.text()
+                intercepted["status"] = response.status
+                intercepted["body"] = body
+                logger.info(
+                    "emergency_monitor[pw]: intercepted /ua/ajax status=%d body_len=%d",
+                    response.status, len(body),
+                )
+            except Exception as e:
+                logger.warning("emergency_monitor[pw]: failed to read ajax response: %s", e)
+
+    page.on("response", _on_response)
+
     try:
-        logger.info("emergency_monitor[pw]: GET %s (region=%s)", homepage_url, region)
-        await page.goto(
-            homepage_url,
-            wait_until="domcontentloaded",
-            timeout=settings.DTEK_REQUEST_TIMEOUT_S * 1000,
-        )
+        logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
+        await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
 
-        result = await page.evaluate(_AJAX_JS, [city, street, needs_city])
+        # ── Fill city (regions that require it) ──────────────────────────
+        if needs_city and city:
+            canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
+            if not canonical_city:
+                # Autocomplete failed — type directly and hope for the best
+                await page.locator("#city").fill(city)
+            await page.wait_for_timeout(400)
 
-        logger.info(
-            "emergency_monitor[pw]: POST region=%s status=%s csrf_len=%s updateFact=%r city=%r street=%r",
-            region, result.get("status"), result.get("csrfLen"), result.get("updateFact"), city, street,
-        )
+        # ── Fill street ───────────────────────────────────────────────────
+        canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
+        if not canonical_street:
+            await page.locator("#street").fill(street)
 
-        if result["status"] != 200:
-            body = result.get("body", "")[:300]
-            logger.warning(
-                "emergency_monitor[pw]: DTEK POST %d for region %s. Body: %s",
-                result["status"], region, body,
-            )
-            return {"_error": result["status"], "_body": body}
+        # The street autocomplete click triggers the AJAX call automatically.
+        # Wait up to 10 s for it to arrive.
+        for _ in range(100):
+            if intercepted:
+                break
+            await page.wait_for_timeout(100)
 
-        return json.loads(result["body"])
+        if not intercepted:
+            logger.warning("emergency_monitor[pw]: no AJAX response intercepted for region %s", region)
+            return {"_exception": "No AJAX response after autocomplete (street not found in DTEK?)"}
+
+        if intercepted["status"] != 200:
+            body_preview = intercepted["body"][:300]
+            logger.warning("emergency_monitor[pw]: DTEK POST %d for region %s: %s", intercepted["status"], region, body_preview)
+            return {"_error": intercepted["status"], "_body": body_preview}
+
+        return json.loads(intercepted["body"])
 
     except Exception as e:
         exc_info = f"{type(e).__name__}: {e}"
@@ -178,7 +181,6 @@ def _get_house_entry(data: dict[str, Any], house: str) -> dict | None:
 
 
 def _find_outage_for_house(data: dict[str, Any], house: str) -> dict | None:
-    """Return the outage entry only if there is an active emergency."""
     if not data.get("showCurOutageParam"):
         return None
     entry = _get_house_entry(data, house)
@@ -221,7 +223,6 @@ async def _handle_state_change(
     prev_status = prev.status if prev else "none"
     prev_start = prev.start_date if prev else None
     prev_end = prev.end_date if prev else None
-
     ns = user.notification_settings
 
     if current_outage:
@@ -231,45 +232,31 @@ async def _handle_state_change(
 
         if prev_status == "none":
             if ns and ns.notify_emergency_off:
-                text = (
-                    f"🚨 {sub_type}\n"
-                    f"⏰ {new_start} – {new_end}"
-                )
-                await _notify_user(bot, user.telegram_id, text)
+                await _notify_user(bot, user.telegram_id, f"🚨 {sub_type}\n⏰ {new_start} – {new_end}")
         elif prev_start != new_start or prev_end != new_end:
             if ns and ns.notify_emergency_off:
-                text = (
-                    f"🔄 Оновлено терміни аварійного відключення\n"
-                    f"Було: {prev_start} – {prev_end}\n"
-                    f"Стало: {new_start} – {new_end}"
+                await _notify_user(
+                    bot, user.telegram_id,
+                    f"🔄 Оновлено терміни аварійного відключення\nБуло: {prev_start} – {prev_end}\nСтало: {new_start} – {new_end}",
                 )
-                await _notify_user(bot, user.telegram_id, text)
 
         async with async_session() as db_session:
             async with db_session.begin():
                 await upsert_user_emergency_state(
-                    db_session,
-                    user.id,
-                    status="active",
-                    start_date=new_start,
-                    end_date=new_end,
-                    detected_at=datetime.now(UTC) if prev_status == "none" else prev.detected_at if prev else None,
+                    db_session, user.id,
+                    status="active", start_date=new_start, end_date=new_end,
+                    detected_at=datetime.now(UTC) if prev_status == "none" else (prev.detected_at if prev else None),
                 )
     else:
         if prev_status == "active":
             if ns and ns.notify_emergency_on:
-                text = "✅ Аварійне відключення завершено"
-                await _notify_user(bot, user.telegram_id, text)
+                await _notify_user(bot, user.telegram_id, "✅ Аварійне відключення завершено")
 
         if prev_status != "none" or prev is None:
             async with async_session() as db_session:
                 async with db_session.begin():
                     await upsert_user_emergency_state(
-                        db_session,
-                        user.id,
-                        status="none",
-                        start_date=None,
-                        end_date=None,
+                        db_session, user.id, status="none", start_date=None, end_date=None,
                     )
 
 
@@ -277,17 +264,12 @@ async def _handle_state_change(
 
 
 async def _check_all_users(bot: Bot) -> None:
-    """
-    Main check: launch a Playwright Chromium browser, fetch DTEK data per
-    unique (region, street, city) combo, then evaluate each user.
-    """
     async with async_session() as db_session:
         users = await get_users_with_emergency_address(db_session)
 
     if not users:
         return
 
-    # Group users by (region, street, city) — one browser page per group
     groups: dict[tuple[str, str, str | None], list] = {}
     for user in users:
         cfg = user.emergency_config
@@ -314,10 +296,7 @@ async def _check_all_users(bot: Bot) -> None:
                     try:
                         await _handle_state_change(bot, user, current_outage)
                     except Exception as e:
-                        logger.error(
-                            "emergency_monitor: _handle_state_change error for user %s: %s",
-                            user.telegram_id, e,
-                        )
+                        logger.error("emergency_monitor: _handle_state_change error for user %s: %s", user.telegram_id, e)
         finally:
             await browser.close()
 
@@ -347,7 +326,6 @@ async def emergency_monitor_loop(bot: Bot) -> None:
 
 
 def stop_emergency_monitor() -> None:
-    """Signal the emergency monitor loop to stop."""
     global _running
     _running = False
     logger.info("🚨 Emergency monitor stop requested")

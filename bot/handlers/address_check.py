@@ -58,6 +58,14 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
 
     exc_info = response.get("_exception")
     if exc_info:
+        if "No AJAX response" in exc_info or "street not found" in exc_info.lower():
+            return (
+                "🔍 Перевірка адреси\n\n"
+                f"📍 {region_name}: {addr}\n\n"
+                "⚠️ Адресу не знайдено в базі ДТЕК.\n\n"
+                "Перевір правильність назви — вулиця та місто мають збігатися з назвами на сайті ДТЕК "
+                "(наприклад: <b>с. Нижча Дубечня</b>, <b>вул. Деснянська</b>)"
+            )
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
