@@ -161,11 +161,16 @@ async def _fetch_region_data(
                     "emergency_monitor: DTEK POST returned %d for region %s. Body: %s",
                     resp.status, region, body_preview,
                 )
-                return {"_error": resp.status}
+                return {"_error": resp.status, "_body": body_preview}
             return await resp.json(content_type=None)
     except Exception as e:
-        logger.warning("emergency_monitor: POST AJAX failed for region %s: %s", region, e)
-        return None
+        exc_type = type(e).__name__
+        exc_msg = str(e)
+        logger.warning(
+            "emergency_monitor: POST AJAX exception for region %s: %s: %s",
+            region, exc_type, exc_msg,
+        )
+        return {"_exception": f"{exc_type}: {exc_msg}"}
 
 
 def _get_house_entry(data: dict[str, Any], house: str) -> dict | None:
