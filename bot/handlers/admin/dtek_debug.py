@@ -7,6 +7,8 @@ can be inspected without server terminal access.
 """
 from __future__ import annotations
 
+import html
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
@@ -265,7 +267,20 @@ async def dtek_debug(message: Message) -> None:
                 f"ℹ️ #house: visible={house_visible} disabled={house_disabled}"
             )
 
-            if not house_disabled:
+            # wait for house to become visible (JS may enable it async)
+            try:
+                await house_inp.wait_for(state="visible", timeout=5_000)
+                house_visible = await house_inp.is_visible()
+                house_disabled = await house_inp.is_disabled()
+            except Exception:
+                house_visible = False
+                house_disabled = True
+
+            await message.answer(
+                f"ℹ️ #house після wait: visible={house_visible} disabled={house_disabled}"
+            )
+
+            if house_visible and not house_disabled:
                 await house_inp.click()
                 await house_inp.fill("")
                 await house_inp.press_sequentially(_HOUSE, delay=80)
@@ -306,11 +321,19 @@ async def dtek_debug(message: Message) -> None:
                         f"sel={house_clicked_sel}\ntext={house_clicked_text}"
                     ),
                 )
+
+                await message.answer(
+                    "✅ Діагностика завершена! Перевір графік відключень на скріншоті вище."
+                )
             else:
-                await message.answer("❌ #house досі disabled після вибору вулиці")
+                shot_final = await page.screenshot(full_page=True)
+                await message.answer_photo(
+                    BufferedInputFile(shot_final, "step7_house_not_visible.png"),
+                    caption="❌ #house не став visible/enabled після вибору вулиці",
+                )
 
         except Exception as e:
             logger.exception("dtek_debug error: %s", e)
-            await message.answer(f"❌ Помилка діагностики: {e}")
+            await message.answer(f"❌ Помилка діагностики: {html.escape(str(e))}")
         finally:
             await browser.close()
