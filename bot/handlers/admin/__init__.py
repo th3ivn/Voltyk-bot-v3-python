@@ -3,8 +3,6 @@ from aiogram import Router
 from bot.handlers.admin.admin_router import router as admin_router_r
 from bot.handlers.admin.broadcast import router as broadcast_router
 from bot.handlers.admin.database import router as database_router
-from bot.handlers.admin.dtek_debug import router as dtek_debug_router
-from bot.handlers.admin.dtek_spy import router as dtek_spy_router
 from bot.handlers.admin.growth import router as growth_router
 from bot.handlers.admin.intervals import router as intervals_router
 from bot.handlers.admin.maintenance import router as maintenance_router
@@ -20,5 +18,3 @@ router.include_router(intervals_router)
 router.include_router(pause_router)
 router.include_router(admin_router_r)
 router.include_router(database_router)
-router.include_router(dtek_debug_router)
-router.include_router(dtek_spy_router)

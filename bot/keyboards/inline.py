@@ -101,7 +101,6 @@ def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> In
             _btn("Канал", "settings_channel", E_CHANNEL),
         ],
         [_btn("Налаштування", "menu_settings", E_BOT_SETTINGS)],
-        [_btn("🔍 Перевірити адресу", "address_check_start")],
     ]
     if has_channel:
         if channel_paused:
@@ -206,7 +205,6 @@ def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
             _btn("Канал", "settings_channel", E_CHANNEL_SECTION),
             _btn("Сповіщення", "settings_alerts", E_NOTIF_SECTION),
         ],
-        [_btn("🚨 Аварійні вимк.", "settings_emergency")],
         [_btn("🗑 Очищення", "settings_cleanup")],
     ]
     if is_admin:
@@ -876,78 +874,3 @@ def get_admin_router_keyboard(has_ip: bool = False, notifications_on: bool = Tru
     ])
 
 
-# ─── Emergency outage keyboards ────────────────────────────────────────────
-
-
-def get_emergency_no_address_keyboard() -> InlineKeyboardMarkup:
-    """Screen: emergency address not configured."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🏠 Налаштувати адресу", "emergency_setup")],
-        [_btn("← Назад", "back_to_settings")],
-    ])
-
-
-def get_emergency_management_keyboard() -> InlineKeyboardMarkup:
-    """Screen: emergency address configured — management options."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🔍 Перевірити зараз", "emergency_check_now")],
-        [
-            _btn("✏️ Змінити", "emergency_change"),
-            _btn("🗑 Видалити", "emergency_delete_confirm"),
-        ],
-        [_btn("← Назад", "back_to_settings")],
-    ])
-
-
-def get_emergency_change_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("✅ Так", "emergency_change_confirm")],
-        [_btn("Скасувати", "emergency_cancel_to_management")],
-    ])
-
-
-def get_emergency_delete_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🗑 Так, видалити", "emergency_delete_execute")],
-        [_btn("Скасувати", "emergency_cancel_to_management")],
-    ])
-
-
-def get_emergency_saved_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            _btn("← Назад", "settings_emergency"),
-            _btn("⤴ Меню", "back_to_main"),
-        ],
-    ])
-
-
-def get_emergency_cancel_keyboard() -> InlineKeyboardMarkup:
-    """Cancel button shown during multi-step address input."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("Скасувати", "emergency_cancel_to_settings")],
-    ])
-
-
-# ─── Address check ─────────────────────────────────────────────────────────
-
-
-def get_address_check_region_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🏙 Київ", "ac_region_kyiv"), _btn("🏘 Київщина", "ac_region_kyiv-region")],
-        [_btn("🏙 Дніпро", "ac_region_dnipro"), _btn("🏙 Одеса", "ac_region_odesa")],
-        [_btn("✖ Скасувати", "ac_cancel")],
-    ])
-
-
-def get_address_check_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("✖ Скасувати", "ac_cancel")],
-    ])
-
-
-def get_address_check_result_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("🔍 Перевірити знову", "address_check_start")],
-        [_btn("⤴ Меню", "back_to_main")],
-    ])
