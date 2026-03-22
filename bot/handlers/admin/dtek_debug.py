@@ -7,8 +7,6 @@ can be inspected without server terminal access.
 """
 from __future__ import annotations
 
-import io
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
