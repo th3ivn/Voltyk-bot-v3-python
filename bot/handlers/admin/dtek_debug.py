@@ -242,60 +242,98 @@ async def dtek_debug(message: Message) -> None:
                 caption=f"📸 Крок 6: після вибору вулиці (ArrowDown+Enter)\ntext={street_text}",
             )
 
-            # ── Step 7: select house — wait for it to appear ──────────────────
+            # ── Step 7: inspect #house structure ─────────────────────────
             _HOUSE = "1"
             house_inp = page.locator("#house").first
 
-            # wait up to 8s for house to attach/become interactable
+            # wait up to 8s for house to appear in DOM
             try:
                 await house_inp.wait_for(state="attached", timeout=8_000)
             except Exception:
                 pass
 
-            # dump house HTML to see options/structure
+            # dump outerHTML + state of #house and surrounding form area
+            house_info: dict = await page.evaluate("""() => {
+                const el = document.getElementById('house');
+                if (!el) return {found: false};
+                return {
+                    found: true,
+                    tag: el.tagName,
+                    type: el.type || '',
+                    disabled: el.disabled,
+                    placeholder: el.placeholder || '',
+                    className: el.className || '',
+                    value: el.value || '',
+                    outerHTML: el.outerHTML.slice(0, 500),
+                    parentHTML: el.parentElement ? el.parentElement.outerHTML.slice(0, 1000) : '',
+                };
+            }""")
+            await message.answer_document(
+                BufferedInputFile(
+                    str(house_info).encode("utf-8"),
+                    "house_info.txt",
+                ),
+                caption=f"📄 #house element info\nfound={house_info.get('found')} tag={house_info.get('tag')} disabled={house_info.get('disabled')}",
+            )
+
+            # ── Step 8: type house number and watch autocomplete ──────────
             try:
-                house_html = await house_inp.inner_html()
-                await message.answer_document(
-                    BufferedInputFile(house_html[:3000].encode("utf-8"), "house_options.txt"),
-                    caption="📄 HTML #house (options)",
-                )
+                await house_inp.click()
+                await house_inp.fill("")
+                await house_inp.press_sequentially(_HOUSE, delay=80)
+                await page.wait_for_timeout(2_000)
             except Exception as e:
-                await message.answer(f"⚠️ Не вдалося отримати HTML #house: {html.escape(str(e))}")
+                await message.answer(f"⚠️ Не вдалося клікнути/ввести в #house: {html.escape(str(e))}")
 
-            # Try select_option first (works for <select>)
-            house_selected = False
-            try:
-                await house_inp.select_option(label=_HOUSE)
-                house_selected = True
-            except Exception:
-                pass
-
-            if not house_selected:
-                try:
-                    await house_inp.select_option(value=_HOUSE)
-                    house_selected = True
-                except Exception:
-                    pass
-
-            if not house_selected:
-                # Fallback: autocomplete style (type + ArrowDown+Enter)
-                try:
-                    await house_inp.click()
-                    await house_inp.fill("")
-                    await house_inp.press_sequentially(_HOUSE, delay=80)
-                    await page.wait_for_timeout(1_500)
-                    await house_inp.press("ArrowDown")
-                    await page.wait_for_timeout(300)
-                    await house_inp.press("Enter")
-                    house_selected = True
-                except Exception:
-                    pass
-
-            await page.wait_for_timeout(1_500)
-            shot7 = await page.screenshot(full_page=True)
+            shot8 = await page.screenshot(full_page=True)
             await message.answer_photo(
-                BufferedInputFile(shot7, "step7_after_house.png"),
-                caption=f"📸 Крок 7: після вибору будинку «{_HOUSE}»\nselected={house_selected}",
+                BufferedInputFile(shot8, "step8_house_typing.png"),
+                caption=f"📸 Крок 8: після введення «{_HOUSE}» у #house — чи з'явився список?",
+            )
+
+            # dump autocomplete list if present
+            house_ac_info: list[dict] = await page.evaluate("""() =>
+                [...document.querySelectorAll('[id*="house"][id*="autocomplete"] div, [id*="house"][id*="list"] div, [id*="house"] .autocomplete-items div')].map(el => ({
+                    id: el.id || '',
+                    text: el.textContent.trim().slice(0, 80),
+                    visible: el.offsetParent !== null,
+                }))
+            """)
+            await message.answer_document(
+                BufferedInputFile(
+                    str(house_ac_info).encode("utf-8") if house_ac_info else b"empty",
+                    "house_autocomplete_list.txt",
+                ),
+                caption=f"📄 House autocomplete items: {len(house_ac_info)} знайдено",
+            )
+
+            # ── Step 9: ArrowDown+Enter to pick house ─────────────────────
+            house_text = None
+            for sel in (
+                "#houseautocomplete-list div",
+                "[id*='house'][id*='autocomplete'] div",
+                "[id*='house'][id*='list'] div",
+                ".autocomplete-items div",
+                "[role='option']",
+            ):
+                try:
+                    item = page.locator(sel).first
+                    await item.wait_for(state="visible", timeout=3_000)
+                    house_text = (await item.inner_text()).strip()
+                    break
+                except Exception:
+                    continue
+
+            if house_text:
+                await house_inp.press("ArrowDown")
+                await page.wait_for_timeout(300)
+                await house_inp.press("Enter")
+                await page.wait_for_timeout(2_500)
+
+            shot9 = await page.screenshot(full_page=True)
+            await message.answer_photo(
+                BufferedInputFile(shot9, "step9_after_house_pick.png"),
+                caption=f"📸 Крок 9: після вибору будинку\nhouse_text={house_text}\nЧи оновився графік?",
             )
 
             await message.answer(
