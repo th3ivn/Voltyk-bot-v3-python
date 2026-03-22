@@ -232,21 +232,34 @@ async def _fetch_region_data(
         except Exception:
             await page.wait_for_timeout(2_000)  # fallback to fixed wait
 
-        # ── Close popup/modal if present ─────────────────────────────────
-        # DTEK opens a micromodal (#modal-attention) after page load that blocks
-        # all clicks — must close it before filling the form.
+        # ── Force-close DTEK micromodal (#modal-attention) ───────────────
+        # This modal appears after JS init and its overlay intercepts all
+        # pointer events (Playwright retries for 30s then times out).
+        # JS removal is the only reliable way — button click fails when the
+        # button itself is behind the overlay or not yet rendered.
         try:
-            btn = await page.wait_for_selector(_POPUP_SEL, timeout=3_000)
-            await btn.click()
-            await page.wait_for_timeout(400)
+            await page.evaluate("""
+                const m = document.querySelector('#modal-attention');
+                if (m) {
+                    m.classList.remove('is-open');
+                    m.setAttribute('aria-hidden', 'true');
+                    m.style.display = 'none';
+                }
+                // also clear any generic micromodal overlays
+                document.querySelectorAll('.micromodal-slide.is-open').forEach(el => {
+                    el.classList.remove('is-open');
+                    el.setAttribute('aria-hidden', 'true');
+                    el.style.display = 'none';
+                });
+            """)
+            await page.wait_for_timeout(200)
         except Exception:
-            pass  # no popup — move on
-        # Escape as a last resort in case no close button was matched
+            pass
+        # Fallback: try clicking a close button if JS approach somehow missed it
         try:
-            modal = page.locator("#modal-attention.is-open, .micromodal-slide.is-open").first
-            if await modal.is_visible():
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(300)
+            btn = await page.wait_for_selector(_POPUP_SEL, timeout=1_000)
+            await btn.click()
+            await page.wait_for_timeout(200)
         except Exception:
             pass
 
