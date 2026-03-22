@@ -64,20 +64,23 @@ def _build_homepage_url(region: str) -> str | None:
 # ─── Playwright form interaction ──────────────────────────────────────────
 
 
-async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) -> str | None:
+async def _fill_and_pick(
+    page: Page,
+    input_sel: str,
+    list_sel: str,
+    value: str,
+    use_keyboard: bool = False,
+) -> str | None:
     """
-    Click the input, type *value* to trigger JS autocomplete, then select
-    the first suggestion using ArrowDown+Enter (most reliable) with a click
-    fallback.
+    Type *value* to trigger JS autocomplete, then select the first suggestion.
 
-    Returns the canonical text of the selected suggestion, or None on failure.
+    DOM notes (confirmed via dtek-krem.com.ua debug session):
+    - #city: clicking the autocomplete <div> works reliably
+    - #street: clicking the <div> does NOT trigger JS; ArrowDown+Enter does
 
-    DOM notes (confirmed via dtek-krem.com.ua inspection):
-    - #city and #street are plain <input type="text">
-    - Autocomplete items are <div> containing text + <input type="hidden">
-    - Clicking the <div> does NOT reliably trigger JS — ArrowDown+Enter does
+    use_keyboard=True  → select via ArrowDown+Enter (for #street)
+    use_keyboard=False → select via click on the suggestion div (for #city)
     """
-    # Step 1: wait for the input to be editable and type value
     try:
         inp = page.locator(input_sel).first
         await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
@@ -88,9 +91,7 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
         logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
         return None
 
-    # Step 2: wait for autocomplete list to appear and read canonical text
-    canonical = None
-    for sel in (
+    _SUGGESTION_SELS = (
         f"{list_sel} div",
         f"{list_sel} > *",
         "[id$='autocomplete-list'] div",
@@ -101,44 +102,62 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
         "[class*='autocomplete'] li",
         "[role='option']",
         "[role='listbox'] div",
-    ):
-        try:
-            item = page.locator(sel).first
-            await item.wait_for(state="visible", timeout=4_000)
-            canonical = (await item.inner_text()).strip()
-            break
-        except Exception:
-            continue
+    )
 
-    if canonical is None:
+    if use_keyboard:
+        # ArrowDown+Enter: confirmed working for #street
+        canonical = None
+        for sel in _SUGGESTION_SELS:
+            try:
+                item = page.locator(sel).first
+                await item.wait_for(state="visible", timeout=4_000)
+                canonical = (await item.inner_text()).strip()
+                break
+            except Exception:
+                continue
+        if canonical is None:
+            logger.warning("emergency_monitor[pw]: no suggestion visible for %r", value)
+            return None
         try:
-            body_html = await page.locator("body").inner_html()
-            logger.warning(
-                "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
-                value, body_html[:4000],
+            await inp.press("ArrowDown")
+            await page.wait_for_timeout(300)
+            await inp.press("Enter")
+            await page.wait_for_timeout(500)
+            logger.info(
+                "emergency_monitor[pw]: autocomplete '%s' → '%s' (keyboard)",
+                value, canonical,
             )
-        except Exception as dbg_e:
-            logger.warning(
-                "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
-            )
-        return None
+            return canonical
+        except Exception as e:
+            logger.warning("emergency_monitor[pw]: ArrowDown+Enter failed for %r: %s", value, e)
+            return None
+    else:
+        # Click: confirmed working for #city
+        for sel in _SUGGESTION_SELS:
+            try:
+                item = page.locator(sel).first
+                await item.wait_for(state="visible", timeout=4_000)
+                canonical = (await item.inner_text()).strip()
+                await item.click()
+                logger.info(
+                    "emergency_monitor[pw]: autocomplete '%s' → '%s' (click, sel=%s)",
+                    value, canonical, sel,
+                )
+                return canonical
+            except Exception:
+                continue
 
-    # Step 3: select via ArrowDown+Enter (clicking the div does not trigger JS)
     try:
-        await inp.press("ArrowDown")
-        await page.wait_for_timeout(300)
-        await inp.press("Enter")
-        await page.wait_for_timeout(500)
-        logger.info(
-            "emergency_monitor[pw]: autocomplete '%s' → '%s' (ArrowDown+Enter)",
-            value, canonical,
-        )
-        return canonical
-    except Exception as e:
+        body_html = await page.locator("body").inner_html()
         logger.warning(
-            "emergency_monitor[pw]: ArrowDown+Enter failed for %r: %s", value, e,
+            "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
+            value, body_html[:4000],
         )
-        return None
+    except Exception as dbg_e:
+        logger.warning(
+            "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
+        )
+    return None
 
 
 async def _fetch_region_data(
@@ -220,7 +239,7 @@ async def _fetch_region_data(
         # elements. #city is enabled on load; #street starts disabled and JS enables
         # it after a city suggestion is selected.
         if needs_city and city:
-            canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
+            canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city, use_keyboard=False)
             if not canonical_city:
                 screenshot_bytes = await page.screenshot(full_page=True)
                 return {
@@ -231,7 +250,7 @@ async def _fetch_region_data(
             await page.wait_for_timeout(800)
 
         # ── Fill street ───────────────────────────────────────────────────
-        canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
+        canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street, use_keyboard=True)
         if not canonical_street:
             screenshot_bytes = await page.screenshot(full_page=True)
             return {
