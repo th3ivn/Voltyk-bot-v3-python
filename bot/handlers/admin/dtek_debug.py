@@ -142,7 +142,7 @@ async def dtek_debug(message: Message) -> None:
                 caption=f"📸 Крок 3: після введення «{_CITY}»\nЧи з'явився список підказок?",
             )
 
-            # ── Step 4: ArrowDown+Enter to select city suggestion ────────────
+            # ── Step 4: CLICK city suggestion (click works for city) ─────────
             city_text = None
             for sel in (
                 "#cityautocomplete-list div",
@@ -155,20 +155,16 @@ async def dtek_debug(message: Message) -> None:
                     item = page.locator(sel).first
                     await item.wait_for(state="visible", timeout=3_000)
                     city_text = (await item.inner_text()).strip()
+                    await item.click()
                     break
                 except Exception:
                     continue
 
-            if city_text:
-                await city_inp.press("ArrowDown")
-                await page.wait_for_timeout(300)
-                await city_inp.press("Enter")
-                await page.wait_for_timeout(1_000)
-
+            await page.wait_for_timeout(1_000)
             shot4 = await page.screenshot(full_page=True)
             await message.answer_photo(
                 BufferedInputFile(shot4, "step4_after_city_pick.png"),
-                caption=f"📸 Крок 4: після вибору міста (ArrowDown+Enter)\ntext={city_text}",
+                caption=f"📸 Крок 4: після кліку на підказку міста\ntext={city_text}",
             )
 
             if not city_text:
