@@ -199,12 +199,31 @@ def _normalize_location(user_input: str, candidates: list[str]) -> str:
     return user_input
 
 
-def _build_post_body(region: str, street: str, city: str | None) -> dict[str, str]:
+def _extract_update_fact(html: str) -> str | None:
+    """Extract the updateFact timestamp embedded in DTEK page JS.
+
+    DTEK embeds the last-update timestamp in the page as:
+      {"updateFact":"21.03.2026 17:43"}
+    This value must be sent as-is in the POST body — sending the
+    current datetime causes a 400 validation error.
+    """
+    import re
+    m = re.search(r'"updateFact"\s*:\s*"([^"]+)"', html)
+    if m:
+        return m.group(1)
+    # fallback: "update":"21.03.2026 17:43" (alternative key name)
+    m = re.search(r'"update"\s*:\s*"(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})"', html)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _build_post_body(region: str, street: str, city: str | None, update_fact: str | None = None) -> dict[str, str]:
     """Build the form data dict for the DTEK AJAX POST request."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    kyiv_tz = ZoneInfo("Europe/Kyiv")
-    now_str = datetime.now(kyiv_tz).strftime("%d.%m.%Y %H:%M")
+    if update_fact is None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        update_fact = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
 
     data: dict[str, str] = {"method": "getHomeNum"}
 
@@ -241,6 +260,7 @@ async def _fetch_region_data(
         return None
 
     csrf_token = None
+    update_fact = None
     locations: list[str] = []
     try:
         async with session.get(
@@ -261,6 +281,8 @@ async def _fetch_region_data(
                     logger.info("emergency_monitor: CSRF token extracted for region %s (len=%d)", region, len(csrf_token))
                 else:
                     logger.warning("emergency_monitor: no CSRF token found for region %s, html_start=%r", region, html[:300])
+                update_fact = _extract_update_fact(html)
+                logger.info("emergency_monitor: updateFact for region %s: %r", region, update_fact)
                 locations = _extract_locations_from_html(html)
                 logger.info("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
     except Exception as e:
@@ -274,7 +296,7 @@ async def _fetch_region_data(
     if normalized_street != street:
         logger.info("emergency_monitor: street normalized: %r → %r", street, normalized_street)
 
-    post_data = _build_post_body(region, normalized_street, normalized_city)
+    post_data = _build_post_body(region, normalized_street, normalized_city, update_fact)
     base_url = homepage_url.rsplit("/ua/", 1)[0]
     headers = dict(_AJAX_HEADERS)
     headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
