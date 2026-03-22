@@ -128,7 +128,7 @@ async def _fetch_and_show(
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
         try:
-            response = await _fetch_region_data(browser, region, street, city)
+            response = await _fetch_region_data(browser, region, street, city, house)
         except Exception as e:
             logger.error("address_check fetch error: %s", e)
             response = None
