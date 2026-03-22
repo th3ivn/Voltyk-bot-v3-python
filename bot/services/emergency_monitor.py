@@ -10,6 +10,7 @@ Key design decisions:
   (e.g. "Деснянська" → autocomplete finds "вул. Деснянська").
 - Intercepts the /ua/ajax network response directly via page.route().
 - State is persisted to DB so notifications are not re-sent after restart.
+- Playwright flow mirrors dtek_debug handler exactly (same selectors, same waits).
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from typing import Any
 import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import async_playwright
 
 from bot.config import settings
 from bot.db.queries import (
@@ -50,10 +51,33 @@ _REGIONS_NEEDING_CITY = {"kyiv-region", "dnipro", "odesa"}
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/143.0.0.0 Safari/537.36"
+    "Chrome/123.0.0.0 Safari/537.36"
 )
 
 _TIMEOUT_MS = 30_000  # 30 s page / element timeout
+
+# Autocomplete suggestion selectors — same order as dtek_debug
+_CITY_SELS = (
+    "#cityautocomplete-list div",
+    "[id$='autocomplete-list'] div",
+    ".autocomplete-items div",
+    "[class*='autocomplete-item']",
+    "[role='option']",
+)
+_STREET_SELS = (
+    "#streetautocomplete-list div",
+    "[id$='autocomplete-list'] div",
+    ".autocomplete-items div",
+    "[class*='autocomplete-item']",
+    "[role='option']",
+)
+_HOUSE_SELS = (
+    "#houseautocomplete-list div",
+    "[id*='house'][id*='autocomplete'] div",
+    "[id*='house'][id*='list'] div",
+    ".autocomplete-items div",
+    "[role='option']",
+)
 
 
 def _build_homepage_url(region: str) -> str | None:
@@ -62,112 +86,6 @@ def _build_homepage_url(region: str) -> str | None:
 
 
 # ─── Playwright form interaction ──────────────────────────────────────────
-
-
-async def _fill_and_pick(
-    page: Page,
-    input_sel: str,
-    list_sel: str,
-    value: str,
-    use_keyboard: bool = False,
-) -> str | None:
-    """
-    Type *value* to trigger JS autocomplete, then select the first suggestion.
-
-    DOM notes (confirmed via dtek-krem.com.ua debug session):
-    - #city: clicking the autocomplete <div> works reliably
-    - #street: clicking the <div> does NOT trigger JS; ArrowDown+Enter does
-
-    use_keyboard=True  → select via ArrowDown+Enter (for #street)
-    use_keyboard=False → select via click on the suggestion div (for #city)
-    """
-    try:
-        inp = page.locator(input_sel).first
-        await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
-        await inp.scroll_into_view_if_needed()
-        try:
-            await inp.click()
-            await page.wait_for_timeout(300)  # let JS focus handler fire (mirrors dtek_debug)
-            await inp.fill("")
-        except Exception:
-            # Element not visible (e.g. house field hidden until DTEK AJAX loads) –
-            # force interaction bypasses actionability checks.
-            await inp.click(force=True)
-            await page.wait_for_timeout(300)
-            await inp.fill("", force=True)
-        await inp.press_sequentially(value, delay=80)
-        await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown to appear
-    except Exception as e:
-        logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
-        return None
-
-    _SUGGESTION_SELS = (
-        f"{list_sel} div",
-        f"{list_sel} > *",
-        "[id$='autocomplete-list'] div",
-        ".ui-autocomplete .ui-menu-item",
-        ".ui-autocomplete li",
-        ".autocomplete-items div",
-        "[class*='autocomplete-item']",
-        "[class*='autocomplete'] li",
-        "[role='option']",
-        "[role='listbox'] div",
-    )
-
-    if use_keyboard:
-        # ArrowDown+Enter: confirmed working for #street
-        canonical = None
-        for sel in _SUGGESTION_SELS:
-            try:
-                item = page.locator(sel).first
-                await item.wait_for(state="visible", timeout=4_000)
-                canonical = (await item.inner_text()).strip()
-                break
-            except Exception:
-                continue
-        if canonical is None:
-            logger.warning("emergency_monitor[pw]: no suggestion visible for %r", value)
-            return None
-        try:
-            await inp.press("ArrowDown")
-            await page.wait_for_timeout(300)
-            await inp.press("Enter")
-            await page.wait_for_timeout(500)
-            logger.info(
-                "emergency_monitor[pw]: autocomplete '%s' → '%s' (keyboard)",
-                value, canonical,
-            )
-            return canonical
-        except Exception as e:
-            logger.warning("emergency_monitor[pw]: ArrowDown+Enter failed for %r: %s", value, e)
-            return None
-    else:
-        # Click: confirmed working for #city
-        for sel in _SUGGESTION_SELS:
-            try:
-                item = page.locator(sel).first
-                await item.wait_for(state="visible", timeout=4_000)
-                canonical = (await item.inner_text()).strip()
-                await item.click()
-                logger.info(
-                    "emergency_monitor[pw]: autocomplete '%s' → '%s' (click, sel=%s)",
-                    value, canonical, sel,
-                )
-                return canonical
-            except Exception:
-                continue
-
-    try:
-        body_html = await page.locator("body").inner_html()
-        logger.warning(
-            "emergency_monitor[pw]: no autocomplete suggestion found for %r. Body HTML:\n%s",
-            value, body_html[:4000],
-        )
-    except Exception as dbg_e:
-        logger.warning(
-            "emergency_monitor[pw]: no autocomplete for %r; body dump failed: %s", value, dbg_e,
-        )
-    return None
 
 
 async def _fetch_region_data(
@@ -179,8 +97,10 @@ async def _fetch_region_data(
 ) -> dict[str, Any] | None:
     """
     Open a fresh page, navigate to the DTEK shutdowns page, fill the form
-    using autocomplete (which gives us the canonical address names), and
-    intercept the /ua/ajax network response.
+    using autocomplete, and intercept the /ua/ajax network response.
+
+    Playwright flow is an exact mirror of the /dtek_debug admin handler
+    (same user-agent, same timeouts, same selectors, same interaction order).
     """
     homepage_url = _build_homepage_url(region)
     if not homepage_url:
@@ -209,24 +129,20 @@ async def _fetch_region_data(
     page.on("response", _on_response)
 
     try:
-        logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
+        logger.info(
+            "emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)",
+            homepage_url, region, city, street,
+        )
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
         await page.wait_for_timeout(2_000)  # let JS fully initialise (mirrors dtek_debug)
 
         # ── Close popup/notification if present ──────────────────────────
-        # DTEK sometimes shows an emergency notification modal on load that
-        # covers the form. Try Escape first, then common close-button selectors.
-        popup_closed = False
         for close_sel in (
             "button.popup__close",
             ".popup__close",
             ".modal__close",
             "button[class*='close']",
             "[aria-label='close']",
-            "[aria-label='Close']",
-            ".notification__close",
-            ".alert__close",
-            # broad fallback: any visible button whose text is × or ✕
             "button:has-text('×')",
             "button:has-text('✕')",
         ):
@@ -234,53 +150,84 @@ async def _fetch_region_data(
                 btn = page.locator(close_sel).first
                 await btn.wait_for(state="visible", timeout=2_000)
                 await btn.click()
-                logger.info("emergency_monitor[pw]: closed popup via selector %r", close_sel)
                 await page.wait_for_timeout(500)
-                popup_closed = True
                 break
             except Exception:
                 pass
 
-        if not popup_closed:
-            # Last resort: Escape key closes most modal dialogs
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(300)
-
         # ── Fill city (regions that require it) ──────────────────────────
-        # DOM inspection confirmed: #city and #street are plain <input type="text">
-        # elements. #city is enabled on load; #street starts disabled and JS enables
-        # it after a city suggestion is selected.
+        # Mirrors dtek_debug Step 2–4 exactly.
         if needs_city and city:
-            canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city, use_keyboard=False)
-            if not canonical_city:
+            city_inp = page.locator("#city").first
+            await city_inp.click()
+            await page.wait_for_timeout(300)   # let JS focus handler fire
+            await city_inp.fill("")
+            await city_inp.press_sequentially(city, delay=80)
+            await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown
+
+            city_text = None
+            for sel in _CITY_SELS:
+                try:
+                    item = page.locator(sel).first
+                    await item.wait_for(state="visible", timeout=3_000)
+                    city_text = (await item.inner_text()).strip()
+                    await item.click()
+                    break
+                except Exception:
+                    continue
+
+            if not city_text:
+                logger.warning("emergency_monitor[pw]: city '%s' not found in autocomplete", city)
                 screenshot_bytes = await page.screenshot(full_page=True)
                 return {
                     "_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)",
                     "_debug_screenshot": screenshot_bytes,
                 }
-            # Street becomes enabled asynchronously after city selection.
-            await page.wait_for_timeout(800)
+
+            logger.info("emergency_monitor[pw]: city '%s' → '%s'", city, city_text)
+            await page.wait_for_timeout(1_000)  # mirrors dtek_debug step 4 wait
 
         # ── Fill street ───────────────────────────────────────────────────
-        canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street, use_keyboard=True)
-        if not canonical_street:
+        # Mirrors dtek_debug Step 5–6 exactly.
+        street_inp = page.locator("#street").first
+        await street_inp.click()
+        await street_inp.fill("")
+        await street_inp.press_sequentially(street, delay=80)
+        await page.wait_for_timeout(2_000)
+
+        street_text = None
+        for sel in _STREET_SELS:
+            try:
+                item = page.locator(sel).first
+                await item.wait_for(state="visible", timeout=3_000)
+                street_text = (await item.inner_text()).strip()
+                break
+            except Exception:
+                continue
+
+        if not street_text:
+            logger.warning("emergency_monitor[pw]: street '%s' not found in autocomplete", street)
             screenshot_bytes = await page.screenshot(full_page=True)
             return {
                 "_exception": f"Street '{street}' not found in DTEK autocomplete",
                 "_debug_screenshot": screenshot_bytes,
             }
 
+        logger.info("emergency_monitor[pw]: street '%s' → '%s' (ArrowDown+Enter)", street, street_text)
+        await street_inp.press("ArrowDown")
+        await page.wait_for_timeout(300)
+        await street_inp.press("Enter")
+        await page.wait_for_timeout(2_000)  # mirrors dtek_debug step 6 wait after Enter
+
         # ── Select house number ───────────────────────────────────────────
-        # #house is <input type="text"> — DTEK shows it only after an AJAX call
-        # that loads houses for the selected street. Mirror the dtek_debug logic
-        # exactly: wait for visible, force-click if needed, type, pause 2 s, pick.
-        await page.wait_for_timeout(1_500)
+        # Mirrors dtek_debug Step 7–9 exactly.
         if house:
             house_inp = page.locator("#house").first
             try:
                 await house_inp.wait_for(state="visible", timeout=8_000)
             except Exception:
-                logger.warning("emergency_monitor[pw]: #house not visible after 8s, trying force")
+                logger.warning("emergency_monitor[pw]: #house not visible after 8s, trying anyway")
+
             try:
                 await house_inp.scroll_into_view_if_needed()
                 try:
@@ -290,47 +237,49 @@ async def _fetch_region_data(
                     await house_inp.click(force=True)
                     await house_inp.fill("", force=True)
                 await house_inp.press_sequentially(house, delay=80)
-                await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown
+                await page.wait_for_timeout(2_000)
 
                 house_text = None
-                for sel in (
-                    "#houseautocomplete-list div",
-                    "[id*='house'][id*='autocomplete'] div",
-                    "[id$='autocomplete-list'] div",
-                    ".autocomplete-items div",
-                    "[role='option']",
-                ):
+                for sel in _HOUSE_SELS:
                     try:
                         item = page.locator(sel).first
                         await item.wait_for(state="visible", timeout=3_000)
                         house_text = (await item.inner_text()).strip()
-                        await house_inp.press("ArrowDown")
-                        await page.wait_for_timeout(300)
-                        await house_inp.press("Enter")
                         break
                     except Exception:
                         continue
 
                 if house_text:
                     logger.info("emergency_monitor[pw]: house '%s' → '%s'", house, house_text)
+                    await house_inp.press("ArrowDown")
+                    await page.wait_for_timeout(300)
+                    await house_inp.press("Enter")
+                    await page.wait_for_timeout(2_500)  # mirrors dtek_debug step 9 wait
                 else:
-                    logger.warning("emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding", house)
+                    logger.warning(
+                        "emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding", house,
+                    )
             except Exception as e:
                 logger.warning("emergency_monitor[pw]: house '%s' interaction failed: %s", house, e)
 
-        # Wait up to 10 s for AJAX response (triggered by house selection)
+        # ── Wait for AJAX response (triggered by house/street selection) ──
         for _ in range(100):
             if intercepted:
                 break
             await page.wait_for_timeout(100)
 
         if not intercepted:
-            logger.warning("emergency_monitor[pw]: no AJAX response intercepted for region %s", region)
+            logger.warning(
+                "emergency_monitor[pw]: no AJAX response intercepted for region %s", region,
+            )
             return {"_exception": "No AJAX response after house selection (house not found in DTEK?)"}
 
         if intercepted["status"] != 200:
             body_preview = intercepted["body"][:300]
-            logger.warning("emergency_monitor[pw]: DTEK POST %d for region %s: %s", intercepted["status"], region, body_preview)
+            logger.warning(
+                "emergency_monitor[pw]: DTEK POST %d for region %s: %s",
+                intercepted["status"], region, body_preview,
+            )
             return {"_error": intercepted["status"], "_body": body_preview}
 
         return json.loads(intercepted["body"])
@@ -472,7 +421,10 @@ async def _check_all_users(bot: Bot) -> None:
                     try:
                         await _handle_state_change(bot, user, current_outage)
                     except Exception as e:
-                        logger.error("emergency_monitor: _handle_state_change error for user %s: %s", user.telegram_id, e)
+                        logger.error(
+                            "emergency_monitor: _handle_state_change error for user %s: %s",
+                            user.telegram_id, e,
+                        )
         finally:
             await browser.close()
 

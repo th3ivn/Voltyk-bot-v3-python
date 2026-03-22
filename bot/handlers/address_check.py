@@ -2,6 +2,12 @@
 
 Allows anyone to check the DTEK emergency outage status and scheduled queue (черга)
 for any address, without setting up persistent monitoring.
+
+Input format (single message after region selection):
+  - Regions needing city (kyiv-region, dnipro, odesa): "Місто, Вулиця, Будинок"
+  - Regions without city (kyiv): "Вулиця, Будинок"
+
+Example: "Нижча Дубечня, Деснянська, 1"
 """
 from __future__ import annotations
 
@@ -31,13 +37,42 @@ router = Router(name="address_check")
 logger = get_logger(__name__)
 
 _REGIONS_NEEDING_CITY = {"kyiv-region", "dnipro", "odesa"}
-_MAX_CITY_LEN = 64
-_MAX_STREET_LEN = 128
-_MAX_HOUSE_LEN = 16
 
 
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
+
+
+def _address_prompt(region: str) -> str:
+    if region in _REGIONS_NEEDING_CITY:
+        return (
+            "Введіть адресу одним повідомленням:\n"
+            "<b>Населений пункт, Вулиця, Будинок</b>\n\n"
+            "Приклад: <code>Нижча Дубечня, Деснянська, 1</code>"
+        )
+    return (
+        "Введіть адресу одним повідомленням:\n"
+        "<b>Вулиця, Будинок</b>\n\n"
+        "Приклад: <code>Деснянська, 1</code>"
+    )
+
+
+def _parse_address(text: str, region: str) -> tuple[str | None, str, str] | None:
+    """
+    Parse address from single message.
+    Returns (city, street, house) or None if format is wrong.
+    """
+    parts = [_clean(p) for p in text.split(",")]
+    if region in _REGIONS_NEEDING_CITY:
+        if len(parts) != 3 or not all(parts):
+            return None
+        city, street, house = parts
+        return city, street, house
+    else:
+        if len(parts) != 2 or not all(parts):
+            return None
+        street, house = parts
+        return None, street, house
 
 
 def _format_result(region: str, city: str | None, street: str, house: str, response: dict | None) -> str:
@@ -112,7 +147,6 @@ async def _fetch_and_show(
     street: str,
     house: str,
 ) -> None:
-    # Show "loading" immediately — Playwright/Chromium takes 5-15 s
     loading_msg: Message | None = None
     if isinstance(target, Message):
         loading_msg = await target.answer("⏳ Перевіряємо адресу, зачекайте...")
@@ -146,7 +180,7 @@ async def _fetch_and_show(
         except Exception:
             await target.message.edit_text(text, reply_markup=keyboard)
 
-    # Send debug screenshot if autocomplete failed (helps diagnose selector issues)
+    # Send debug screenshot if autocomplete failed
     if response and response.get("_debug_screenshot"):
         chat_id = target.chat.id if isinstance(target, Message) else target.message.chat.id
         photo = BufferedInputFile(response["_debug_screenshot"], filename="dtek_debug.png")
@@ -197,78 +231,38 @@ async def address_check_region(callback: CallbackQuery, state: FSMContext) -> No
     if region not in REGIONS:
         return
     await state.update_data(region=region)
-
-    if region in _REGIONS_NEEDING_CITY:
-        await state.set_state(AddressCheckSG.waiting_for_city)
-        await callback.message.edit_text(
-            "🏙 Введіть назву міста або населеного пункту:",
-            reply_markup=get_address_check_cancel_keyboard(),
-        )
-    else:
-        await state.update_data(city=None)
-        await state.set_state(AddressCheckSG.waiting_for_street)
-        await callback.message.edit_text(
-            "🏠 Введіть назву вулиці:",
-            reply_markup=get_address_check_cancel_keyboard(),
-        )
+    await state.set_state(AddressCheckSG.waiting_for_address)
+    await callback.message.edit_text(
+        _address_prompt(region),
+        parse_mode="HTML",
+        reply_markup=get_address_check_cancel_keyboard(),
+    )
 
 
-# ─── City input ───────────────────────────────────────────────────────────
+# ─── Address input (single message) ───────────────────────────────────────
 
 
-@router.message(AddressCheckSG.waiting_for_city)
-async def address_check_city(message: Message, state: FSMContext) -> None:
+@router.message(AddressCheckSG.waiting_for_address)
+async def address_check_address(message: Message, state: FSMContext) -> None:
     if not message.text:
-        await message.reply("❌ Введіть назву міста.")
-        return
-    city = _clean(message.text)
-    if len(city) < 2 or len(city) > _MAX_CITY_LEN:
-        await message.reply(f"❌ Від 2 до {_MAX_CITY_LEN} символів.")
-        return
-    await state.update_data(city=city)
-    await state.set_state(AddressCheckSG.waiting_for_street)
-    await message.answer("🏠 Введіть назву вулиці:", reply_markup=get_address_check_cancel_keyboard())
-
-
-# ─── Street input ─────────────────────────────────────────────────────────
-
-
-@router.message(AddressCheckSG.waiting_for_street)
-async def address_check_street(message: Message, state: FSMContext) -> None:
-    if not message.text:
-        await message.reply("❌ Введіть назву вулиці.")
-        return
-    street = _clean(message.text)
-    if len(street) < 2 or len(street) > _MAX_STREET_LEN:
-        await message.reply(f"❌ Від 2 до {_MAX_STREET_LEN} символів.")
-        return
-    await state.update_data(street=street)
-    await state.set_state(AddressCheckSG.waiting_for_house)
-    await message.answer("🔢 Введіть номер будинку:", reply_markup=get_address_check_cancel_keyboard())
-
-
-# ─── House input → fetch + show result ───────────────────────────────────
-
-
-@router.message(AddressCheckSG.waiting_for_house)
-async def address_check_house(message: Message, state: FSMContext) -> None:
-    if not message.text:
-        await message.reply("❌ Введіть номер будинку.")
-        return
-    house = _clean(message.text)
-    if len(house) < 1 or len(house) > _MAX_HOUSE_LEN:
-        await message.reply(f"❌ Від 1 до {_MAX_HOUSE_LEN} символів.")
+        await message.reply("❌ Введіть адресу текстом.")
         return
 
     data = await state.get_data()
-    await state.clear()
-
     region = data.get("region")
-    city = data.get("city")
-    street = data.get("street")
-
-    if not region or not street:
+    if not region:
         await message.reply("❌ Щось пішло не так. Спробуйте знову.")
+        await state.clear()
         return
 
+    parsed = _parse_address(message.text, region)
+    if parsed is None:
+        await message.reply(
+            f"❌ Невірний формат. {_address_prompt(region)}",
+            parse_mode="HTML",
+        )
+        return
+
+    city, street, house = parsed
+    await state.clear()
     await _fetch_and_show(message, region, city, street, house)
