@@ -140,6 +140,75 @@ async def dtek_debug(message: Message) -> None:
                 caption=f"📸 Крок 3: після введення «{_CITY}»\nЧи з'явився список підказок?",
             )
 
+            # ── Step 4: try to click autocomplete suggestion ──────────────
+            clicked_sel = None
+            clicked_text = None
+            for sel in (
+                "#cityautocomplete-list div",
+                "[id$='autocomplete-list'] div",
+                ".ui-autocomplete .ui-menu-item",
+                ".ui-autocomplete li",
+                ".autocomplete-items div",
+                "[class*='autocomplete-item']",
+                "[class*='autocomplete'] li",
+                "[role='option']",
+                "[role='listbox'] div",
+            ):
+                try:
+                    item = page.locator(sel).first
+                    await item.wait_for(state="visible", timeout=3_000)
+                    clicked_text = (await item.inner_text()).strip()
+                    await item.click()
+                    clicked_sel = sel
+                    break
+                except Exception:
+                    continue
+
+            await page.wait_for_timeout(1_000)
+            shot4 = await page.screenshot(full_page=True)
+            await message.answer_photo(
+                BufferedInputFile(shot4, "step4_after_city_pick.png"),
+                caption=(
+                    f"📸 Крок 4: після кліку на підказку міста\n"
+                    f"sel={clicked_sel}\ntext={clicked_text}"
+                ),
+            )
+
+            if not clicked_sel:
+                # dump autocomplete area HTML for inspection
+                try:
+                    ac_html = await page.locator("body").inner_html()
+                    await message.answer_document(
+                        BufferedInputFile(ac_html[:6000].encode("utf-8"), "autocomplete_html.txt"),
+                        caption="❌ Підказку не знайдено — HTML сторінки після введення",
+                    )
+                except Exception:
+                    pass
+                return
+
+            # ── Step 5: fill street ───────────────────────────────────────
+            _STREET = "Дубечнянська"
+            await page.wait_for_timeout(800)
+            street_inp = page.locator("#street").first
+            street_visible = await street_inp.is_visible()
+            street_disabled = await street_inp.is_disabled()
+            await message.answer(
+                f"ℹ️ #street: visible={street_visible} disabled={street_disabled}"
+            )
+
+            if not street_disabled:
+                await street_inp.click()
+                await street_inp.fill("")
+                await street_inp.press_sequentially(_STREET, delay=80)
+                await page.wait_for_timeout(2_000)
+                shot5 = await page.screenshot(full_page=True)
+                await message.answer_photo(
+                    BufferedInputFile(shot5, "step5_after_street_type.png"),
+                    caption=f"📸 Крок 5: після введення вулиці «{_STREET}»",
+                )
+            else:
+                await message.answer("❌ #street досі disabled після вибору міста")
+
         except Exception as e:
             logger.exception("dtek_debug error: %s", e)
             await message.answer(f"❌ Помилка діагностики: {e}")
