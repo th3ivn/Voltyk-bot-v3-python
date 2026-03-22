@@ -82,6 +82,88 @@ def _extract_csrf_token(html: str) -> str | None:
     return None
 
 
+# Ukrainian settlement and street type prefixes used in DTEK canonical names
+_LOCATION_PREFIXES = (
+    "с.", "м.", "смт.", "сщ.", "с-щ.", "кмт.", "сел.",
+    "вул.", "пр.", "просп.", "пров.", "б-р", "бульв.", "пл.", "шосе",
+)
+
+
+def _extract_locations_from_html(html: str) -> list[str]:
+    """Extract canonical city/street names embedded in the DTEK page HTML.
+
+    DTEK uses client-side autocomplete, so all location names are embedded
+    in the page (inside <option> elements or JS data structures).
+    Returns a deduplicated list of found names, or empty list.
+    """
+    import re
+
+    candidates: list[str] = []
+
+    # Pattern 1: <option ...>Value</option> or <option value="Value">
+    for m in re.findall(r'<option[^>]*value=["\']([^"\']*)["\'][^>]*>', html):
+        m = m.strip()
+        if m:
+            candidates.append(m)
+    for m in re.findall(r'<option[^>]*>([^<]+)</option>', html):
+        m = m.strip()
+        if m:
+            candidates.append(m)
+
+    # Pattern 2: JSON/JS string values that look like Ukrainian location names
+    # e.g. "с. Нижча Дубечня" or 'вул. Деснянська'
+    for m in re.findall(r'["\']([А-ЯІЇЄа-яіїє][^\n"\']{1,80})["\']', html):
+        m = m.strip()
+        if m:
+            candidates.append(m)
+
+    # Filter to only Ukrainian location names (must start with a known prefix)
+    result: list[str] = []
+    seen: set[str] = set()
+    for c in candidates:
+        c_low = c.strip().lower()
+        if any(c_low.startswith(p + " ") or c_low.startswith(p.rstrip(".") + " ") for p in _LOCATION_PREFIXES):
+            if c_low not in seen:
+                seen.add(c_low)
+                result.append(c.strip())
+
+    return result
+
+
+def _normalize_location(user_input: str, candidates: list[str]) -> str:
+    """Find canonical DTEK location name for user-provided input.
+
+    Tries exact match first, then match after stripping the type prefix
+    (e.g. user enters "Нижча Дубечня", finds "с. Нижча Дубечня").
+    Falls back to original input if no match is found.
+    """
+    import re
+
+    if not candidates:
+        return user_input
+
+    user_clean = user_input.strip().lower()
+
+    # 1. Exact match (case-insensitive)
+    for c in candidates:
+        if c.strip().lower() == user_clean:
+            return c
+
+    # 2. Match after stripping the type prefix ("с. ", "вул. ", etc.)
+    for c in candidates:
+        name_part = re.sub(r'^[А-ЯІЇЄа-яіїє][а-яіїє\-]*\.\s*', '', c.strip(), count=1).strip().lower()
+        if name_part == user_clean:
+            return c
+
+    # 3. Substring match (user input is contained in candidate)
+    for c in candidates:
+        if user_clean in c.strip().lower():
+            return c
+
+    logger.debug("emergency_monitor: no canonical match for %r in %d candidates", user_input, len(candidates))
+    return user_input
+
+
 def _build_post_body(region: str, street: str, city: str | None) -> dict[str, str]:
     """Build the form data dict for the DTEK AJAX POST request."""
     from datetime import datetime
@@ -124,6 +206,7 @@ async def _fetch_region_data(
         return None
 
     csrf_token = None
+    locations: list[str] = []
     try:
         async with session.get(
             homepage_url,
@@ -136,10 +219,20 @@ async def _fetch_region_data(
                 csrf_token = _extract_csrf_token(html)
                 if not csrf_token:
                     logger.debug("emergency_monitor: no CSRF token found for region %s", region)
+                locations = _extract_locations_from_html(html)
+                logger.debug("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
     except Exception as e:
         logger.warning("emergency_monitor: GET homepage failed for region %s: %s", region, e)
 
-    post_data = _build_post_body(region, street, city)
+    # Normalize city and street to canonical DTEK names (e.g. "Нижча Дубечня" → "с. Нижча Дубечня")
+    normalized_city = _normalize_location(city, locations) if city else city
+    normalized_street = _normalize_location(street, locations)
+    if normalized_city != city:
+        logger.debug("emergency_monitor: city normalized: %r → %r", city, normalized_city)
+    if normalized_street != street:
+        logger.debug("emergency_monitor: street normalized: %r → %r", street, normalized_street)
+
+    post_data = _build_post_body(region, normalized_street, normalized_city)
     headers = dict(_BROWSER_HEADERS)
     headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
     headers["Referer"] = homepage_url
@@ -156,7 +249,7 @@ async def _fetch_region_data(
             ssl=False,
         ) as resp:
             if resp.status != 200:
-                body_preview = (await resp.text())[:200]
+                body_preview = (await resp.text())[:300]
                 logger.warning(
                     "emergency_monitor: DTEK POST returned %d for region %s. Body: %s",
                     resp.status, region, body_preview,

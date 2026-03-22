@@ -67,10 +67,13 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
     error_status = response.get("_error")
     if error_status:
         body = response.get("_body", "")
+        detail = f"\n<code>{body[:120]}</code>" if body else ""
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            f"⚠️ ДТЕК HTTP {error_status}:\n<code>{body[:120]}</code>"
+            f"⚠️ ДТЕК HTTP {error_status}{detail}\n\n"
+            "Переконайся, що введено точну назву як на сайті ДТЕК\n"
+            "(наприклад: <b>с. Нижча Дубечня</b>, <b>вул. Деснянська</b>)"
         )
 
     queue = _extract_queue(response, house)
