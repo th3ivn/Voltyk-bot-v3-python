@@ -79,17 +79,6 @@ _HOUSE_SEL = (
     ".autocomplete-items div, "
     "[role='option']"
 )
-# Combined popup close selector — one wait_for_selector instead of 7 sequential timeouts
-# Includes DTEK micromodal ([data-micromodal-close]) which intercepts city field clicks
-_POPUP_SEL = (
-    "[data-micromodal-close], "
-    "button.popup__close, "
-    ".popup__close, "
-    ".modal__close, "
-    "button[class*='close'], "
-    "[aria-label='close']"
-)
-
 
 def _build_homepage_url(region: str) -> str | None:
     subdomain = _DTEK_SUBDOMAINS.get(region)
@@ -232,36 +221,9 @@ async def _fetch_region_data(
         except Exception:
             await page.wait_for_timeout(2_000)  # fallback to fixed wait
 
-        # ── Force-close DTEK micromodal (#modal-attention) ───────────────
-        # This modal appears after JS init and its overlay intercepts all
-        # pointer events (Playwright retries for 30s then times out).
-        # JS removal is the only reliable way — button click fails when the
-        # button itself is behind the overlay or not yet rendered.
-        try:
-            await page.evaluate("""
-                const m = document.querySelector('#modal-attention');
-                if (m) {
-                    m.classList.remove('is-open');
-                    m.setAttribute('aria-hidden', 'true');
-                    m.style.display = 'none';
-                }
-                // also clear any generic micromodal overlays
-                document.querySelectorAll('.micromodal-slide.is-open').forEach(el => {
-                    el.classList.remove('is-open');
-                    el.setAttribute('aria-hidden', 'true');
-                    el.style.display = 'none';
-                });
-            """)
-            await page.wait_for_timeout(200)
-        except Exception:
-            pass
-        # Fallback: try clicking a close button if JS approach somehow missed it
-        try:
-            btn = await page.wait_for_selector(_POPUP_SEL, timeout=1_000)
-            await btn.click()
-            await page.wait_for_timeout(200)
-        except Exception:
-            pass
+        # ── Dismiss any popup/modal (Esc works on DTEK attention modals) ──
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(300)
 
         # ── Fill city (regions that require it) ──────────────────────────
         if needs_city and city:
