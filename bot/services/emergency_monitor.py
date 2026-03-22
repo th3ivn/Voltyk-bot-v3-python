@@ -64,30 +64,38 @@ def _build_homepage_url(region: str) -> str | None:
 # ─── Playwright form interaction ──────────────────────────────────────────
 
 
-async def _fill_and_pick(page: Page, inp_or_sel, list_sel: str, value: str) -> str | None:
+async def _fill_and_pick(page: Page, trigger_or_sel, list_sel: str, value: str) -> str | None:
     """
-    Wait for the input to be editable, click it, clear it, then type *value*
-    character-by-character to trigger JS autocomplete. Clicks the first suggestion
-    and returns its canonical text.
+    Click the visible dropdown trigger to open it, then type *value* via keyboard
+    into whatever input receives focus (the search field inside the opened dropdown).
+    Clicks the first autocomplete suggestion and returns its canonical text.
 
-    inp_or_sel can be either a CSS selector string or a Playwright Locator object.
-    Accepts a hint list_sel for the dropdown container, but also tries common
-    autocomplete list selectors as fallback.
+    trigger_or_sel — visible dropdown wrapper: a CSS selector string or Playwright Locator.
     """
+    # Step 1: click the visible trigger to open the dropdown
     try:
-        inp = page.locator(inp_or_sel).first if isinstance(inp_or_sel, str) else inp_or_sel
-        await inp.wait_for(state="editable", timeout=_TIMEOUT_MS)
-        await inp.click()
-        await inp.fill("")
-        await inp.press_sequentially(value, delay=80)
+        trigger = page.locator(trigger_or_sel).first if isinstance(trigger_or_sel, str) else trigger_or_sel
+        await trigger.wait_for(state="visible", timeout=_TIMEOUT_MS)
+        await trigger.click()
+        await page.wait_for_timeout(500)   # give JS time to open the dropdown
     except Exception as e:
-        label = inp_or_sel if isinstance(inp_or_sel, str) else repr(inp_or_sel)
-        logger.warning("emergency_monitor[pw]: input %r not editable: %s", label, e)
+        label = trigger_or_sel if isinstance(trigger_or_sel, str) else repr(trigger_or_sel)
+        logger.warning("emergency_monitor[pw]: trigger click failed %r: %s", label, e)
         return None
 
-    # Try the expected list selector and common alternatives so we're not
-    # tied to a specific id/class that might differ across DTEK sites.
-    autocomplete_selectors = [
+    # Step 2: type into whichever element received focus after the click
+    # (the search input inside the now-open dropdown)
+    try:
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(value, delay=80)
+    except Exception as e:
+        logger.warning("emergency_monitor[pw]: keyboard type failed for %r: %s", value, e)
+        return None
+
+    # Step 3: wait for and click the first suggestion
+    # Try multiple selectors — different DTEK sites may use different list structures
+    for sel in (
         f"{list_sel} div",
         f"{list_sel} > *",
         "[id$='autocomplete-list'] div",
@@ -96,8 +104,9 @@ async def _fill_and_pick(page: Page, inp_or_sel, list_sel: str, value: str) -> s
         "[role='option']",
         "[role='listbox'] [role='option']",
         "[role='listbox'] div",
-    ]
-    for sel in autocomplete_selectors:
+        "li[class*='suggestion']",
+        "li[class*='option']",
+    ):
         try:
             item = page.locator(sel).first
             await item.wait_for(state="visible", timeout=3_000)
@@ -195,14 +204,18 @@ async def _fetch_region_data(
             await page.wait_for_timeout(300)
 
         # ── Fill city (regions that require it) ──────────────────────────
-        # NOTE: #city / #street are often hidden <select> elements; the visible
-        # interactive inputs are custom dropdown components whose <input> elements
-        # share the placeholder text "вводити". We locate them by placeholder and
-        # position (nth 0 = city, nth 1 = street) so we actually type into the
-        # visible UI and trigger the autocomplete JavaScript.
+        # The visible form fields are custom dropdown components (not plain <input>).
+        # We find them by ARIA role="combobox" (most specific) with fallback to
+        # any element containing the visible placeholder text "Почніть вводити".
+        # Clicking the wrapper opens the dropdown; keyboard.type() then goes into
+        # the search input that receives focus.
         if needs_city and city:
-            city_inp = page.get_by_placeholder("вводити", exact=False).nth(0)
-            canonical_city = await _fill_and_pick(page, city_inp, "#cityautocomplete-list", city)
+            city_trigger = (
+                page.get_by_role("combobox").nth(0)
+                if await page.get_by_role("combobox").count() > 0
+                else page.get_by_text("Почніть вводити", exact=False).nth(0)
+            )
+            canonical_city = await _fill_and_pick(page, city_trigger, "#cityautocomplete-list", city)
             if not canonical_city:
                 screenshot_bytes = await page.screenshot(full_page=True)
                 return {
@@ -213,10 +226,14 @@ async def _fetch_region_data(
             await page.wait_for_timeout(800)
 
         # ── Fill street ───────────────────────────────────────────────────
-        # Street is the 2nd "вводити" input when city is also present, 1st otherwise.
-        street_idx = 1 if (needs_city and city) else 0
-        street_inp = page.get_by_placeholder("вводити", exact=False).nth(street_idx)
-        canonical_street = await _fill_and_pick(page, street_inp, "#streetautocomplete-list", street)
+        street_combobox_idx = 1 if (needs_city and city) else 0
+        combobox_count = await page.get_by_role("combobox").count()
+        street_trigger = (
+            page.get_by_role("combobox").nth(street_combobox_idx)
+            if combobox_count > street_combobox_idx
+            else page.get_by_text("Почніть вводити", exact=False).nth(street_combobox_idx)
+        )
+        canonical_street = await _fill_and_pick(page, street_trigger, "#streetautocomplete-list", street)
         if not canonical_street:
             screenshot_bytes = await page.screenshot(full_page=True)
             return {
