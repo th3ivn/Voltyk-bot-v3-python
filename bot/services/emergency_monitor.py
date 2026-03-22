@@ -87,11 +87,13 @@ async def _fill_and_pick(
         await inp.scroll_into_view_if_needed()
         try:
             await inp.click()
+            await page.wait_for_timeout(300)  # let JS focus handler fire (mirrors dtek_debug)
             await inp.fill("")
         except Exception:
             # Element not visible (e.g. house field hidden until DTEK AJAX loads) –
             # force interaction bypasses actionability checks.
             await inp.click(force=True)
+            await page.wait_for_timeout(300)
             await inp.fill("", force=True)
         await inp.press_sequentially(value, delay=80)
         await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown to appear
@@ -209,6 +211,7 @@ async def _fetch_region_data(
     try:
         logger.info("emergency_monitor[pw]: goto %s (region=%s city=%r street=%r)", homepage_url, region, city, street)
         await page.goto(homepage_url, wait_until="domcontentloaded", timeout=_TIMEOUT_MS)
+        await page.wait_for_timeout(2_000)  # let JS fully initialise (mirrors dtek_debug)
 
         # ── Close popup/notification if present ──────────────────────────
         # DTEK sometimes shows an emergency notification modal on load that
