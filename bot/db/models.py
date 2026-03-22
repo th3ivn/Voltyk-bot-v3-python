@@ -50,13 +50,6 @@ class User(Base):
     message_tracking: Mapped[UserMessageTracking | None] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
-    emergency_config: Mapped[UserEmergencyConfig | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
-    )
-    emergency_state: Mapped[UserEmergencyState | None] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
-    )
-
     __table_args__ = (
         Index("idx_users_region_queue", "region", "queue"),
         Index("idx_users_active_region", "is_active", "region"),
@@ -75,8 +68,6 @@ class UserNotificationSettings(Base):
     notify_fact_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_remind_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_fact_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    notify_emergency_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    notify_emergency_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     remind_15m: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     remind_30m: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     remind_1h: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -435,34 +426,3 @@ class AdminTicketReminder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class UserEmergencyConfig(Base):
-    """Stores the user's address for DTEK emergency outage monitoring."""
-
-    __tablename__ = "user_emergency_config"
-
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    city: Mapped[str | None] = mapped_column(String(128))    # NULL for Kyiv region
-    street: Mapped[str | None] = mapped_column(String(255))
-    house: Mapped[str | None] = mapped_column(String(32))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    user: Mapped[User] = relationship(back_populates="emergency_config")
-
-
-class UserEmergencyState(Base):
-    """Tracks the last known DTEK emergency outage state for a user."""
-
-    __tablename__ = "user_emergency_state"
-
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    status: Mapped[str] = mapped_column(String(16), server_default="none")   # "none" | "active"
-    start_date: Mapped[str | None] = mapped_column(String(32))   # raw string from DTEK
-    end_date: Mapped[str | None] = mapped_column(String(32))
-    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    user: Mapped[User] = relationship(back_populates="emergency_state")

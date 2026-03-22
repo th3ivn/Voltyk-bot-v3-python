@@ -23,8 +23,6 @@ from bot.db.models import (
     TicketMessage,
     User,
     UserChannelConfig,
-    UserEmergencyConfig,
-    UserEmergencyState,
     UserMessageTracking,
     UserNotificationSettings,
     UserPowerState,
@@ -776,94 +774,3 @@ async def resolve_admin_ticket_reminder(
     )
 
 
-# ─── Emergency Outage ──────────────────────────────────────────────────────
-
-
-async def get_users_with_emergency_address(session: AsyncSession) -> list[User]:
-    """Return all active users who have an emergency address configured."""
-    result = await session.execute(
-        select(User)
-        .options(*_user_with_relations())
-        .join(UserEmergencyConfig, User.id == UserEmergencyConfig.user_id)
-        .where(
-            User.is_active.is_(True),
-            UserEmergencyConfig.street.isnot(None),
-            UserEmergencyConfig.house.isnot(None),
-        )
-    )
-    return list(result.scalars().all())
-
-
-async def upsert_user_emergency_config(
-    session: AsyncSession,
-    user_id: int,
-    city: str | None,
-    street: str,
-    house: str,
-) -> UserEmergencyConfig:
-    """Create or update emergency address config for a user."""
-    result = await session.execute(
-        select(UserEmergencyConfig).where(UserEmergencyConfig.user_id == user_id)
-    )
-    config = result.scalars().first()
-    if config:
-        config.city = city
-        config.street = street
-        config.house = house
-    else:
-        config = UserEmergencyConfig(user_id=user_id, city=city, street=street, house=house)
-        session.add(config)
-    await session.flush()
-    return config
-
-
-async def delete_user_emergency_config(session: AsyncSession, user_id: int) -> None:
-    """Delete the emergency address config for a user."""
-    await session.execute(
-        delete(UserEmergencyConfig).where(UserEmergencyConfig.user_id == user_id)
-    )
-    await session.execute(
-        delete(UserEmergencyState).where(UserEmergencyState.user_id == user_id)
-    )
-
-
-async def upsert_user_emergency_state(
-    session: AsyncSession,
-    user_id: int,
-    status: str,
-    start_date: str | None,
-    end_date: str | None,
-    detected_at: datetime | None = None,
-) -> UserEmergencyState:
-    """Create or update the emergency outage state for a user."""
-    result = await session.execute(
-        select(UserEmergencyState).where(UserEmergencyState.user_id == user_id)
-    )
-    state = result.scalars().first()
-    if state:
-        state.status = status
-        state.start_date = start_date
-        state.end_date = end_date
-        if detected_at is not None:
-            state.detected_at = detected_at
-    else:
-        state = UserEmergencyState(
-            user_id=user_id,
-            status=status,
-            start_date=start_date,
-            end_date=end_date,
-            detected_at=detected_at,
-        )
-        session.add(state)
-    await session.flush()
-    return state
-
-
-async def get_user_emergency_state(
-    session: AsyncSession, user_id: int
-) -> UserEmergencyState | None:
-    """Return the emergency outage state for a user, or None."""
-    result = await session.execute(
-        select(UserEmergencyState).where(UserEmergencyState.user_id == user_id)
-    )
-    return result.scalars().first()
