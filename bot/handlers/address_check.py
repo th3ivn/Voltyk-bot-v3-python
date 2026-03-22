@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import re
 
-import aiohttp
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from playwright.async_api import async_playwright
 
 from bot.constants.regions import REGIONS
 from bot.keyboards.inline import (
@@ -103,19 +103,34 @@ async def _fetch_and_show(
     street: str,
     house: str,
 ) -> None:
-    connector = aiohttp.TCPConnector(ssl=False)
-    async with aiohttp.ClientSession(connector=connector, cookie_jar=aiohttp.CookieJar(unsafe=True)) as http_session:
+    # Show "loading" immediately — Playwright/Chromium takes 5-15 s
+    loading_msg: Message | None = None
+    if isinstance(target, Message):
+        loading_msg = await target.answer("⏳ Перевіряємо адресу, зачекайте...")
+    else:
         try:
-            response = await _fetch_region_data(http_session, region, street, city)
+            await target.message.edit_text("⏳ Перевіряємо адресу, зачекайте...")
+        except Exception:
+            pass
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            response = await _fetch_region_data(browser, region, street, city)
         except Exception as e:
             logger.error("address_check fetch error: %s", e)
             response = None
+        finally:
+            await browser.close()
 
     text = _format_result(region, city, street, house, response)
     keyboard = get_address_check_result_keyboard()
 
-    if isinstance(target, Message):
-        await target.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    if loading_msg:
+        await loading_msg.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
     else:
         try:
             await target.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
