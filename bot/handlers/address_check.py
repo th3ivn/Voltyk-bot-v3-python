@@ -102,10 +102,12 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
                 "Перевір правильність назви — вулиця та місто мають збігатися з назвами на сайті ДТЕК "
                 "(наприклад: <b>с. Нижча Дубечня</b>, <b>вул. Деснянська</b>)"
             )
+        # Playwright errors are huge — truncate to avoid MESSAGE_TOO_LONG
+        short_err = exc_info.split("\n")[0][:200]
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            f"⚠️ Помилка з'єднання з ДТЕК:\n<code>{html.escape(exc_info)}</code>"
+            f"⚠️ Помилка з'єднання з ДТЕК:\n<code>{html.escape(short_err)}</code>"
         )
 
     error_status = response.get("_error")
