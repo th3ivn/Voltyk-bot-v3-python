@@ -94,6 +94,7 @@ async def _fill_and_pick(
             await inp.click(force=True)
             await inp.fill("", force=True)
         await inp.press_sequentially(value, delay=80)
+        await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown to appear
     except Exception as e:
         logger.warning("emergency_monitor[pw]: input %r not editable: %s", input_sel, e)
         return None
