@@ -195,7 +195,7 @@ async def emergency_check_now(callback: CallbackQuery, session: AsyncSession) ->
     addr = _format_address(cfg)
 
     connector = aiohttp.TCPConnector(ssl=False)
-    async with aiohttp.ClientSession(connector=connector) as http_session:
+    async with aiohttp.ClientSession(connector=connector, cookie_jar=aiohttp.CookieJar(unsafe=True)) as http_session:
         try:
             response = await _fetch_region_data(
                 http_session,

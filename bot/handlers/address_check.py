@@ -104,7 +104,7 @@ async def _fetch_and_show(
     house: str,
 ) -> None:
     connector = aiohttp.TCPConnector(ssl=False)
-    async with aiohttp.ClientSession(connector=connector) as http_session:
+    async with aiohttp.ClientSession(connector=connector, cookie_jar=aiohttp.CookieJar(unsafe=True)) as http_session:
         try:
             response = await _fetch_region_data(http_session, region, street, city)
         except Exception as e:
