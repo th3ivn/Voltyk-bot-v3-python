@@ -113,20 +113,17 @@ async def dtek_debug(message: Message) -> None:
                 caption="📄 Inputs, ARIA roles та HTML форми",
             )
 
-            # ── Step 2: click first combobox ─────────────────────────────
-            combobox_count = await page.get_by_role("combobox").count()
-            caption2 = f"📸 Крок 2: після кліку на поле міста\n(combobox знайдено: {combobox_count})"
-
-            if combobox_count > 0:
-                await page.get_by_role("combobox").nth(0).click()
-            else:
-                triggers = page.get_by_text("Почніть вводити", exact=False)
-                cnt = await triggers.count()
-                caption2 += f"\n(тригерів 'Почніть вводити': {cnt})"
-                if cnt > 0:
-                    await triggers.nth(0).click()
-
-            await page.wait_for_timeout(800)
+            # ── Step 2: click #city and type ─────────────────────────────
+            # DOM confirmed: #city is a plain <input type="text">
+            city_inp = page.locator("#city").first
+            is_visible = await city_inp.is_visible()
+            is_disabled = await city_inp.is_disabled()
+            caption2 = (
+                f"📸 Крок 2: після кліку на #city\n"
+                f"visible={is_visible} disabled={is_disabled}"
+            )
+            await city_inp.click()
+            await page.wait_for_timeout(300)
             shot2 = await page.screenshot(full_page=True)
             await message.answer_photo(
                 BufferedInputFile(shot2, "step2_after_click.png"),
@@ -134,7 +131,8 @@ async def dtek_debug(message: Message) -> None:
             )
 
             # ── Step 3: type city name ────────────────────────────────────
-            await page.keyboard.type(_CITY, delay=80)
+            await city_inp.fill("")
+            await city_inp.press_sequentially(_CITY, delay=80)
             await page.wait_for_timeout(2_000)
             shot3 = await page.screenshot(full_page=True)
             await message.answer_photo(
