@@ -74,11 +74,20 @@ def _build_homepage_url(region: str) -> str | None:
 
 
 def _extract_csrf_token(html: str) -> str | None:
-    """Extract <meta name='csrf-token' content='...'> from HTML."""
+    """Extract CSRF token from <meta name='csrf-token' content='...'> (any attribute order)."""
     import re
-    match = re.search(r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']', html)
-    if match:
-        return match.group(1)
+    # name before content
+    m = re.search(r'<meta[^>]+name=["\']csrf-token["\'][^>]+content=["\']([^"\']+)["\']', html)
+    if m:
+        return m.group(1)
+    # content before name
+    m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']csrf-token["\']', html)
+    if m:
+        return m.group(1)
+    # fallback: search JS variable (some Yii2 apps embed it in JS)
+    m = re.search(r'csrfToken["\s]*[:=]["\s]*["\']([^"\']{20,})["\']', html)
+    if m:
+        return m.group(1)
     return None
 
 
@@ -217,10 +226,12 @@ async def _fetch_region_data(
             if resp.status == 200:
                 html = await resp.text()
                 csrf_token = _extract_csrf_token(html)
-                if not csrf_token:
-                    logger.debug("emergency_monitor: no CSRF token found for region %s", region)
+                if csrf_token:
+                    logger.info("emergency_monitor: CSRF token extracted for region %s (len=%d)", region, len(csrf_token))
+                else:
+                    logger.warning("emergency_monitor: no CSRF token found for region %s, html_start=%r", region, html[:300])
                 locations = _extract_locations_from_html(html)
-                logger.debug("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
+                logger.info("emergency_monitor: extracted %d location candidates for region %s", len(locations), region)
     except Exception as e:
         logger.warning("emergency_monitor: GET homepage failed for region %s: %s", region, e)
 
