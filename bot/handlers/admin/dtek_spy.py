@@ -40,7 +40,8 @@ async def dtek_spy(message: Message) -> None:
     if len(args) < 3:
         await message.answer(
             "Використання: /dtek_spy <місто> <вулиця> <будинок>\n"
-            "Приклад: /dtek_spy Вишгород Грушевського 1"
+            "Приклад: /dtek_spy Вишгород Грушевського 1",
+            parse_mode=None,
         )
         return
 
@@ -48,7 +49,8 @@ async def dtek_spy(message: Message) -> None:
 
     await message.answer(
         f"🔍 Запускаю spy-діагностику...\n"
-        f"Місто: {city_input} | Вулиця: {street_input} | Будинок: {house_input}"
+        f"Місто: {city_input} | Вулиця: {street_input} | Будинок: {house_input}",
+        parse_mode=None,
     )
 
     intercepted_req: dict = {}
@@ -145,7 +147,7 @@ async def dtek_spy(message: Message) -> None:
                 if best:
                     await best.click()
             except Exception as e:
-                await message.answer(f"⚠️ Місто не знайдено в автокомпліті: {e}")
+                await message.answer(f"⚠️ Місто не знайдено в автокомпліті: {e}", parse_mode=None)
                 return
 
             await page.wait_for_timeout(400)
@@ -167,7 +169,7 @@ async def dtek_spy(message: Message) -> None:
                 pass
 
             if not street_text:
-                await message.answer(f"⚠️ Вулицю '{street_input}' не знайдено в автокомпліті")
+                await message.answer(f"⚠️ Вулицю '{street_input}' не знайдено в автокомпліті", parse_mode=None)
                 return
 
             await street_inp.press("ArrowDown")
@@ -216,7 +218,7 @@ async def dtek_spy(message: Message) -> None:
 
         except Exception as e:
             logger.exception("dtek_spy error: %s", e)
-            await message.answer(f"❌ Помилка: {e}")
+            await message.answer(f"❌ Помилка: {e}", parse_mode=None)
             return
         finally:
             await browser.close()
@@ -234,7 +236,7 @@ async def dtek_spy(message: Message) -> None:
         f"📥 AJAX Response:\n"
         f"  status: {intercepted_res.get('status', 'не перехоплено')}\n"
     )
-    await message.answer(summary)
+    await message.answer(summary, parse_mode=None)
 
     # Send full request details as file
     req_detail = (
