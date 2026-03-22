@@ -92,7 +92,17 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
         logger.info("emergency_monitor[pw]: autocomplete '%s' → '%s'", value, canonical)
         return canonical
     except Exception:
-        logger.warning("emergency_monitor[pw]: no autocomplete for %r (input=%s)", value, input_sel)
+        # Dump page HTML around the input for debugging, then screenshot
+        try:
+            html_snippet = await page.locator("form").first.inner_html()
+            logger.warning(
+                "emergency_monitor[pw]: no autocomplete for %r (sel=%s). Form HTML:\n%s",
+                value, input_sel, html_snippet[:3000],
+            )
+            await page.screenshot(path=f"/tmp/dtek_debug_{input_sel.lstrip('#')}.png", full_page=True)
+            logger.warning("emergency_monitor[pw]: screenshot saved to /tmp/dtek_debug_%s.png", input_sel.lstrip('#'))
+        except Exception as dbg_e:
+            logger.warning("emergency_monitor[pw]: no autocomplete for %r (sel=%s); debug failed: %s", value, input_sel, dbg_e)
         return None
 
 
