@@ -5,6 +5,7 @@ for any address, without setting up persistent monitoring.
 """
 from __future__ import annotations
 
+import html
 import re
 
 from aiogram import F, Router
@@ -69,13 +70,13 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            f"⚠️ Помилка з'єднання з ДТЕК:\n<code>{exc_info}</code>"
+            f"⚠️ Помилка з'єднання з ДТЕК:\n<code>{html.escape(exc_info)}</code>"
         )
 
     error_status = response.get("_error")
     if error_status:
         body = response.get("_body", "")
-        detail = f"\n<code>{body[:120]}</code>" if body else ""
+        detail = f"\n<code>{html.escape(body[:120])}</code>" if body else ""
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"

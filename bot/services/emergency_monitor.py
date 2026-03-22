@@ -70,10 +70,14 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
     click the first item and return its text (the canonical DTEK name).
     Returns None if the autocomplete list never appeared.
     """
-    inp = page.locator(input_sel)
-    await inp.wait_for(state="visible", timeout=_TIMEOUT_MS)
-    await inp.fill("")
-    await inp.type(value, delay=50)          # human-like typing triggers JS autocomplete
+    try:
+        inp = page.locator(input_sel).first
+        await inp.wait_for(state="visible", timeout=_TIMEOUT_MS)
+        await inp.fill("")
+        await inp.type(value, delay=50)      # human-like typing triggers JS autocomplete
+    except Exception as e:
+        logger.warning("emergency_monitor[pw]: input %r not ready: %s", input_sel, e)
+        return None
 
     # autocomplete items are <div> children of the list container
     first_item = page.locator(f"{list_sel} div").first
