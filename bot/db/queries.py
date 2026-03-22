@@ -40,8 +40,6 @@ def _user_with_relations():
         selectinload(User.channel_config),
         selectinload(User.power_tracking),
         selectinload(User.message_tracking),
-        selectinload(User.emergency_config),
-        selectinload(User.emergency_state),
     )
 
 
