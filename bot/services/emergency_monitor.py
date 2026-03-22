@@ -267,25 +267,52 @@ async def _fetch_region_data(
             }
 
         # ── Select house number ───────────────────────────────────────────
-        # DOM confirmed: #house is <input type="text"> with custom autocomplete.
-        # DTEK makes it visible only after an AJAX call that loads houses for
-        # the selected street, so we wait up to 6 s for it to appear.
+        # #house is <input type="text"> — DTEK shows it only after an AJAX call
+        # that loads houses for the selected street. Mirror the dtek_debug logic
+        # exactly: wait for visible, force-click if needed, type, pause 2 s, pick.
         await page.wait_for_timeout(1_500)
         if house:
+            house_inp = page.locator("#house").first
             try:
-                await page.locator("#house").first.wait_for(state="visible", timeout=6_000)
+                await house_inp.wait_for(state="visible", timeout=8_000)
             except Exception:
-                logger.warning("emergency_monitor[pw]: #house not visible after 6s, trying force")
-            canonical_house = await _fill_and_pick(
-                page, "#house", "#houseautocomplete-list", house, use_keyboard=True
-            )
-            if canonical_house:
-                logger.info("emergency_monitor[pw]: house '%s' → '%s'", house, canonical_house)
-            else:
-                logger.warning(
-                    "emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding anyway",
-                    house,
-                )
+                logger.warning("emergency_monitor[pw]: #house not visible after 8s, trying force")
+            try:
+                await house_inp.scroll_into_view_if_needed()
+                try:
+                    await house_inp.click()
+                    await house_inp.fill("")
+                except Exception:
+                    await house_inp.click(force=True)
+                    await house_inp.fill("", force=True)
+                await house_inp.press_sequentially(house, delay=80)
+                await page.wait_for_timeout(2_000)  # wait for autocomplete dropdown
+
+                house_text = None
+                for sel in (
+                    "#houseautocomplete-list div",
+                    "[id*='house'][id*='autocomplete'] div",
+                    "[id$='autocomplete-list'] div",
+                    ".autocomplete-items div",
+                    "[role='option']",
+                ):
+                    try:
+                        item = page.locator(sel).first
+                        await item.wait_for(state="visible", timeout=3_000)
+                        house_text = (await item.inner_text()).strip()
+                        await house_inp.press("ArrowDown")
+                        await page.wait_for_timeout(300)
+                        await house_inp.press("Enter")
+                        break
+                    except Exception:
+                        continue
+
+                if house_text:
+                    logger.info("emergency_monitor[pw]: house '%s' → '%s'", house, house_text)
+                else:
+                    logger.warning("emergency_monitor[pw]: house '%s' not found in autocomplete, proceeding", house)
+            except Exception as e:
+                logger.warning("emergency_monitor[pw]: house '%s' interaction failed: %s", house, e)
 
         # Wait up to 10 s for AJAX response (triggered by house selection)
         for _ in range(100):
