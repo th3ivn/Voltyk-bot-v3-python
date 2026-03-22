@@ -10,7 +10,7 @@ import re
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from playwright.async_api import async_playwright
 
 from bot.constants.regions import REGIONS
@@ -145,6 +145,13 @@ async def _fetch_and_show(
             await target.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
         except Exception:
             await target.message.edit_text(text, reply_markup=keyboard)
+
+    # Send debug screenshot if autocomplete failed (helps diagnose selector issues)
+    if response and response.get("_debug_screenshot"):
+        chat_id = target.chat.id if isinstance(target, Message) else target.message.chat.id
+        photo = BufferedInputFile(response["_debug_screenshot"], filename="dtek_debug.png")
+        bot = target.bot if isinstance(target, Message) else target.message.bot
+        await bot.send_photo(chat_id, photo, caption="🔍 Debug: скріншот сторінки ДТЕК у момент помилки")
 
 
 # ─── Entry ────────────────────────────────────────────────────────────────

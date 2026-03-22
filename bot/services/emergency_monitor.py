@@ -92,17 +92,14 @@ async def _fill_and_pick(page: Page, input_sel: str, list_sel: str, value: str) 
         logger.info("emergency_monitor[pw]: autocomplete '%s' → '%s'", value, canonical)
         return canonical
     except Exception:
-        # Dump page HTML around the input for debugging, then screenshot
         try:
             html_snippet = await page.locator("form").first.inner_html()
             logger.warning(
                 "emergency_monitor[pw]: no autocomplete for %r (sel=%s). Form HTML:\n%s",
                 value, input_sel, html_snippet[:3000],
             )
-            await page.screenshot(path=f"/tmp/dtek_debug_{input_sel.lstrip('#')}.png", full_page=True)
-            logger.warning("emergency_monitor[pw]: screenshot saved to /tmp/dtek_debug_%s.png", input_sel.lstrip('#'))
         except Exception as dbg_e:
-            logger.warning("emergency_monitor[pw]: no autocomplete for %r (sel=%s); debug failed: %s", value, input_sel, dbg_e)
+            logger.warning("emergency_monitor[pw]: no autocomplete for %r (sel=%s); html dump failed: %s", value, input_sel, dbg_e)
         return None
 
 
@@ -151,7 +148,11 @@ async def _fetch_region_data(
         if needs_city and city:
             canonical_city = await _fill_and_pick(page, "#city", "#cityautocomplete-list", city)
             if not canonical_city:
-                return {"_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)"}
+                screenshot_bytes = await page.screenshot(full_page=True)
+                return {
+                    "_exception": f"No AJAX response after autocomplete (city '{city}' not found in DTEK)",
+                    "_debug_screenshot": screenshot_bytes,
+                }
             # After city selection the street field becomes enabled asynchronously;
             # wait_for(state="editable") in _fill_and_pick will handle it, but a
             # small pause lets the JS enable the field before we touch it.
@@ -160,7 +161,11 @@ async def _fetch_region_data(
         # ── Fill street ───────────────────────────────────────────────────
         canonical_street = await _fill_and_pick(page, "#street", "#streetautocomplete-list", street)
         if not canonical_street:
-            return {"_exception": f"No AJAX response after autocomplete (street '{street}' not found in DTEK)"}
+            screenshot_bytes = await page.screenshot(full_page=True)
+            return {
+                "_exception": f"No AJAX response after autocomplete (street '{street}' not found in DTEK)",
+                "_debug_screenshot": screenshot_bytes,
+            }
 
         # The street autocomplete click triggers the AJAX call automatically.
         # Wait up to 10 s for it to arrive.
