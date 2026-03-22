@@ -212,9 +212,20 @@ async def dtek_debug(message: Message) -> None:
                 await message.answer("❌ #street досі disabled після вибору міста")
                 return
 
-            # ── Step 6: click street autocomplete suggestion ──────────────
+            # ── Step 6: dump autocomplete HTML then click street suggestion ──
+            try:
+                ac_html = await page.locator("#streetautocomplete-list").inner_html()
+                await message.answer_document(
+                    BufferedInputFile(ac_html[:4000].encode("utf-8"), "street_ac_html.txt"),
+                    caption="📄 HTML #streetautocomplete-list перед кліком",
+                )
+            except Exception:
+                pass
+
             street_clicked_sel = None
             street_clicked_text = None
+
+            # Try 1: direct click on autocomplete item
             for sel in (
                 "#streetautocomplete-list div",
                 "[id$='autocomplete-list'] div",
@@ -236,13 +247,28 @@ async def dtek_debug(message: Message) -> None:
                 except Exception:
                     continue
 
-            await page.wait_for_timeout(1_000)
+            await page.wait_for_timeout(1_500)
+
+            # Check if form accepted the street (house should become visible)
+            house_accepted = await page.locator("#house").first.is_visible()
+
+            if not house_accepted and street_clicked_sel:
+                # Try 2: keyboard navigation ArrowDown + Enter
+                await street_inp.click()
+                await page.wait_for_timeout(300)
+                await street_inp.press("ArrowDown")
+                await page.wait_for_timeout(300)
+                await street_inp.press("Enter")
+                await page.wait_for_timeout(1_500)
+                house_accepted = await page.locator("#house").first.is_visible()
+
             shot6 = await page.screenshot(full_page=True)
             await message.answer_photo(
                 BufferedInputFile(shot6, "step6_after_street_pick.png"),
                 caption=(
-                    f"📸 Крок 6: після кліку на підказку вулиці\n"
-                    f"sel={street_clicked_sel}\ntext={street_clicked_text}"
+                    f"📸 Крок 6: після вибору вулиці\n"
+                    f"sel={street_clicked_sel}\ntext={street_clicked_text}\n"
+                    f"#house visible після: {house_accepted}"
                 ),
             )
 
@@ -255,6 +281,10 @@ async def dtek_debug(message: Message) -> None:
                     )
                 except Exception:
                     pass
+                return
+
+            if not house_accepted:
+                await message.answer("❌ #house не з'явився після вибору вулиці — форма не прийняла вибір")
                 return
 
             # ── Step 7: select house number ───────────────────────────────
