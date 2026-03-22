@@ -58,11 +58,14 @@ def _format_result(region: str, city: str | None, street: str, house: str, respo
 
     error_status = response.get("_error")
     if error_status:
+        error_body = response.get("_error_body", "")
+        detail = f"\n<code>{error_body}</code>" if error_body else ""
         return (
             "🔍 Перевірка адреси\n\n"
             f"📍 {region_name}: {addr}\n\n"
-            f"⚠️ ДТЕК повернув помилку HTTP {error_status}.\n"
-            "Можливо, IP бота заблоковано або сайт перевантажений."
+            f"⚠️ ДТЕК HTTP {error_status}{detail}\n\n"
+            "Переконайся, що введено точну назву як на сайті ДТЕК\n"
+            "(наприклад: <b>с. Нижча Дубечня</b>, <b>вул. Деснянська</b>)"
         )
 
     queue = _extract_queue(response, house)
