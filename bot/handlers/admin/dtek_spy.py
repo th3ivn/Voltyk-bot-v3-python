@@ -244,7 +244,7 @@ async def dtek_spy(message: Message) -> None:
         f"post_data:\n{intercepted_req.get('post_data')}\n\n"
         f"headers:\n"
         + "\n".join(f"  {k}: {v}" for k, v in (intercepted_req.get("headers") or {}).items())
-        + f"\n\n=== RESPONSE (перші 2000 символів) ===\n"
+        + "\n\n=== RESPONSE (перші 2000 символів) ===\n"
         + (intercepted_res.get("body") or "")[:2000]
     )
     await message.answer_document(
