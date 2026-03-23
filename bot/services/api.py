@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import time
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -51,11 +50,10 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
     With GITHUB_TOKEN: 5000 requests/hour limit.
     Without token: 60 requests/hour limit.
 
-    Returns a ``(should_check, pending_sha)`` tuple:
-    - ``(True, None)``  — initial run or API error; always run a full check.
-    - ``(True, sha)``   — new commit detected; the caller **must** call
-      :func:`confirm_source_update` after at least one queue shows changed
-      data.
+    Returns a ``(has_update, new_sha)`` tuple:
+    - ``(True, None)``   — initial run or API error; always run a full check.
+    - ``(True, sha)``    — new commit detected; ``_last_commit_sha`` is already
+      updated so callers do **not** need to call any confirm function.
     - ``(False, None)``  — no new commits; skip the check.
     """
     global _last_commit_sha, _last_etag
@@ -107,6 +105,11 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
                         return True, None
                     if new_sha != _last_commit_sha:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
+                        _last_commit_sha = new_sha
+                        try:
+                            asyncio.get_running_loop().create_task(_save_commit_state())
+                        except RuntimeError:
+                            logger.debug("No running event loop; commit state save deferred")
                         return True, new_sha
                     logger.debug("No new commits (SHA: %s)", new_sha[:8])
                     return False, None
@@ -121,18 +124,6 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
             await _session.close()
 
     return True, None
-
-
-def confirm_source_update(sha: str) -> None:
-    """Confirm that data from a new commit was successfully fetched and processed."""
-    global _last_commit_sha
-    _last_commit_sha = sha
-    logger.debug("Source update confirmed, SHA: %s", sha[:8])
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_save_commit_state())
-    except RuntimeError:
-        logger.debug("No running event loop; commit state save skipped")
 
 
 async def _save_commit_state() -> None:
@@ -185,7 +176,6 @@ async def fetch_schedule_data(
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
     if force_refresh:
-        url += f"?_cb={int(time.time() * 1000)}"
         req_headers["Cache-Control"] = "no-cache, no-store"
 
     retry_delays = [1, 3]
