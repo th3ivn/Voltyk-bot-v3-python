@@ -86,9 +86,12 @@ async def on_startup(bot: Bot) -> None:
     await init_db()
     logger.info("✅ База даних ініційована")
 
-    from bot.services.api import init_http_client
+    from bot.services.api import init_http_client, load_last_commit_sha
     await init_http_client()
     logger.info("✅ HTTP client ініційований")
+
+    await load_last_commit_sha()
+    logger.info("✅ Стан коміту відновлено з БД")
 
     me = await bot.get_me()
     logger.info("✨ Бот @%s успішно запущено!", me.username)

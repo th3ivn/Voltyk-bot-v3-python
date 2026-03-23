@@ -61,9 +61,9 @@ _notify_lock = asyncio.Lock()
 
 # Consecutive skips counter — forces a full fetch every MAX_CONSECUTIVE_SKIPS
 # cycles even when the GitHub Commits API reports no new commits.
-# At the default 180s interval, 20 skips ≈ 1 hour between forced checks.
+# At the default 60s interval, 60 skips ≈ 1 hour between forced checks.
 _consecutive_skips = 0
-MAX_CONSECUTIVE_SKIPS = 20
+MAX_CONSECUTIVE_SKIPS = 60
 
 # Daily flush retry settings
 MAX_DAILY_FLUSH_RETRIES = 3
@@ -202,9 +202,33 @@ async def _check_all_schedules(
             offset += batch_size_inner
 
         any_schedule_changed = False
+
+        # Collect unique regions and fetch their data in parallel
+        unique_regions = list({region for region, queue in region_queue_pairs})
+
+        async def _fetch_region(r: str) -> tuple[str, dict | None]:
+            data = await fetch_schedule_data(r, force_refresh=True)
+            return r, data
+
+        fetch_results = await asyncio.gather(
+            *[_fetch_region(r) for r in unique_regions],
+            return_exceptions=True,
+        )
+
+        region_data: dict[str, dict | None] = {}
+        for result in fetch_results:
+            if isinstance(result, Exception):
+                logger.error("Failed to fetch region data: %s", result)
+                continue
+            r, data = result
+            region_data[r] = data
+
         for region, queue in region_queue_pairs:
             try:
-                changed = await _check_single_queue(bot, region, queue, interval_s=interval)
+                changed = await _check_single_queue(
+                    bot, region, queue, interval_s=interval,
+                    prefetched_data=region_data.get(region),
+                )
                 if changed:
                     any_schedule_changed = True
             except Exception as e:
@@ -223,13 +247,16 @@ async def _check_single_queue(
     region: str,
     queue: str,
     interval_s: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S,
+    prefetched_data: dict | None = None,
 ) -> bool:
     """Check a single queue for schedule changes.
 
     Returns ``True`` if the schedule hash changed (CDN served fresh data),
     ``False`` otherwise.
     """
-    data = await fetch_schedule_data(region, force_refresh=True)
+    data = prefetched_data if prefetched_data is not None else (
+        await fetch_schedule_data(region, force_refresh=True)
+    )
     if not data:
         return False
 
