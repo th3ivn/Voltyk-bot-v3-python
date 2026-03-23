@@ -24,6 +24,7 @@ MAX_CACHE_SIZE = 100
 
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
+_last_etag: str | None = None
 
 
 async def init_http_client() -> None:
@@ -45,6 +46,8 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
     """Check if Baskerville42/outage-data-ua has new commits in data/ directory.
 
     Uses GitHub Commits API which is not affected by caching.
+    Sends If-None-Match with the stored ETag so that unchanged responses cost 0
+    rate-limit requests (GitHub does not count 304s).
     With GITHUB_TOKEN: 5000 requests/hour limit.
     Without token: 60 requests/hour limit.
 
@@ -55,7 +58,7 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
       data.
     - ``(False, None)``  — no new commits; skip the check.
     """
-    global _last_commit_sha
+    global _last_commit_sha, _last_etag
 
     headers = {
         "Accept": "application/vnd.github+json",
@@ -64,6 +67,8 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
     }
     if settings.GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+    if _last_etag:
+        headers["If-None-Match"] = _last_etag
 
     url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits?per_page=1&path=data"
 
@@ -78,7 +83,13 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
             timeout=aiohttp.ClientTimeout(total=15),
             headers=headers,
         ) as resp:
+            if resp.status == 304:
+                logger.debug("GitHub API 304 Not Modified (cached)")
+                return False, None
             if resp.status == 200:
+                new_etag = resp.headers.get("ETag")
+                if new_etag:
+                    _last_etag = new_etag
                 commits = await resp.json(content_type=None)
                 if commits and isinstance(commits, list):
                     first = commits[0]
@@ -89,6 +100,10 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
                     if _last_commit_sha is None:
                         _last_commit_sha = new_sha
                         logger.info("Initial commit SHA: %s", new_sha[:8])
+                        try:
+                            asyncio.get_running_loop().create_task(_save_commit_state())
+                        except RuntimeError:
+                            pass
                         return True, None
                     if new_sha != _last_commit_sha:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
@@ -113,6 +128,45 @@ def confirm_source_update(sha: str) -> None:
     global _last_commit_sha
     _last_commit_sha = sha
     logger.debug("Source update confirmed, SHA: %s", sha[:8])
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_save_commit_state())
+    except RuntimeError:
+        logger.debug("No running event loop; commit state save skipped")
+
+
+async def _save_commit_state() -> None:
+    """Persist current commit SHA and ETag to database."""
+    try:
+        from bot.db.queries import set_setting
+        from bot.db.session import async_session
+        async with async_session() as session:
+            if _last_commit_sha:
+                await set_setting(session, "last_commit_sha", _last_commit_sha)
+            if _last_etag:
+                await set_setting(session, "last_commit_etag", _last_etag)
+            await session.commit()
+    except Exception as e:
+        logger.warning("Could not save commit state to DB: %s", e)
+
+
+async def load_last_commit_sha() -> None:
+    """Load last known commit SHA and ETag from database on startup."""
+    global _last_commit_sha, _last_etag
+    try:
+        from bot.db.queries import get_setting
+        from bot.db.session import async_session
+        async with async_session() as session:
+            sha = await get_setting(session, "last_commit_sha")
+            etag = await get_setting(session, "last_commit_etag")
+        if sha:
+            _last_commit_sha = sha
+            logger.info("Restored last commit SHA from DB: %s", sha[:8])
+        if etag:
+            _last_etag = etag
+            logger.debug("Restored last ETag from DB")
+    except Exception as e:
+        logger.warning("Could not load last commit SHA from DB: %s", e)
 
 
 async def fetch_schedule_data(
