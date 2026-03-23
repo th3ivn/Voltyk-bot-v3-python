@@ -34,7 +34,6 @@ from bot.keyboards.inline import get_reminder_keyboard, get_schedule_view_keyboa
 from bot.services.api import (
     calculate_schedule_hash,
     check_source_repo_updated,
-    confirm_source_update,
     fetch_schedule_data,
     fetch_schedule_image,
     find_next_event,
@@ -58,12 +57,6 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 # concurrently. Without it, both can read the same stale stored_hash on startup
 # and send duplicate notifications to every user.
 _notify_lock = asyncio.Lock()
-
-# Consecutive skips counter — forces a full fetch every MAX_CONSECUTIVE_SKIPS
-# cycles even when the GitHub Commits API reports no new commits.
-# At the default 60s interval, 60 skips ≈ 1 hour between forced checks.
-_consecutive_skips = 0
-MAX_CONSECUTIVE_SKIPS = 60
 
 # Daily flush retry settings
 MAX_DAILY_FLUSH_RETRIES = 3
@@ -170,18 +163,11 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
-    global _consecutive_skips
 
-    has_update, pending_sha = await check_source_repo_updated()
+    has_update, _ = await check_source_repo_updated()
     if not has_update:
-        _consecutive_skips += 1
-        if _consecutive_skips < MAX_CONSECUTIVE_SKIPS:
-            logger.debug("No new commits, skipping (%d/%d)", _consecutive_skips, MAX_CONSECUTIVE_SKIPS)
-            return
-        logger.info("Force-checking schedules (max consecutive skips reached)")
-        _consecutive_skips = 0
-    else:
-        _consecutive_skips = 0
+        logger.debug("No new commits, skipping schedule check")
+        return
     logger.info("Source repo updated, checking all schedules")
 
     # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
@@ -200,8 +186,6 @@ async def _check_all_schedules(
             if len(batch) < batch_size_inner:
                 break
             offset += batch_size_inner
-
-        any_schedule_changed = False
 
         # Collect unique regions and fetch their data in parallel
         unique_regions = list({region for region, queue in region_queue_pairs})
@@ -225,21 +209,13 @@ async def _check_all_schedules(
 
         for region, queue in region_queue_pairs:
             try:
-                changed = await _check_single_queue(
+                await _check_single_queue(
                     bot, region, queue, interval_s=interval,
                     prefetched_data=region_data.get(region),
                 )
-                if changed:
-                    any_schedule_changed = True
             except Exception as e:
                 logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
                 sentry_sdk.capture_exception(e)
-
-        # Confirm the pending SHA if at least one queue showed changed data.
-        # If no queue changed, the SHA is NOT confirmed so the bot retries on
-        # the next cycle (GitHub Raw updates immediately, so this resolves fast).
-        if pending_sha and any_schedule_changed:
-            confirm_source_update(pending_sha)
 
 
 async def _check_single_queue(
@@ -367,22 +343,16 @@ async def _check_single_queue(
         if tomorrow_changed and not update_type.get("todayUpdated"):
             update_type["todayUnchanged"] = True
 
-    # Detect pure day-rollover: hash changed only because dates shifted (new day), but
-    # today's actual data matches what was announced yesterday as "tomorrow" and there
-    # is no new tomorrow schedule yet.  In this case no change notification is needed —
-    # the regular 06:00 flush will send the daily-planned message.
-    is_day_rollover = (
-        snapshot is None
-        and today_comparison_done
-        and not update_type  # nothing changed after comparison
-        and not is_initial
-    )
+    # When hash changed but no specific update type was detected (e.g. pure
+    # day-rollover where dates shifted but the actual schedule data matches
+    # yesterday's "tomorrow" and there is no new tomorrow yet), treat it as a
+    # daily-planned message rather than a change notification.
+    send_as_daily_planned = is_initial or not update_type
 
-    # Fallback: hash changed but no specific flag was set (e.g. first run or edge case).
-    # Only mark as "updated" for existing regions, and only when it is NOT a plain
-    # day-rollover (which should be handled silently by the 06:00 flush).
-    if not update_type and not is_initial and not is_day_rollover:
-        update_type["todayUpdated"] = True
+    # Fallback: mark day-rollover scenarios (dates shifted, content identical)
+    # so the update_type field is non-empty for storage/logging purposes.
+    if not update_type and not is_initial:
+        update_type["dailyPlanned"] = True
 
     # Tag initial loads so the 06:00 flush knows to use a daily-planned message format
     if is_initial:
@@ -401,15 +371,11 @@ async def _check_single_queue(
             session, region, queue, today_date,
             sched_data_json, new_today_hash, new_tomorrow_hash,
         )
-        if quiet and not is_day_rollover:
+        if quiet:
             await save_pending_notification(
                 session, region, queue, sched_data_json, update_type_json, changes_json
             )
         await session.commit()
-
-    if is_day_rollover:
-        logger.debug("Day rollover for %s/%s — snapshot updated, 06:00 flush will send daily message", region, queue)
-        return True
 
     if quiet:
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
@@ -420,7 +386,7 @@ async def _check_single_queue(
         users_in_queue = await get_active_users_by_region(session, region, queue=queue)
 
     await _send_notifications_to_users(
-        bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_initial
+        bot, users_in_queue, sched, update_type, changes, is_daily_planned=send_as_daily_planned
     )
 
     # Supersede any pending quiet-hours notifications for this pair — they are
