@@ -34,9 +34,11 @@ from bot.keyboards.inline import get_reminder_keyboard, get_schedule_view_keyboa
 from bot.services.api import (
     calculate_schedule_hash,
     check_source_repo_updated,
+    confirm_source_update,
     fetch_schedule_data,
     fetch_schedule_image,
     find_next_event,
+    increment_stale_retries,
     invalidate_image_cache,
     parse_schedule_for_queue,
 )
@@ -159,7 +161,7 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
-    has_update = await check_source_repo_updated()
+    has_update, pending_sha = await check_source_repo_updated()
     if not has_update:
         logger.debug("No new commits in source repo, skipping full check")
         return
@@ -182,12 +184,24 @@ async def _check_all_schedules(
                 break
             offset += batch_size_inner
 
+        any_schedule_changed = False
         for region, queue in region_queue_pairs:
             try:
-                await _check_single_queue(bot, region, queue, interval_s=interval)
+                changed = await _check_single_queue(bot, region, queue, interval_s=interval)
+                if changed:
+                    any_schedule_changed = True
             except Exception as e:
                 logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
                 sentry_sdk.capture_exception(e)
+
+        # Confirm or retry the pending SHA based on whether any queue showed
+        # changed data.  If the CDN served stale data (no hash changes),
+        # the SHA is NOT confirmed so the bot retries on the next cycle.
+        if pending_sha:
+            if any_schedule_changed:
+                confirm_source_update(pending_sha)
+            else:
+                increment_stale_retries(pending_sha)
 
 
 async def _check_single_queue(
@@ -195,10 +209,15 @@ async def _check_single_queue(
     region: str,
     queue: str,
     interval_s: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S,
-) -> None:
+) -> bool:
+    """Check a single queue for schedule changes.
+
+    Returns ``True`` if the schedule hash changed (CDN served fresh data),
+    ``False`` otherwise.
+    """
     data = await fetch_schedule_data(region, force_refresh=True)
     if not data:
-        return
+        return False
 
     sched = parse_schedule_for_queue(data, queue)
     events = sched.get("events", [])
@@ -226,7 +245,7 @@ async def _check_single_queue(
                     json.dumps(sched), new_today_hash_check, new_tomorrow_hash_check,
                 )
             await session.commit()
-        return
+        return False
 
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
@@ -349,11 +368,11 @@ async def _check_single_queue(
 
     if is_day_rollover:
         logger.debug("Day rollover for %s/%s — snapshot updated, 06:00 flush will send daily message", region, queue)
-        return
+        return True
 
     if quiet:
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
-        return
+        return True
 
     # Fetch users and send notifications
     async with async_session() as session:
@@ -374,6 +393,8 @@ async def _check_single_queue(
         await update_power_notifications_on_schedule_change(bot, region, queue)
     except Exception as e:
         logger.warning("Error updating power notifications on schedule change for %s/%s: %s", region, queue, e)
+
+    return True
 
 
 # ─── 06:00 daily flush ────────────────────────────────────────────────────
