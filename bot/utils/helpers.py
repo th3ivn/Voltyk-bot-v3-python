@@ -19,7 +19,7 @@ _DOMAIN_RE = re.compile(
 async def retry_bot_call(
     coro_factory: Callable[[], Awaitable[_T]],
     *,
-    max_retries: int = 1,
+    max_retries: int = 3,
 ) -> _T:
     """Execute a Telegram bot API call, retrying on TelegramRetryAfter (429).
 

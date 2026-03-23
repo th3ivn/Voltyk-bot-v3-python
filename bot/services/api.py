@@ -24,8 +24,6 @@ MAX_CACHE_SIZE = 100
 
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
-_stale_retry_count: int = 0
-MAX_STALE_RETRIES = 5
 
 
 async def init_http_client() -> None:
@@ -46,7 +44,7 @@ async def close_http_client() -> None:
 async def check_source_repo_updated() -> tuple[bool, str | None]:
     """Check if Baskerville42/outage-data-ua has new commits in data/ directory.
 
-    Uses GitHub Commits API which is not affected by CDN caching.
+    Uses GitHub Commits API which is not affected by caching.
     With GITHUB_TOKEN: 5000 requests/hour limit.
     Without token: 60 requests/hour limit.
 
@@ -54,15 +52,8 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
     - ``(True, None)``  — initial run or API error; always run a full check.
     - ``(True, sha)``   — new commit detected; the caller **must** call
       :func:`confirm_source_update` after at least one queue shows changed
-      data, or :func:`increment_stale_retries` if the CDN served stale data.
+      data.
     - ``(False, None)``  — no new commits; skip the check.
-
-    **Why the SHA is not updated immediately**: the jsDelivr CDN that serves
-    schedule data may lag behind the GitHub Commits API by minutes or even
-    hours.  If we update ``_last_commit_sha`` before the CDN delivers fresh
-    data, the bot will never re-check and the notification is permanently
-    lost.  By deferring the update, the bot retries on every cycle until the
-    CDN catches up.
     """
     global _last_commit_sha
 
@@ -101,10 +92,6 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
                         return True, None
                     if new_sha != _last_commit_sha:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
-                        # Do NOT update _last_commit_sha here — the CDN may
-                        # still serve stale data.  The caller must confirm
-                        # via confirm_source_update() after verifying that
-                        # at least one queue's data actually changed.
                         return True, new_sha
                     logger.debug("No new commits (SHA: %s)", new_sha[:8])
                     return False, None
@@ -122,35 +109,10 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
 
 
 def confirm_source_update(sha: str) -> None:
-    """Confirm that data from a new commit was successfully fetched and processed.
-
-    Call this after at least one (region, queue) pair showed a changed
-    schedule hash, proving the CDN served fresh data.
-    """
-    global _last_commit_sha, _stale_retry_count
+    """Confirm that data from a new commit was successfully fetched and processed."""
+    global _last_commit_sha
     _last_commit_sha = sha
-    _stale_retry_count = 0
     logger.debug("Source update confirmed, SHA: %s", sha[:8])
-
-
-def increment_stale_retries(sha: str) -> None:
-    """Record a failed attempt to fetch fresh data from the CDN.
-
-    After ``MAX_STALE_RETRIES`` consecutive failures the SHA is
-    force-confirmed to avoid retrying forever (the commit may have
-    changed files irrelevant to active queues).
-    """
-    global _stale_retry_count
-    _stale_retry_count += 1
-    logger.debug(
-        "Stale CDN data, retry %d/%d for SHA %s",
-        _stale_retry_count, MAX_STALE_RETRIES, sha[:8],
-    )
-    if _stale_retry_count >= MAX_STALE_RETRIES:
-        confirm_source_update(sha)
-        logger.info(
-            "Max stale retries reached, force-confirming SHA %s", sha[:8]
-        )
 
 
 async def fetch_schedule_data(
