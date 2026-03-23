@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     SCHEDULER_STAGGER_MS: int = 20
 
     DATA_URL_TEMPLATE: str = (
-        "https://cdn.jsdelivr.net/gh/Baskerville42/outage-data-ua@main/data/{region}.json"
+        "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/{region}.json"
     )
     IMAGE_URL_TEMPLATE: str = (
         "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/{region}/gpv-{queue}-emergency.png"

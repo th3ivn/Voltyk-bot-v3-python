@@ -38,7 +38,6 @@ from bot.services.api import (
     fetch_schedule_data,
     fetch_schedule_image,
     find_next_event,
-    increment_stale_retries,
     invalidate_image_cache,
     parse_schedule_for_queue,
 )
@@ -59,6 +58,16 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 # concurrently. Without it, both can read the same stale stored_hash on startup
 # and send duplicate notifications to every user.
 _notify_lock = asyncio.Lock()
+
+# Consecutive skips counter — forces a full fetch every MAX_CONSECUTIVE_SKIPS
+# cycles even when the GitHub Commits API reports no new commits.
+# At the default 180s interval, 20 skips ≈ 1 hour between forced checks.
+_consecutive_skips = 0
+MAX_CONSECUTIVE_SKIPS = 20
+
+# Daily flush retry settings
+MAX_DAILY_FLUSH_RETRIES = 3
+DAILY_FLUSH_RETRY_DELAY_S = 30
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -161,10 +170,18 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
+    global _consecutive_skips
+
     has_update, pending_sha = await check_source_repo_updated()
     if not has_update:
-        logger.debug("No new commits in source repo, skipping full check")
-        return
+        _consecutive_skips += 1
+        if _consecutive_skips < MAX_CONSECUTIVE_SKIPS:
+            logger.debug("No new commits, skipping (%d/%d)", _consecutive_skips, MAX_CONSECUTIVE_SKIPS)
+            return
+        logger.info("Force-checking schedules (max consecutive skips reached)")
+        _consecutive_skips = 0
+    else:
+        _consecutive_skips = 0
     logger.info("Source repo updated, checking all schedules")
 
     # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
@@ -194,14 +211,11 @@ async def _check_all_schedules(
                 logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
                 sentry_sdk.capture_exception(e)
 
-        # Confirm or retry the pending SHA based on whether any queue showed
-        # changed data.  If the CDN served stale data (no hash changes),
-        # the SHA is NOT confirmed so the bot retries on the next cycle.
-        if pending_sha:
-            if any_schedule_changed:
-                confirm_source_update(pending_sha)
-            else:
-                increment_stale_retries(pending_sha)
+        # Confirm the pending SHA if at least one queue showed changed data.
+        # If no queue changed, the SHA is NOT confirmed so the bot retries on
+        # the next cycle (GitHub Raw updates immediately, so this resolves fast).
+        if pending_sha and any_schedule_changed:
+            confirm_source_update(pending_sha)
 
 
 async def _check_single_queue(
@@ -515,10 +529,15 @@ async def daily_flush_loop(bot: Bot) -> None:
             await asyncio.sleep(min(remaining, 60.0))
         if not _running:
             break
-        try:
-            await flush_pending_notifications(bot)
-        except Exception as e:
-            logger.error("Daily flush error: %s", e)
+        for attempt in range(MAX_DAILY_FLUSH_RETRIES):
+            try:
+                await flush_pending_notifications(bot)
+                break
+            except Exception as e:
+                logger.error("Daily flush error (attempt %d/%d): %s", attempt + 1, MAX_DAILY_FLUSH_RETRIES, e)
+                sentry_sdk.capture_exception(e)
+                if attempt < MAX_DAILY_FLUSH_RETRIES - 1:
+                    await asyncio.sleep(DAILY_FLUSH_RETRY_DELAY_S)
 
 
 # ─── Notification sending ─────────────────────────────────────────────────
