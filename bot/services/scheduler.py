@@ -13,7 +13,10 @@ from aiogram.types import BufferedInputFile
 from bot.config import settings
 from bot.constants.regions import REGIONS
 from bot.db.queries import (
+    check_reminder_sent,
+    cleanup_old_reminders,
     delete_old_pending_notifications,
+    get_active_reminder_anchors,
     get_active_users_by_region,
     get_active_users_paginated,
     get_all_pending_region_queue_pairs,
@@ -24,6 +27,7 @@ from bot.db.queries import (
     get_setting,
     get_user_by_telegram_id,
     mark_pending_notifications_sent,
+    mark_reminder_sent,
     save_pending_notification,
     update_schedule_check_time,
     upsert_daily_snapshot,
@@ -502,6 +506,16 @@ async def flush_pending_notifications(bot: Bot) -> None:
     except Exception as e:
         logger.warning("Could not purge old pending_notifications: %s", e)
 
+    # Purge old sent-reminder rows (>48h) to keep the table lean
+    try:
+        async with async_session() as session:
+            deleted = await cleanup_old_reminders(session)
+            await session.commit()
+        if deleted:
+            logger.info("Purged %d old sent_reminders rows (>48h)", deleted)
+    except Exception as e:
+        logger.warning("Could not purge old sent_reminders: %s", e)
+
 
 async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
@@ -724,16 +738,12 @@ def stop_scheduler() -> None:
 
 # ─── Reminder notifications ───────────────────────────────────────────────
 
-# (telegram_id, event_anchor_iso, remind_minutes) — prevents duplicate sends
-_sent_reminders: set[tuple[str, str, int]] = set()
-
-# telegram_id -> event_anchor_iso whose reminder should be deleted when it passes
-_pending_reminder_cleanup: dict[str, str] = {}
-
 _REMIND_MINUTES = [60, 30, 15]
 _REMIND_FIELDS     = {60: "remind_1h",    30: "remind_30m",    15: "remind_15m"}
 _CH_REMIND_FIELDS  = {60: "ch_remind_1h", 30: "ch_remind_30m", 15: "ch_remind_15m"}
 _REMIND_LABELS     = {60: "1 годину",     30: "30 хвилин",      15: "15 хвилин"}
+# Maps reminder window (minutes) to the DB reminder_type string stored in sent_reminders
+_REMIND_TYPE_MAP   = {60: "1h",           30: "30m",            15: "15m"}
 
 
 async def reminder_checker_loop(bot: Bot) -> None:
@@ -753,17 +763,17 @@ async def _check_and_send_reminders(bot: Bot) -> None:
 
     now = datetime.now(KYIV_TZ)
 
-    # ── 1. Cleanup: delete reminders for events that have already passed ──
-    for tid, anchor_iso in list(_pending_reminder_cleanup.items()):
-        if _event_anchor_passed(anchor_iso, now):
-            await _delete_reminder_messages(bot, tid)
-            del _pending_reminder_cleanup[tid]
+    # ── 1. Cleanup: delete reminder messages for events that have already passed ──
+    try:
+        async with async_session() as session:
+            active_anchors = await get_active_reminder_anchors(session)
+        for tid, anchor_iso in active_anchors:
+            if _event_anchor_passed(anchor_iso, now):
+                await _delete_reminder_messages(bot, tid)
+    except Exception as e:
+        logger.warning("Reminder cleanup DB error: %s", e)
 
-    # ── 2. Expire sent-reminders cache for past events ────────────────
-    expired = {k for k in _sent_reminders if _event_anchor_passed(k[1], now)}
-    _sent_reminders.difference_update(expired)
-
-    # ── 3. Collect users grouped by (region, queue) ───────────────────
+    # ── 2. Collect users grouped by (region, queue) ───────────────────
     pairs: dict[tuple[str, str], list] = {}
     offset = 0
     while True:
@@ -785,7 +795,7 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             break
         offset += 1000
 
-    # ── 4. For each (region, queue) check schedule and fire reminders ──
+    # ── 3. For each (region, queue) check schedule and fire reminders ──
     for (region, queue), users in pairs.items():
         try:
             raw = await fetch_schedule_data(region)
@@ -801,26 +811,54 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             minutes_until: int = next_event["minutes"]
             is_possible: bool  = next_event.get("isPossible", False)
 
+            # Collect (user, remind_m) pairs that are in the timing window
+            to_send: list[tuple] = []
             for user in users:
                 ns = user.notification_settings
                 if event_type == "power_off" and not ns.notify_remind_off:
                     continue
                 if event_type == "power_on" and not ns.notify_remind_on:
                     continue
-
-                cc = user.channel_config
                 for remind_m in _REMIND_MINUTES:
                     if not getattr(ns, _REMIND_FIELDS[remind_m], False):
                         continue
-                    rkey = (str(user.telegram_id), anchor_iso, remind_m)
-                    if rkey in _sent_reminders:
+                    if not (remind_m - 1 <= minutes_until <= remind_m + 1):
                         continue
-                    if remind_m - 1 <= minutes_until <= remind_m + 1:
-                        await _send_reminder(
-                            bot, user, next_event, remind_m, sched, region, queue, is_possible, ns, cc
-                        )
-                        _sent_reminders.add(rkey)
-                        _pending_reminder_cleanup[str(user.telegram_id)] = anchor_iso
+                    to_send.append((user, remind_m))
+
+            if not to_send:
+                continue
+
+            # Single session: batch-check which reminders are already in DB
+            async with async_session() as session:
+                already_sent: set[tuple[str, str]] = set()
+                for user, remind_m in to_send:
+                    reminder_type = _REMIND_TYPE_MAP[remind_m]
+                    if await check_reminder_sent(
+                        session, str(user.telegram_id), anchor_iso, reminder_type
+                    ):
+                        already_sent.add((str(user.telegram_id), reminder_type))
+
+            # Send reminders for those not yet recorded; collect marks
+            to_mark: list[tuple[str, str, str, str, str]] = []
+            for user, remind_m in to_send:
+                reminder_type = _REMIND_TYPE_MAP[remind_m]
+                if (str(user.telegram_id), reminder_type) in already_sent:
+                    continue
+                ns = user.notification_settings
+                cc = user.channel_config
+                await _send_reminder(
+                    bot, user, next_event, remind_m, sched, region, queue, is_possible, ns, cc
+                )
+                to_mark.append((str(user.telegram_id), region, queue, anchor_iso, reminder_type))
+
+            # Single session + single commit: batch-persist all newly sent reminders
+            if to_mark:
+                async with async_session() as session:
+                    for tid, reg, q, pk, rt in to_mark:
+                        await mark_reminder_sent(session, tid, reg, q, pk, rt)
+                    await session.commit()
+
         except Exception as e:
             logger.error("Reminder check error for %s/%s: %s", region, queue, e)
 

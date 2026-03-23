@@ -18,6 +18,7 @@ from bot.db.models import (
     PowerHistory,
     ScheduleCheck,
     ScheduleDailySnapshot,
+    SentReminder,
     Setting,
     Ticket,
     TicketMessage,
@@ -770,5 +771,77 @@ async def resolve_admin_ticket_reminder(
         .where(AdminTicketReminder.ticket_id == ticket_id)
         .values(is_resolved=True)
     )
+
+
+# ─── Sent Reminders ───────────────────────────────────────────────────────
+
+
+async def check_reminder_sent(
+    session: AsyncSession,
+    telegram_id: str,
+    period_key: str,
+    reminder_type: str,
+) -> bool:
+    """Return True if this reminder was already sent for the given event anchor."""
+    result = await session.execute(
+        select(SentReminder.id).where(
+            SentReminder.telegram_id == telegram_id,
+            SentReminder.period_key == period_key,
+            SentReminder.reminder_type == reminder_type,
+        ).limit(1)
+    )
+    return result.scalar() is not None
+
+
+async def mark_reminder_sent(
+    session: AsyncSession,
+    telegram_id: str,
+    region: str,
+    queue: str,
+    period_key: str,
+    reminder_type: str,
+) -> None:
+    """Record that a reminder was sent.  Uses INSERT … ON CONFLICT DO NOTHING for idempotency."""
+    stmt = pg_insert(SentReminder).values(
+        telegram_id=telegram_id,
+        region=region,
+        queue=queue,
+        period_key=period_key,
+        reminder_type=reminder_type,
+    ).on_conflict_do_nothing(constraint="uq_sent_reminder")
+    await session.execute(stmt)
+
+
+async def cleanup_old_reminders(session: AsyncSession, older_than_hours: int = 48) -> int:
+    """Delete sent-reminder rows older than *older_than_hours*.
+
+    Returns the number of deleted rows.
+    """
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=older_than_hours)
+    result = await session.execute(
+        delete(SentReminder).where(SentReminder.created_at < cutoff)
+    )
+    return result.rowcount  # type: ignore[return-value]
+
+
+async def get_active_reminder_anchors(
+    session: AsyncSession,
+    within_hours: int = 48,
+) -> list[tuple[str, str]]:
+    """Return the latest ``(telegram_id, period_key)`` per user for recent reminders.
+
+    Uses ``DISTINCT ON`` (PostgreSQL-specific) so deduplication happens at the
+    database level rather than in Python.  Used to reconstruct pending-cleanup
+    state after a bot restart: callers should check whether each ``period_key``
+    represents a past event and, if so, delete the reminder message from Telegram.
+    """
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=within_hours)
+    result = await session.execute(
+        select(SentReminder.telegram_id, SentReminder.period_key)
+        .where(SentReminder.created_at > cutoff)
+        .distinct(SentReminder.telegram_id)
+        .order_by(SentReminder.telegram_id, SentReminder.created_at.desc())
+    )
+    return [(row.telegram_id, row.period_key) for row in result]
 
 

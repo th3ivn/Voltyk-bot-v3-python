@@ -2,57 +2,59 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-_LEVEL_EMOJIS = {
-    logging.DEBUG: "🔍 ",
-    logging.INFO: "ℹ️ ",
-    logging.WARNING: "⚠️ ",
-    logging.ERROR: "❌ ",
-    logging.CRITICAL: "🔥 ",
-}
+import structlog
 
-# Maps logger name prefixes to human-readable context labels
-_CONTEXT_MAP = {
-    "bot.app": "App",
-    "bot.config": "App",
-    "bot.db": "DB",
-    "bot.services.scheduler": "Scheduler",
-    "bot.services.power_monitor": "PowerMonitor",
-    "bot.services": "Services",
-    "bot.handlers": "Handler",
-    "bot.middlewares": "Middleware",
-    "bot.utils": "Utils",
-    "bot": "Bot",
-    "alembic": "Alembic",
-}
-
-
-def _get_context(name: str) -> str:
-    """Derive a short context label from a logger name."""
-    for prefix, label in _CONTEXT_MAP.items():
-        if name == prefix or name.startswith(prefix + "."):
-            return label
-    # Fallback: capitalise the last segment of the dotted name
-    return name.split(".")[-1].capitalize() if name else "App"
-
-
-class _EmojiFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%dT%H:%M:%S")
-        emoji = _LEVEL_EMOJIS.get(record.levelno, "ℹ️ ")
-        context = _get_context(record.name)
-        message = record.getMessage()
-        if record.exc_info:
-            exc_text = self.formatException(record.exc_info)
-            message = f"{message}\n{exc_text}"
-        return f"[{timestamp}] {emoji} [{context}] {message}"
+if TYPE_CHECKING:
+    from structlog.stdlib import BoundLogger
 
 
 def setup_logging() -> None:
-    """Configure root logger with emoji formatter writing to stdout."""
+    """Configure structlog: JSON renderer in production, colored console in development.
+
+    Reads ``settings.ENVIRONMENT`` to select the renderer.  Existing stdlib
+    ``%s``-format-string call sites are preserved via ``PositionalArgumentsFormatter``.
+    Both native structlog loggers (returned by :func:`get_logger`) and foreign
+    stdlib loggers (e.g. from *aiogram*, *sqlalchemy*) share the same processor
+    chain and final renderer.
+    """
+    from bot.config import settings  # deferred import to avoid circular deps at module load
+
+    is_production = settings.ENVIRONMENT == "production"
+
+    shared_processors: list = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.ExceptionPrettyPrinter(),
+    ]
+
+    final_renderer = (
+        structlog.processors.JSONRenderer()
+        if is_production
+        else structlog.dev.ConsoleRenderer(colors=True)
+    )
+
+    # structlog native loggers: run shared_processors, then hand off to ProcessorFormatter
+    structlog.configure(
+        processors=shared_processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+    # stdlib handler: foreign library log records go through shared_processors + renderer
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
+        processor=final_renderer,
+    )
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(_EmojiFormatter())
+    handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -63,6 +65,10 @@ def setup_logging() -> None:
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Return a standard Logger; formatting is handled by the root handler."""
-    return logging.getLogger(name)
+def get_logger(name: str) -> "BoundLogger":
+    """Return a structlog bound logger.
+
+    Supports both legacy stdlib ``%s``-format strings and structlog keyword
+    context (e.g. ``logger.bind(region=region, queue=queue).info("msg")``).
+    """
+    return structlog.stdlib.get_logger(name)

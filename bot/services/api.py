@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -16,8 +17,8 @@ logger = get_logger(__name__)
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
-_schedule_cache: dict[str, tuple[datetime, Any]] = {}
-_image_cache: dict[str, tuple[datetime, bytes]] = {}
+_schedule_cache: OrderedDict[str, tuple[datetime, Any]] = OrderedDict()
+_image_cache: OrderedDict[str, tuple[datetime, bytes]] = OrderedDict()
 CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
@@ -171,6 +172,7 @@ async def fetch_schedule_data(
     if not force_refresh and cache_key in _schedule_cache:
         cached_at, data = _schedule_cache[cache_key]
         if now - cached_at < effective_ttl:
+            _schedule_cache.move_to_end(cache_key)
             return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
@@ -196,9 +198,9 @@ async def fetch_schedule_data(
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     if len(_schedule_cache) >= MAX_CACHE_SIZE:
-                        oldest = min(_schedule_cache, key=lambda k: _schedule_cache[k][0])
-                        del _schedule_cache[oldest]
+                        _schedule_cache.popitem(last=False)
                     _schedule_cache[cache_key] = (now, data)
+                    _schedule_cache.move_to_end(cache_key)
                     return data
                 logger.warning("Schedule fetch %s returned %d", region, resp.status)
         except (TimeoutError, aiohttp.ClientError) as e:
@@ -230,6 +232,7 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
     if cache_key in _image_cache:
         cached_at, data = _image_cache[cache_key]
         if now - cached_at < CACHE_TTL:
+            _image_cache.move_to_end(cache_key)
             return data
 
     queue_dashed = queue.replace(".", "-")
@@ -246,17 +249,14 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
             async with _session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
-                headers={
-                    "User-Agent": "SvitloCheck-Bot/4.0",
-                    "Cache-Control": "no-cache",
-                },
+                headers={"User-Agent": "SvitloCheck-Bot/4.0"},
             ) as resp:
                 if resp.status == 200:
                     data = await resp.read()
                     if len(_image_cache) >= MAX_CACHE_SIZE:
-                        oldest = min(_image_cache, key=lambda k: _image_cache[k][0])
-                        del _image_cache[oldest]
+                        _image_cache.popitem(last=False)
                     _image_cache[cache_key] = (now, data)
+                    _image_cache.move_to_end(cache_key)
                     return data
         finally:
             if _owned:
