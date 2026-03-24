@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -20,6 +21,9 @@ from bot.utils.logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 _bg_tasks: list[asyncio.Task] = []
+
+# Track when the bot process started (UTC), exposed to the health module.
+_start_time: datetime = datetime.now(timezone.utc)
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
@@ -134,10 +138,14 @@ async def main() -> None:
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
+    _health_runner = None
+
     try:
         if settings.USE_WEBHOOK:
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
             from aiohttp import web
+
+            from bot.health import register_health_routes
 
             webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
             await bot.set_webhook(
@@ -149,10 +157,7 @@ async def main() -> None:
 
             app = web.Application()
 
-            async def health_handler(_request: web.Request) -> web.Response:
-                return web.json_response({"status": "ok"})
-
-            app.router.add_get("/health", health_handler)
+            register_health_routes(app, bot)
 
             handler = SimpleRequestHandler(
                 dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,
@@ -169,6 +174,11 @@ async def main() -> None:
 
             await asyncio.Event().wait()
         else:
+            from bot.health import start_health_server
+
+            _health_runner, _ = await start_health_server(bot)
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        if _health_runner is not None:
+            await _health_runner.cleanup()
         await bot.session.close()

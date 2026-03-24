@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import sentry_sdk
@@ -65,6 +65,15 @@ _notify_lock = asyncio.Lock()
 # Daily flush retry settings
 MAX_DAILY_FLUSH_RETRIES = 3
 DAILY_FLUSH_RETRY_DELAY_S = 30
+
+# Liveness tracking: updated after each successful schedule check iteration.
+# Used by the /health endpoint to determine if the scheduler is alive.
+_last_check_at: datetime | None = None
+
+
+def get_last_check_at() -> datetime | None:
+    """Return the timestamp of the last successful schedule check cycle."""
+    return _last_check_at
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -147,7 +156,7 @@ async def _get_schedule_interval() -> int:
 
 
 async def schedule_checker_loop(bot: Bot) -> None:
-    global _running
+    global _running, _last_check_at
     _running = True
     logger.info("Schedule checker started")
 
@@ -158,6 +167,8 @@ async def schedule_checker_loop(bot: Bot) -> None:
         except Exception as e:
             logger.error("Schedule check error: %s", e)
             sentry_sdk.capture_exception(e)
+        else:
+            _last_check_at = datetime.now(timezone.utc)
 
         logger.debug("Next schedule check in %ds", interval)
         await asyncio.sleep(interval)
