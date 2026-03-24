@@ -409,6 +409,32 @@ class PingErrorAlert(Base):
     )
 
 
+class SentReminder(Base):
+    """Deduplication log for scheduled reminder notifications.
+
+    Each row records that a specific reminder type was sent to a user for a
+    given event anchor (period_key).  Rows older than 48 h are pruned daily by
+    the flush job so the table stays small.
+    """
+
+    __tablename__ = "sent_reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    queue: Mapped[str] = mapped_column(String(16), nullable=False)
+    # ISO-8601 datetime of the event this reminder refers to (e.g. "2026-03-23T14:00:00+02:00")
+    period_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # "15m" | "30m" | "1h"
+    reminder_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("telegram_id", "period_key", "reminder_type", name="uq_sent_reminder"),
+        Index("idx_sr_created_at", "created_at"),
+    )
+
+
 class AdminTicketReminder(Base):
     """Admin reminder for unanswered support tickets."""
 
