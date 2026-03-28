@@ -1,19 +1,19 @@
-"""Generate schedule table PNG charts using Pillow.
+"""Generate schedule table PNG charts using SVG + CairoSVG.
 
-Produces a light-themed table image that mirrors the standard Ukrainian
-power-outage schedule format:
-  • Two-badge header  (update time left | region+queue right)
-  • 24-column hourly table  (today + tomorrow rows)
-  • Per-cell state with lightning-bolt icons
-  • Legend row at the bottom
+SVG markup is built programmatically then rendered to PNG at 2× resolution
+via CairoSVG (Cairo graphics engine — the same used by Firefox and Inkscape).
 
-CPU-bound drawing runs in a thread-pool executor — the event loop is never
-blocked.
+Advantages over Pillow:
+  • Vector rendering — no pixel aliasing on lines, curves, or text
+  • Sub-pixel font hinting via Cairo — crisp Cyrillic at any size
+  • clipPath clips data cells to the rounded-corner table boundary
+  • Rotated labels via SVG transform — mathematically perfect, never clipped
+
+CPU-bound rendering runs in a thread-pool executor.
 """
 from __future__ import annotations
 
 import asyncio
-import io
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -29,92 +29,55 @@ MONTHS_UK = [
     "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
 ]
 
-# ── Layout ────────────────────────────────────────────────────────────────────
-# Render at 2× resolution so text is crisp when Telegram scales the image down.
-# All pixel constants below are already at the 2× (render) scale.
-_S = 2        # scale factor — change to 1 for a 1000 px output
+# ── Layout (logical pixels at 1×) ─────────────────────────────────────────────
+# cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
+OUTPUT_SCALE = 2.0
 
-IMG_W    = 1000 * _S   # 2000 px
-PAD_X    = 15   * _S
-PAD_Y    = 20   * _S
-LABEL_W  = 130  * _S
-CELL_W   = 35   * _S   # 24×35×2 = 1680; 1680+260 = 1940 = 2000−2×30 ✓
+IMG_W    = 1000
+PAD_X    = 15
+PAD_Y    = 20
+LABEL_W  = 130
+CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1000 − 2×15 ✓
+TITLE_H  = 90
+GAP      = 16
+HEADER_H = 76
+ROW_H    = 50
+LEGEND_H = 44
 
-TITLE_H  = 90   * _S
-GAP      = 16   * _S
-HEADER_H = 76   * _S   # enough height for rotated "00-01" labels
-ROW_H    = 50   * _S
-LEGEND_H = 44   * _S
-
-TABLE_W  = LABEL_W + 24 * CELL_W
+TABLE_W  = LABEL_W + 24 * CELL_W   # 970
 
 # ── Colors ────────────────────────────────────────────────────────────────────
-C_BG          = (245, 247, 249)   # overall image background
-C_TABLE_BG    = (255, 255, 255)
-C_HDR_BG      = (244, 246, 248)   # header row fill
-C_BORDER      = (210, 218, 226)
-C_BORDER_DARK = (180, 190, 200)
+C_BG        = "#F5F7F9"
+C_TABLE_BG  = "#FFFFFF"
+C_HDR_BG    = "#F4F6F8"
+C_BORDER    = "#D2DAE2"
+C_BORDER_DK = "#B4BEC8"
+C_TEXT      = "#1C2228"
+C_TEXT_MID  = "#58606C"
+C_BADGE_BG  = "#F2B200"
 
-C_TEXT        = (28,  34,  40)
-C_TEXT_MID    = (88,  96, 108)
-C_TEXT_DIM    = (150, 160, 172)
+CELL_ON    = "#FFFFFF"
+CELL_OFF   = "#3A424D"
+CELL_MAYBE = "#9EA3A9"
 
-# Header badge colors
-C_BADGE_R_BG  = (242, 178, 0)     # right badge bg (yellow)
-
-# Cell colors
-CELL_ON       = (255, 255, 255)
-CELL_OFF      = (58,  66,  77)    # dark slate
-CELL_MAYBE    = (158, 163, 169)   # medium gray
-
-# Icon colors (drawn on top of cells)
-ICON_ON_DARK  = (255, 255, 255)   # white bolt on dark cell
-ICON_ON_GRAY  = (220, 224, 228)   # light bolt on gray cell
-
-# ── Font helpers ──────────────────────────────────────────────────────────────
-_REG = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-]
-_BOLD = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-]
+# Font family — DejaVu Sans is installed via fonts-dejavu-core in the Dockerfile.
+# CairoSVG resolves fonts through fontconfig; font-weight="bold" auto-selects
+# DejaVuSans-Bold.ttf.
+FONT = "DejaVu Sans, Liberation Sans, sans-serif"
 
 
-def _font(paths: list[str], size: int):
-    from PIL import ImageFont
-    for p in paths:
-        try:
-            return ImageFont.truetype(p, size)
-        except (IOError, OSError):
-            continue
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:
-        return ImageFont.load_default()
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _esc(text: str) -> str:
+    """XML-escape text for safe embedding in SVG."""
+    return (
+        text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
-def _load_fonts() -> dict:
-    return {
-        "title":       _font(_BOLD, 20 * _S),   # "Графік відключень (...):"
-        "queue_badge": _font(_BOLD, 22 * _S),   # "Черга 3.1"
-        "subtitle":    _font(_REG,  11 * _S),   # date/time subtitle
-        "hdr_lbl":     _font(_BOLD, 11 * _S),   # "Часові проміжки"
-        "col_lbl":     _font(_REG,   9 * _S),   # "00-01" rotated
-        "date_lbl":    _font(_BOLD, 13 * _S),   # "27 березня"
-        "legend":      _font(_REG,  12 * _S),
-        "legend_b":    _font(_BOLD, 12 * _S),
-    }
-
-
-# ── Data helpers ──────────────────────────────────────────────────────────────
 
 def _parse_dt(v) -> datetime:
     if isinstance(v, str):
@@ -127,11 +90,8 @@ def _day_label(dt: datetime) -> str:
 
 
 def _get_hour_states(events: list[dict], day_start: datetime) -> list[str]:
-    """Return a 24-element list of state strings for each hour of the day.
-
-    States: 'on' | 'no' | 'maybe' | 'nfirst' | 'nsecond' | 'mfirst' | 'msecond'
-    """
-    half_map = bytearray(48)  # 30-min slots; 0=on, 1=planned, 2=possible
+    """Return a 24-element list of cell states for one day."""
+    half_map = bytearray(48)
     for ev in events:
         a = max(0, int((_parse_dt(ev["start"]) - day_start).total_seconds() / 1800))
         b = min(48, int((_parse_dt(ev["end"]) - day_start).total_seconds() / 1800))
@@ -161,67 +121,25 @@ def _get_hour_states(events: list[dict], day_start: datetime) -> list[str]:
     return result
 
 
-# ── Drawing primitives ────────────────────────────────────────────────────────
-
-def _tw(draw, text: str, font) -> int:
-    bb = draw.textbbox((0, 0), text, font=font)
-    return bb[2] - bb[0]
-
-
-def _th(draw, text: str, font) -> int:
-    bb = draw.textbbox((0, 0), text, font=font)
-    return bb[3] - bb[1]
-
-
-def _draw_bolt(draw, cx: int, cy: int, w: int, color) -> None:
-    """Draw a lightning bolt icon centered at (cx, cy), bounding-box width w."""
-    h = int(w * 1.55)
-    ox, oy = cx - w // 2, cy - h // 2
+def _bolt_pts(cx: float, cy: float, w: float) -> str:
+    """SVG polygon `points` string for a lightning bolt centered at (cx, cy)."""
+    h = w * 1.55
+    ox, oy = cx - w / 2, cy - h / 2
     pts = [
-        (ox + int(w * 0.65), oy),
-        (ox + int(w * 0.08), oy + int(h * 0.52)),
-        (ox + int(w * 0.42), oy + int(h * 0.52)),
-        (ox + int(w * 0.35), oy + h),
-        (ox + int(w * 0.92), oy + int(h * 0.48)),
-        (ox + int(w * 0.58), oy + int(h * 0.48)),
+        (ox + w * 0.65, oy),
+        (ox + w * 0.08, oy + h * 0.52),
+        (ox + w * 0.42, oy + h * 0.52),
+        (ox + w * 0.35, oy + h),
+        (ox + w * 0.92, oy + h * 0.48),
+        (ox + w * 0.58, oy + h * 0.48),
     ]
-    draw.polygon(pts, fill=color)
+    return " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
 
 
-def _paste_rotated_text(
-    img, text: str, font, cx: int, cy: int, cell_h: int, cell_w: int, color: tuple
-) -> None:
-    """Draw text rotated 90° CCW, centered in the given cell bounding box.
-
-    cx / cy mark the top-left of the cell.
-    """
-    from PIL import Image as _Img
-    from PIL import ImageDraw as _ID
-
-    # Measure text using a throw-away surface
-    dummy = _Img.new("RGBA", (500, 60), (0, 0, 0, 0))
-    dd = _ID.Draw(dummy)
-    bb = dd.textbbox((0, 0), text, font=font)
-    # bb may have non-zero left/top offsets (font bearing) — account for them
-    tw = bb[2] - bb[0]
-    th = bb[3] - bb[1]
-
-    # Render at exact bounding-box size, compensating for bearing
-    txt_img = _Img.new("RGBA", (tw + 4, th + 4), (0, 0, 0, 0))
-    _ID.Draw(txt_img).text((2 - bb[0], 2 - bb[1]), text, font=font, fill=(*color, 255))
-
-    rotated = txt_img.rotate(90, expand=True)
-
-    rx = cx + (cell_w - rotated.width) // 2
-    ry = cy + (cell_h - rotated.height) // 2
-    img.paste(rotated, (rx, ry), rotated)
-
-
-def _draw_cell(draw, x: int, y: int, state: str) -> None:
-    """Fill a single hour cell and overlay the bolt icon when needed."""
-    w, h = CELL_W, ROW_H
-
-    _BG: dict[str, tuple] = {
+def _cell_svg(x: float, y: float, state: str) -> str:
+    """Return SVG markup for one data cell (CELL_W × ROW_H)."""
+    w, h = float(CELL_W), float(ROW_H)
+    _BG = {
         "on":      (CELL_ON,    CELL_ON),
         "no":      (CELL_OFF,   CELL_OFF),
         "maybe":   (CELL_MAYBE, CELL_MAYBE),
@@ -230,272 +148,285 @@ def _draw_cell(draw, x: int, y: int, state: str) -> None:
         "mfirst":  (CELL_MAYBE, CELL_ON),
         "msecond": (CELL_ON,    CELL_MAYBE),
     }
-    _ICON: dict[str, tuple | None] = {
+    _BOLT: dict[str, str | None] = {
         "on":      None,
-        "no":      ICON_ON_DARK,
-        "maybe":   ICON_ON_GRAY,
-        "nfirst":  ICON_ON_DARK,
-        "nsecond": ICON_ON_DARK,
-        "mfirst":  ICON_ON_GRAY,
-        "msecond": ICON_ON_GRAY,
+        "no":      "#FFFFFF",
+        "maybe":   "#DCE0E4",
+        "nfirst":  "#FFFFFF",
+        "nsecond": "#FFFFFF",
+        "mfirst":  "#DCE0E4",
+        "msecond": "#DCE0E4",
     }
-
     left_bg, right_bg = _BG.get(state, (CELL_ON, CELL_ON))
-    hw = w // 2
+    hw = w / 2
+    out: list[str] = []
 
     if left_bg == right_bg:
-        draw.rectangle([x, y, x + w - 1, y + h - 1], fill=left_bg)
+        out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{left_bg}"/>')
     else:
-        draw.rectangle([x,      y, x + hw - 1, y + h - 1], fill=left_bg)
-        draw.rectangle([x + hw, y, x + w  - 1, y + h - 1], fill=right_bg)
+        out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{left_bg}"/>')
+        out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{right_bg}"/>')
 
-    icon_color = _ICON.get(state)
-    if icon_color is not None:
-        _draw_bolt(draw, x + w // 2, y + h // 2, 11 * _S, icon_color)
+    bolt_color = _BOLT.get(state)
+    if bolt_color:
+        cx, cy = x + w / 2, y + h / 2
+        out.append(f'<polygon points="{_bolt_pts(cx, cy, 11)}" fill="{bolt_color}"/>')
+
+    return "\n".join(out)
 
 
-# ── Table renderer ────────────────────────────────────────────────────────────
+# ── SVG builder ───────────────────────────────────────────────────────────────
 
-def _draw_table(
-    img,
-    draw,
-    ox: int, oy: int,
-    today_ev: list[dict],
-    tomorrow_ev: list[dict],
-    today_start: datetime,
-    tomorrow_start: datetime,
-    fonts: dict,
-) -> None:
-    """Draw the full schedule table starting at (ox, oy)."""
-    total_h = HEADER_H + 2 * ROW_H
+def _build_svg(region: str, queue: str, schedule_data: dict) -> str:
+    now = datetime.now(KYIV_TZ)
+    today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+    day_after      = tomorrow_start + timedelta(days=1)
 
-    # ── Step 1: Background fill with rounded corners ──────────────────────────
-    draw.rounded_rectangle(
-        [ox, oy, ox + TABLE_W, oy + total_h],
-        radius=8, fill=C_TABLE_BG,
-    )
+    events      = schedule_data.get("events", [])
+    today_ev    = [e for e in events if today_start    <= _parse_dt(e["start"]) < tomorrow_start]
+    tomorrow_ev = [e for e in events if tomorrow_start <= _parse_dt(e["start"]) < day_after]
 
-    # Header row background
-    draw.rectangle(
-        [ox + 1, oy + 1, ox + TABLE_W - 1, oy + HEADER_H - 1],
-        fill=C_HDR_BG,
-    )
-
-    # ── Step 2: Fill data cells ───────────────────────────────────────────────
+    region_label    = REGIONS[region].name if region in REGIONS else region
     today_states    = _get_hour_states(today_ev,    today_start)
     tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
 
-    for row_idx, states in enumerate([today_states, tomorrow_states]):
-        row_y = oy + HEADER_H + row_idx * ROW_H
-        for col_idx, state in enumerate(states):
-            cell_x = ox + LABEL_W + col_idx * CELL_W
-            _draw_cell(draw, cell_x, row_y, state)
+    table_h = HEADER_H + 2 * ROW_H
+    table_y = PAD_Y + TITLE_H + GAP
+    img_h   = table_y + table_h + GAP + LEGEND_H + PAD_Y
 
-    # ── Step 3: Grid lines (drawn over cells, under text) ─────────────────────
-    # Horizontal separator: header bottom / row separator / row bottom
+    p: list[str] = []
+
+    # ── SVG root ──────────────────────────────────────────────────────────────
+    p.append(
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'width="{IMG_W}" height="{img_h}" viewBox="0 0 {IMG_W} {img_h}">'
+    )
+
+    # clipPath clips everything inside the table to its rounded-rect boundary
+    p.append(
+        f'<defs><clipPath id="tc">'
+        f'<rect x="{PAD_X}" y="{table_y}" '
+        f'width="{TABLE_W}" height="{table_h}" rx="8"/>'
+        f'</clipPath></defs>'
+    )
+
+    # ── Image background ──────────────────────────────────────────────────────
+    p.append(f'<rect width="{IMG_W}" height="{img_h}" fill="{C_BG}"/>')
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    # Badge pill (right-aligned).
+    # Estimate badge width: ~0.65 × font-size per char for bold Cyrillic/digits.
+    queue_txt       = _esc(f"Черга {queue}")
+    badge_fs        = 22
+    badge_pad_h     = 22   # horizontal padding inside badge
+    badge_pad_v     = 10   # vertical padding inside badge
+    badge_text_w    = len(f"Черга {queue}") * badge_fs * 0.65
+    badge_h         = badge_fs + badge_pad_v * 2   # 42
+    badge_w         = badge_text_w + badge_pad_h * 2
+    badge_x         = IMG_W - PAD_X - badge_w
+    badge_cx        = badge_x + badge_w / 2
+
+    p.append(
+        f'<rect x="{badge_x:.1f}" y="{PAD_Y}" '
+        f'width="{badge_w:.1f}" height="{badge_h}" '
+        f'rx="{badge_h // 2}" fill="{C_BADGE_BG}"/>'
+    )
+    p.append(
+        f'<text x="{badge_cx:.1f}" y="{PAD_Y + badge_h / 2:.1f}" '
+        f'font-family="{FONT}" font-size="{badge_fs}" font-weight="bold" '
+        f'fill="{C_TEXT}" text-anchor="middle" dominant-baseline="central">'
+        f'{queue_txt}</text>'
+    )
+
+    # Title (left-aligned, vertically centered with badge)
+    title_txt = _esc(f"Графік відключень ({region_label}):")
+    title_cy  = PAD_Y + badge_h / 2
+    p.append(
+        f'<text x="{PAD_X}" y="{title_cy:.1f}" '
+        f'font-family="{FONT}" font-size="20" font-weight="bold" '
+        f'fill="{C_TEXT}" dominant-baseline="central">'
+        f'{title_txt}</text>'
+    )
+
+    # Subtitle — DTEK update timestamp
+    dtek_raw = schedule_data.get("dtek_updated_at")
+    subtitle_txt = ""
+    if dtek_raw:
+        try:
+            dtek_dt     = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
+            subtitle_txt = _esc(
+                "Дата та час останнього оновлення інформації на графіку: "
+                + dtek_dt.strftime("%d.%m.%Y %H:%M")
+            )
+        except ValueError:
+            pass
+    if subtitle_txt:
+        sub_y = PAD_Y + badge_h + 8
+        p.append(
+            f'<text x="{PAD_X}" y="{sub_y}" '
+            f'font-family="{FONT}" font-size="11" '
+            f'fill="{C_TEXT_MID}">{subtitle_txt}</text>'
+        )
+
+    # ── Table background (filled, rounded) ────────────────────────────────────
+    p.append(
+        f'<rect x="{PAD_X}" y="{table_y}" '
+        f'width="{TABLE_W}" height="{table_h}" '
+        f'rx="8" fill="{C_TABLE_BG}"/>'
+    )
+
+    # ── Table contents clipped to rounded rect ────────────────────────────────
+    p.append('<g clip-path="url(#tc)">')
+
+    # Header row background
+    p.append(
+        f'<rect x="{PAD_X}" y="{table_y}" '
+        f'width="{TABLE_W}" height="{HEADER_H}" fill="{C_HDR_BG}"/>'
+    )
+
+    # Data cells
+    for row_i, states in enumerate([today_states, tomorrow_states]):
+        row_y = table_y + HEADER_H + row_i * ROW_H
+        for col_i, state in enumerate(states):
+            cx = PAD_X + LABEL_W + col_i * CELL_W
+            p.append(_cell_svg(cx, row_y, state))
+
+    # Horizontal grid lines (below header, between rows, below last row)
     for i in range(3):
-        ly = oy + HEADER_H + i * ROW_H
-        draw.line([(ox + 1, ly), (ox + TABLE_W - 1, ly)], fill=C_BORDER_DARK, width=_S)
+        ly = table_y + HEADER_H + i * ROW_H
+        p.append(
+            f'<line x1="{PAD_X}" y1="{ly}" x2="{PAD_X + TABLE_W}" y2="{ly}" '
+            f'stroke="{C_BORDER_DK}" stroke-width="1"/>'
+        )
 
-    # Vertical separator: label column (full height, darker)
-    draw.line(
-        [(ox + LABEL_W, oy + 1), (ox + LABEL_W, oy + total_h - 1)],
-        fill=C_BORDER_DARK, width=_S,
+    # Vertical separator: label column (full height)
+    label_sep_x = PAD_X + LABEL_W
+    p.append(
+        f'<line x1="{label_sep_x}" y1="{table_y}" '
+        f'x2="{label_sep_x}" y2="{table_y + table_h}" '
+        f'stroke="{C_BORDER_DK}" stroke-width="1"/>'
     )
 
     # Vertical separators between hour columns — full height including header
     for col in range(1, 24):
-        lx = ox + LABEL_W + col * CELL_W
-        draw.line(
-            [(lx, oy + 1), (lx, oy + total_h - 1)],
-            fill=C_BORDER, width=_S,
+        lx = PAD_X + LABEL_W + col * CELL_W
+        p.append(
+            f'<line x1="{lx}" y1="{table_y}" x2="{lx}" y2="{table_y + table_h}" '
+            f'stroke="{C_BORDER}" stroke-width="1"/>'
         )
 
-    # ── Step 4: Outer border drawn last so rounded corners clip the grid ──────
-    draw.rounded_rectangle(
-        [ox, oy, ox + TABLE_W, oy + total_h],
-        radius=8, outline=C_BORDER_DARK, width=_S, fill=None,
+    p.append('</g>')  # end clip group
+
+    # ── Table border (drawn last — rounds off corners over the clip group) ────
+    p.append(
+        f'<rect x="{PAD_X}" y="{table_y}" '
+        f'width="{TABLE_W}" height="{table_h}" '
+        f'rx="8" fill="none" stroke="{C_BORDER_DK}" stroke-width="1"/>'
     )
 
-    # ── Step 5: Text labels (always on top) ───────────────────────────────────
-    # "Часові проміжки" in the top-left cell — two lines, centered
-    hdr_lines = ["Часові", "проміжки"]
-    line_h = _th(draw, "A", fonts["hdr_lbl"]) + 2 * _S
-    total_lines_h = len(hdr_lines) * line_h
-    txt_y = oy + (HEADER_H - total_lines_h) // 2
-    for line in hdr_lines:
-        tw = _tw(draw, line, fonts["hdr_lbl"])
-        draw.text(
-            (ox + (LABEL_W - tw) // 2, txt_y),
-            line, font=fonts["hdr_lbl"], fill=C_TEXT_MID,
-        )
-        txt_y += line_h
+    # ── Table text labels (outside clip — always fully visible) ───────────────
+    # "Часові проміжки" centered in the header label cell
+    hdr_cx = PAD_X + LABEL_W / 2
+    hdr_mid = table_y + HEADER_H / 2
+    p.append(
+        f'<text x="{hdr_cx:.1f}" y="{hdr_mid - 7:.1f}" '
+        f'font-family="{FONT}" font-size="11" font-weight="bold" '
+        f'fill="{C_TEXT_MID}" text-anchor="middle">Часові</text>'
+    )
+    p.append(
+        f'<text x="{hdr_cx:.1f}" y="{hdr_mid + 7:.1f}" '
+        f'font-family="{FONT}" font-size="11" font-weight="bold" '
+        f'fill="{C_TEXT_MID}" text-anchor="middle">проміжки</text>'
+    )
 
-    # Rotated hour labels "00-01" … "23-24"
+    # Rotated hour labels "00-01" … "23-24" (rotate(-90) around cell center)
     for h in range(24):
-        label = f"{h:02d}-{h + 1:02d}"
-        cell_x = ox + LABEL_W + h * CELL_W
-        _paste_rotated_text(
-            img, label, fonts["col_lbl"],
-            cell_x, oy, HEADER_H, CELL_W, C_TEXT_MID,
+        label  = _esc(f"{h:02d}-{h + 1:02d}")
+        col_cx = PAD_X + LABEL_W + h * CELL_W + CELL_W / 2
+        col_cy = table_y + HEADER_H / 2
+        p.append(
+            f'<text transform="translate({col_cx:.1f},{col_cy:.1f}) rotate(-90)" '
+            f'font-family="{FONT}" font-size="9" '
+            f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
+            f'{label}</text>'
         )
 
-    # Date labels (left column of data rows)
-    for row_idx, dt in enumerate([today_start, tomorrow_start]):
-        row_y = oy + HEADER_H + row_idx * ROW_H
-        dlabel = _day_label(dt)
-        dtw = _tw(draw, dlabel, fonts["date_lbl"])
-        dth = _th(draw, dlabel, fonts["date_lbl"])
-        draw.text(
-            (ox + (LABEL_W - dtw) // 2, row_y + (ROW_H - dth) // 2),
-            dlabel, font=fonts["date_lbl"], fill=C_TEXT,
+    # Date labels — centered in each data row's label cell
+    for row_i, dt in enumerate([today_start, tomorrow_start]):
+        row_cy = table_y + HEADER_H + row_i * ROW_H + ROW_H / 2
+        p.append(
+            f'<text x="{hdr_cx:.1f}" y="{row_cy:.1f}" '
+            f'font-family="{FONT}" font-size="13" font-weight="bold" '
+            f'fill="{C_TEXT}" text-anchor="middle" dominant-baseline="central">'
+            f'{_esc(_day_label(dt))}</text>'
         )
 
-
-# ── Legend renderer ───────────────────────────────────────────────────────────
-
-def _draw_legend(draw, ox: int, oy: int, fonts: dict) -> None:
-    """Draw the icon legend row."""
-    items = [
-        ("on",     "Світло є"),
-        ("no",     "Світла нема"),
-        ("nfirst", "Перші 30 хв."),
-        ("nsecond","Другі 30 хв."),
-        ("maybe",  "Можливе відкл."),
+    # ── Legend ────────────────────────────────────────────────────────────────
+    legend_items = [
+        ("on",      "Світло є"),
+        ("no",      "Світла нема"),
+        ("nfirst",  "Перші 30 хв."),
+        ("nsecond", "Другі 30 хв."),
+        ("maybe",   "Можливе відкл."),
     ]
-    SWATCH_W, SWATCH_H = 24 * _S, 18 * _S
-    x = ox
+    SW, SH  = 24, 18
+    leg_y   = table_y + table_h + GAP + (LEGEND_H - SH) // 2
+    lx: float = PAD_X
 
-    for state, label in items:
-        # Swatch (small cell preview)
-        hw = SWATCH_W // 2
-        if state in ("nfirst",):
-            draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
-            draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
-        elif state in ("nsecond",):
-            draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_ON)
-            draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
+    for state, label in legend_items:
+        hw = SW / 2
+        if state == "nfirst":
+            p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_OFF}"/>')
+            p.append(f'<rect x="{lx+hw:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="0.5"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
+        elif state == "nsecond":
+            p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="0.5"/>')
+            p.append(f'<rect x="{lx+hw:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_OFF}"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
         elif state == "no":
-            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
+            p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_OFF}"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
         elif state == "maybe":
-            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_MAYBE)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_GRAY)
+            p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_MAYBE}"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#DCE0E4"/>')
         else:  # "on"
-            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
-            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], outline=C_BORDER)
+            p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="1"/>')
 
-        x += SWATCH_W + 5 * _S
-        lth = _th(draw, label, fonts["legend"])
-        draw.text((x, oy + (SWATCH_H - lth) // 2), label, font=fonts["legend"], fill=C_TEXT_MID)
-        x += _tw(draw, label, fonts["legend"]) + 20 * _S
+        text_x = lx + SW + 5
+        text_cy = leg_y + SH / 2
+        p.append(
+            f'<text x="{text_x:.1f}" y="{text_cy:.1f}" '
+            f'font-family="{FONT}" font-size="12" '
+            f'fill="{C_TEXT_MID}" dominant-baseline="central">'
+            f'{_esc(label)}</text>'
+        )
+        # Advance: swatch + gap + estimated text width (0.58 × font_size per char) + spacing
+        lx += SW + 5 + len(label) * 12 * 0.58 + 18
+
+    p.append("</svg>")
+    return "\n".join(p)
 
 
-# ── Main public API ───────────────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None:
     try:
-        from PIL import Image, ImageDraw
+        import cairosvg
     except ImportError:
-        logger.warning("Pillow not installed — chart generation unavailable")
+        logger.warning("cairosvg not installed — chart generation unavailable")
         return None
 
     try:
-        fonts = _load_fonts()
-        now = datetime.now(KYIV_TZ)
-        today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow_start = today_start + timedelta(days=1)
-        day_after      = tomorrow_start + timedelta(days=1)
-
-        events = schedule_data.get("events", [])
-
-        today_ev    = [e for e in events if today_start    <= _parse_dt(e["start"]) < tomorrow_start]
-        tomorrow_ev = [e for e in events if tomorrow_start <= _parse_dt(e["start"]) < day_after]
-
-        region_label = REGIONS[region].name if region in REGIONS else region
-
-        # ── Image height ──────────────────────────────────────────────────────
-        title_sec  = PAD_Y + TITLE_H
-        table_sec  = GAP + HEADER_H + 2 * ROW_H
-        legend_sec = GAP + LEGEND_H + PAD_Y
-        total_h    = title_sec + table_sec + legend_sec
-
-        img  = Image.new("RGB", (IMG_W, total_h), C_BG)
-        draw = ImageDraw.Draw(img)
-
-        y = PAD_Y
-
-        # ── Header ────────────────────────────────────────────────────────────
-        title_txt = f"Графік відключень ({region_label}):"
-        queue_badge_txt = f"Черга {queue}"
-
-        # Right badge "Черга X" — perfect pill shape, top-right
-        bph_q, bpv_q = 22 * _S, 10 * _S
-        btw_q = _tw(draw, queue_badge_txt, fonts["queue_badge"])
-        bth_q = _th(draw, queue_badge_txt, fonts["queue_badge"])
-        bh_q  = bth_q + bpv_q * 2
-        badge_rx = IMG_W - PAD_X - btw_q - bph_q * 2
-        draw.rounded_rectangle(
-            [badge_rx, y, IMG_W - PAD_X, y + bh_q],
-            radius=bh_q // 2,  # perfect pill
-            fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
-        )
-        draw.text((badge_rx + bph_q, y + bpv_q), queue_badge_txt,
-                  font=fonts["queue_badge"], fill=C_TEXT)
-
-        # Title — bold, left-aligned, vertically centered with badge
-        title_line_h = _th(draw, title_txt, fonts["title"])
-        title_y = y + (bh_q - title_line_h) // 2
-        draw.text((PAD_X, title_y), title_txt, font=fonts["title"], fill=C_TEXT)
-
-        # Subtitle — DTEK update time, small gray, below title
-        dtek_raw = schedule_data.get("dtek_updated_at")
-        if dtek_raw:
-            try:
-                dtek_dt = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
-                subtitle_txt = (
-                    "Дата та час останнього оновлення інформації на графіку: "
-                    f"{dtek_dt.strftime('%d.%m.%Y %H:%M')}"
-                )
-            except ValueError:
-                subtitle_txt = ""
-        else:
-            subtitle_txt = ""
-        if subtitle_txt:
-            sub_y = y + bh_q + 6 * _S
-            draw.text((PAD_X, sub_y), subtitle_txt, font=fonts["subtitle"], fill=C_TEXT_MID)
-
-        y += TITLE_H + GAP
-
-        # ── Table ─────────────────────────────────────────────────────────────
-        _draw_table(
-            img, draw,
-            ox=PAD_X, oy=y,
-            today_ev=today_ev,
-            tomorrow_ev=tomorrow_ev,
-            today_start=today_start,
-            tomorrow_start=tomorrow_start,
-            fonts=fonts,
-        )
-        y += HEADER_H + 2 * ROW_H + GAP
-
-        # ── Legend ────────────────────────────────────────────────────────────
-        legend_y = y + (LEGEND_H - 18) // 2
-        _draw_legend(draw, PAD_X, legend_y, fonts)
-
-        buf = io.BytesIO()
-        img.save(buf, "PNG", optimize=True)
-        return buf.getvalue()
-
+        svg = _build_svg(region, queue, schedule_data)
+        return cairosvg.svg2png(bytestring=svg.encode("utf-8"), scale=OUTPUT_SCALE)
     except Exception as e:
         logger.warning("Chart render error for %s/%s: %s", region, queue, e)
         return None
 
 
 async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) -> bytes | None:
-    """Generate a PNG schedule chart.
+    """Render a PNG schedule chart via SVG + CairoSVG.
 
     Drawing is CPU-bound and runs in the default thread-pool executor so the
     asyncio event loop is never blocked.

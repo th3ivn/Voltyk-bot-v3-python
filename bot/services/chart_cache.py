@@ -27,7 +27,7 @@ CHART_TTL_S: int = 60 * 60 * 25
 
 # Bump this when the chart layout/design changes so old cached images are
 # automatically bypassed without needing a manual Redis flush.
-CHART_VERSION: int = 5
+CHART_VERSION: int = 6
 
 _redis: aioredis.Redis | None = None
 
