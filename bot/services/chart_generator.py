@@ -1,7 +1,14 @@
-"""Generate schedule PNG charts using Pillow.
+"""Generate schedule table PNG charts using Pillow.
 
-CPU-bound drawing runs in a thread pool executor so the event loop is
-never blocked.
+Produces a light-themed table image that mirrors the standard Ukrainian
+power-outage schedule format:
+  • Two-badge header  (update time left | region+queue right)
+  • 24-column hourly table  (today + tomorrow rows)
+  • Per-cell state with lightning-bolt icons
+  • Legend row at the bottom
+
+CPU-bound drawing runs in a thread-pool executor — the event loop is never
+blocked.
 """
 from __future__ import annotations
 
@@ -16,40 +23,71 @@ from bot.utils.logger import get_logger
 logger = get_logger(__name__)
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
-TOTAL_MINUTES = 24 * 60
-DAY_NAMES = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
 
-IMG_WIDTH = 800
-PAD = 24
+MONTHS_UK = [
+    "січня", "лютого", "березня", "квітня", "травня", "червня",
+    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+]
 
-# ── Color palette (dark GitHub-inspired) ─────────────────────────────────────
-C_BG        = (13,  17,  23)
-C_CARD      = (22,  27,  34)
-C_BORDER    = (33,  38,  45)
-C_TEXT      = (230, 237, 243)
-C_MUTED     = (139, 148, 158)
-C_DIM       = (72,  79,  104)
-C_BRAND     = (240, 180, 41)
-C_BLUE      = (88,  166, 255)
+# ── Layout ────────────────────────────────────────────────────────────────────
+IMG_W      = 1000   # total image width
+PAD_X      = 20     # horizontal padding
+PAD_Y      = 16     # vertical padding
+LABEL_W    = 110    # width of the date-label column
+CELL_W     = 37     # width of each 1-hour column  (24*37 + 110 + 2*20 = 1018 → adjust)
+# Recalculate so everything fits:  24*CELL_W = IMG_W - 2*PAD_X - LABEL_W
+# 24*CELL_W = 1000 - 40 - 110 = 850  → CELL_W = 35.4 → use 35, LABEL_W = 860-840=130
+# Final: LABEL_W=130, CELL_W=35 → 130+24*35=130+840=970=1000-2*15 → PAD_X=15
+PAD_X      = 15
+LABEL_W    = 130
+CELL_W     = 35     # 24*35 = 840; 840+130 = 970 = 1000-2*15 ✓
 
-SEG_ON      = (30,  70,  32)
-SEG_OFF     = (122, 30,  30)
-SEG_MAYBE   = (90,  62,  0)
+BADGE_H    = 36     # header badge height
+GAP        = 12     # gap between badge section and table
+HEADER_H   = 58     # table header row height (for rotated labels)
+ROW_H      = 40     # data row height
+LEGEND_H   = 36     # legend row height
 
-DOT_OFF     = (248, 81,  73)
-DOT_MAYBE   = (210, 153, 34)
-DOT_OK      = (46,  160, 67)
+TABLE_W    = LABEL_W + 24 * CELL_W  # = 970
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+C_BG          = (245, 247, 249)   # overall image background
+C_TABLE_BG    = (255, 255, 255)
+C_HDR_BG      = (244, 246, 248)   # header row fill
+C_BORDER      = (210, 218, 226)
+C_BORDER_DARK = (180, 190, 200)
+
+C_TEXT        = (28,  34,  40)
+C_TEXT_MID    = (88,  96, 108)
+C_TEXT_DIM    = (150, 160, 172)
+
+# Header badge colors
+C_BADGE_L_BG  = (236, 240, 244)   # left badge bg
+C_BADGE_L_BD  = (210, 218, 226)   # left badge border
+C_BADGE_R_BG  = (242, 178, 0)     # right badge bg (yellow)
+
+# Cell colors
+CELL_ON       = (255, 255, 255)
+CELL_OFF      = (58,  66,  77)    # dark slate
+CELL_MAYBE    = (158, 163, 169)   # medium gray
+
+# Icon colors (drawn on top of cells)
+ICON_ON_DARK  = (255, 255, 255)   # white bolt on dark cell
+ICON_ON_GRAY  = (220, 224, 228)   # light bolt on gray cell
+
+# "No outages" row message colors
+C_OK_TEXT     = (40, 150, 70)     # green for "no outages"
+C_NA_TEXT     = (140, 150, 162)   # gray for "no data"
 
 # ── Font helpers ──────────────────────────────────────────────────────────────
-
-_REGULAR_FONTS = [
+_REG = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
     "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
 ]
-_BOLD_FONTS = [
+_BOLD = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -73,17 +111,14 @@ def _font(paths: list[str], size: int):
 
 def _load_fonts() -> dict:
     return {
-        "brand":   _font(_BOLD_FONTS,    20),
-        "region":  _font(_REGULAR_FONTS, 13),
-        "queue":   _font(_BOLD_FONTS,    15),
-        "title":   _font(_BOLD_FONTS,    14),
-        "event":   _font(_REGULAR_FONTS, 13),
-        "event_b": _font(_BOLD_FONTS,    13),
-        "dur":     _font(_REGULAR_FONTS, 12),
-        "hours":   _font(_REGULAR_FONTS, 10),
-        "total":   _font(_REGULAR_FONTS, 12),
-        "total_b": _font(_BOLD_FONTS,    12),
-        "legend":  _font(_REGULAR_FONTS, 11),
+        "badge":    _font(_REG,  13),
+        "badge_b":  _font(_BOLD, 13),
+        "hdr_lbl":  _font(_BOLD, 11),   # "Часові проміжки"
+        "col_lbl":  _font(_REG,   9),   # "00-01" rotated
+        "date_lbl": _font(_BOLD, 13),   # "27 березня"
+        "msg":      _font(_REG,  12),   # row messages
+        "legend":   _font(_REG,  12),
+        "legend_b": _font(_BOLD, 12),
     }
 
 
@@ -95,39 +130,38 @@ def _parse_dt(v) -> datetime:
     return v.astimezone(KYIV_TZ)
 
 
-def _format_time(dt: datetime) -> str:
-    return dt.strftime("%H:%M")
+def _day_label(dt: datetime) -> str:
+    return f"{dt.day} {MONTHS_UK[dt.month - 1]}"
 
 
-def _format_date(dt: datetime) -> str:
-    return dt.strftime("%d.%m.%Y")
+def _get_hour_states(events: list[dict], day_start: datetime) -> list[str]:
+    """Return a 24-element list of state strings for each hour of the day.
 
-
-def _dur_str(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = round((seconds % 3600) / 60)
-    if h > 0:
-        return f"{h} год {m} хв" if m else f"{h} год"
-    return f"{m} хв"
-
-
-def _total_dur(events: list[dict]) -> str:
-    s = sum((_parse_dt(e["end"]) - _parse_dt(e["start"])).total_seconds() for e in events)
-    return _dur_str(s)
-
-
-def _build_minute_map(events: list[dict], day_start: datetime) -> bytearray:
-    mm = bytearray(TOTAL_MINUTES)
+    States: 'on' | 'no' | 'maybe' | 'nfirst' | 'nsecond' | 'mfirst' | 'msecond'
+    """
+    half_map = bytearray(48)  # 30-min slots; 0=on, 1=planned, 2=possible
     for ev in events:
-        a = max(0, int((_parse_dt(ev["start"]) - day_start).total_seconds() / 60))
-        b = min(TOTAL_MINUTES, int((_parse_dt(ev["end"]) - day_start).total_seconds() / 60))
-        state = 2 if ev.get("isPossible") else 1
+        a = max(0, int((_parse_dt(ev["start"]) - day_start).total_seconds() / 1800))
+        b = min(48, int((_parse_dt(ev["end"]) - day_start).total_seconds() / 1800))
+        val = 2 if ev.get("isPossible") else 1
         for i in range(a, b):
-            mm[i] = state
-    return mm
+            half_map[i] = val
+
+    result = []
+    for h in range(24):
+        f, s = half_map[h * 2], half_map[h * 2 + 1]
+        if   f == 0 and s == 0: result.append("on")
+        elif f == 1 and s == 1: result.append("no")
+        elif f == 2 and s == 2: result.append("maybe")
+        elif f == 1 and s == 0: result.append("nfirst")
+        elif f == 0 and s == 1: result.append("nsecond")
+        elif f == 2 and s == 0: result.append("mfirst")
+        elif f == 0 and s == 2: result.append("msecond")
+        else:                   result.append("no" if 1 in (f, s) else "maybe")
+    return result
 
 
-# ── Drawing helpers ───────────────────────────────────────────────────────────
+# ── Drawing primitives ────────────────────────────────────────────────────────
 
 def _tw(draw, text: str, font) -> int:
     bb = draw.textbbox((0, 0), text, font=font)
@@ -139,128 +173,240 @@ def _th(draw, text: str, font) -> int:
     return bb[3] - bb[1]
 
 
-def _section_height(n_events: int) -> int:
-    """Estimated height of a day section card (with extra buffer)."""
-    ip = 14
-    title_h = 24
-    bar_block = 32 + 6 + 16   # bar + gap + hour labels
-    events_h = (n_events * 20) if n_events > 0 else 20
-    total_line = (10 + 18) if n_events > 0 else 0
-    return ip + title_h + bar_block + 8 + events_h + total_line + ip + 10
+def _draw_bolt(draw, cx: int, cy: int, w: int, color) -> None:
+    """Draw a lightning bolt icon centered at (cx, cy), bounding-box width w."""
+    h = int(w * 1.55)
+    ox, oy = cx - w // 2, cy - h // 2
+    pts = [
+        (ox + int(w * 0.65), oy),
+        (ox + int(w * 0.08), oy + int(h * 0.52)),
+        (ox + int(w * 0.42), oy + int(h * 0.52)),
+        (ox + int(w * 0.35), oy + h),
+        (ox + int(w * 0.92), oy + int(h * 0.48)),
+        (ox + int(w * 0.58), oy + int(h * 0.48)),
+    ]
+    draw.polygon(pts, fill=color)
 
 
-# ── Section renderer ──────────────────────────────────────────────────────────
+def _paste_rotated_text(
+    img, text: str, font, cx: int, cy: int, cell_h: int, cell_w: int, color: tuple
+) -> None:
+    """Draw text rotated 90° CCW, centered in the given cell bounding box.
 
-def _draw_section(
-    draw,
-    x: int, y: int, w: int,
-    title: str,
-    events: list[dict],
-    day_start: datetime,
-    fonts: dict,
-    now: datetime | None,
-) -> int:
-    """Draw one day card. Returns actual pixel height consumed."""
-    est_h = _section_height(len(events))
-    draw.rounded_rectangle([x, y, x + w, y + est_h], radius=10, fill=C_CARD, outline=C_BORDER)
+    cx / cy mark the top-left of the cell.
+    """
+    from PIL import Image as _Img, ImageDraw as _ID
 
-    ip = 14
-    cx, cy = x + ip, y + ip
+    dummy = _Img.new("RGBA", (300, 40), (0, 0, 0, 0))
+    dd = _ID.Draw(dummy)
+    bb = dd.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
 
-    # Title
-    draw.text((cx, cy), title, font=fonts["title"], fill=C_TEXT)
-    cy += 24
+    txt_img = _Img.new("RGBA", (tw + 2, th + 2), (0, 0, 0, 0))
+    _ID.Draw(txt_img).text((1, 1), text, font=font, fill=(*color, 255))
 
-    # ── Timeline bar ─────────────────────────────────────────────────────────
-    bar_x = cx
-    bar_w = w - ip * 2
-    bar_h = 32
-    mm = _build_minute_map(events, day_start)
+    rotated = txt_img.rotate(90, expand=True)
 
-    seg_colors = {0: SEG_ON, 1: SEG_OFF, 2: SEG_MAYBE}
-    i = 0
-    while i < TOTAL_MINUTES:
-        st = mm[i]
-        j = i + 1
-        while j < TOTAL_MINUTES and mm[j] == st:
-            j += 1
-        x1 = bar_x + int(i / TOTAL_MINUTES * bar_w)
-        x2 = bar_x + int(j / TOTAL_MINUTES * bar_w)
-        if x2 > x1:
-            draw.rectangle([x1, cy, x2 - 1, cy + bar_h - 1], fill=seg_colors[st])
-        i = j
+    rx = cx + (cell_w - rotated.width) // 2
+    ry = cy + (cell_h - rotated.height) // 2
+    img.paste(rotated, (rx, ry), rotated)
 
-    draw.rectangle([bar_x, cy, bar_x + bar_w - 1, cy + bar_h - 1], outline=C_BORDER, width=1)
 
-    # Now marker — blue vertical line
-    if now is not None:
-        nm = (now - day_start).total_seconds() / 60
-        if 0 <= nm <= TOTAL_MINUTES:
-            nx = bar_x + int(nm / TOTAL_MINUTES * bar_w)
-            draw.rectangle([nx - 1, cy - 2, nx + 1, cy + bar_h + 1], fill=C_BLUE)
+def _draw_cell(draw, x: int, y: int, state: str) -> None:
+    """Fill a single hour cell and overlay the bolt icon when needed."""
+    w, h = CELL_W, ROW_H
 
-    cy += bar_h + 6
+    _BG: dict[str, tuple] = {
+        "on":      (CELL_ON,    CELL_ON),
+        "no":      (CELL_OFF,   CELL_OFF),
+        "maybe":   (CELL_MAYBE, CELL_MAYBE),
+        "nfirst":  (CELL_OFF,   CELL_ON),
+        "nsecond": (CELL_ON,    CELL_OFF),
+        "mfirst":  (CELL_MAYBE, CELL_ON),
+        "msecond": (CELL_ON,    CELL_MAYBE),
+    }
+    _ICON: dict[str, tuple | None] = {
+        "on":      None,
+        "no":      ICON_ON_DARK,
+        "maybe":   ICON_ON_GRAY,
+        "nfirst":  ICON_ON_DARK,
+        "nsecond": ICON_ON_DARK,
+        "mfirst":  ICON_ON_GRAY,
+        "msecond": ICON_ON_GRAY,
+    }
 
-    # Hour labels every 2 h
-    for h_val in range(0, 25, 2):
-        lx = bar_x + int(h_val / 24 * bar_w)
-        lbl = f"{h_val:02d}"
-        draw.text((lx - _tw(draw, lbl, fonts["hours"]) // 2, cy), lbl,
-                  font=fonts["hours"], fill=C_DIM)
-    cy += 16
+    left_bg, right_bg = _BG.get(state, (CELL_ON, CELL_ON))
+    hw = w // 2
 
-    # ── Event list ────────────────────────────────────────────────────────────
-    cy += 8
-    if events:
-        for ev in events:
-            s = _parse_dt(ev["start"])
-            e = _parse_dt(ev["end"])
-            secs = (e - s).total_seconds()
-            possible = ev.get("isPossible", False)
-            dot_c = DOT_MAYBE if possible else DOT_OFF
-
-            # Dot
-            draw.ellipse([cx + 1, cy + 5, cx + 9, cy + 13], fill=dot_c)
-
-            # Time (bold)
-            time_txt = f"{_format_time(s)} – {_format_time(e)}"
-            draw.text((cx + 14, cy + 1), time_txt, font=fonts["event_b"], fill=C_TEXT)
-            tw_t = _tw(draw, time_txt, fonts["event_b"])
-
-            # Duration (muted)
-            dur_txt = f"  (~{_dur_str(secs)})"
-            draw.text((cx + 14 + tw_t, cy + 2), dur_txt, font=fonts["dur"], fill=C_MUTED)
-
-            # Possible label
-            if possible:
-                tw_d = _tw(draw, dur_txt, fonts["dur"])
-                draw.text(
-                    (cx + 14 + tw_t + tw_d + 6, cy + 2),
-                    "можливе",
-                    font=fonts["dur"],
-                    fill=DOT_MAYBE,
-                )
-
-            cy += 20
-
-        # Separator + total
-        draw.line([(cx, cy + 2), (x + w - ip, cy + 2)], fill=C_BORDER, width=1)
-        cy += 10
-        lbl = "Без світла: "
-        val = f"~{_total_dur(events)}"
-        draw.text((cx, cy), lbl, font=fonts["total"], fill=C_MUTED)
-        draw.text((cx + _tw(draw, lbl, fonts["total"]), cy), val, font=fonts["total_b"], fill=C_TEXT)
-        cy += 18
+    if left_bg == right_bg:
+        draw.rectangle([x, y, x + w - 1, y + h - 1], fill=left_bg)
     else:
-        draw.ellipse([cx + 1, cy + 4, cx + 9, cy + 12], fill=DOT_OK)
-        draw.text((cx + 14, cy + 1), "Відключень не заплановано", font=fonts["event"], fill=DOT_OK)
-        cy += 20
+        draw.rectangle([x,      y, x + hw - 1, y + h - 1], fill=left_bg)
+        draw.rectangle([x + hw, y, x + w  - 1, y + h - 1], fill=right_bg)
 
-    cy += ip
-    return cy - y  # actual height
+    icon_color = _ICON.get(state)
+    if icon_color is not None:
+        _draw_bolt(draw, x + w // 2, y + h // 2, 11, icon_color)
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
+# ── Table renderer ────────────────────────────────────────────────────────────
+
+def _draw_table(
+    img,
+    draw,
+    ox: int, oy: int,
+    today_ev: list[dict],
+    tomorrow_ev: list[dict],
+    today_start: datetime,
+    tomorrow_start: datetime,
+    has_data: bool,
+    fonts: dict,
+) -> None:
+    """Draw the full schedule table starting at (ox, oy)."""
+    from PIL import ImageDraw
+
+    total_h = HEADER_H + 2 * ROW_H
+
+    # ── Outer border & background ─────────────────────────────────────────────
+    draw.rounded_rectangle(
+        [ox, oy, ox + TABLE_W, oy + total_h],
+        radius=6, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=1,
+    )
+
+    # Header row background
+    draw.rectangle(
+        [ox + 1, oy + 1, ox + TABLE_W - 1, oy + HEADER_H - 1],
+        fill=C_HDR_BG,
+    )
+
+    # ── Fill data cells ───────────────────────────────────────────────────────
+    if has_data:
+        today_states    = _get_hour_states(today_ev,    today_start)
+        tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
+    else:
+        today_states    = ["on"] * 24
+        tomorrow_states = ["on"] * 24
+
+    for row_idx, states in enumerate([today_states, tomorrow_states]):
+        row_y = oy + HEADER_H + row_idx * ROW_H
+        for col_idx, state in enumerate(states):
+            cell_x = ox + LABEL_W + col_idx * CELL_W
+            _draw_cell(draw, cell_x, row_y, state)
+
+    # ── Grid lines ────────────────────────────────────────────────────────────
+    # Horizontal separators
+    for i in range(1, 3):
+        ly = oy + HEADER_H + (i - 1) * ROW_H
+        draw.line([(ox, ly), (ox + TABLE_W, ly)], fill=C_BORDER, width=1)
+    draw.line([(ox, oy + total_h), (ox + TABLE_W, oy + total_h)], fill=C_BORDER_DARK, width=1)
+
+    # Vertical separators between hour columns
+    for col in range(1, 24):
+        lx = ox + LABEL_W + col * CELL_W
+        draw.line([(lx, oy + HEADER_H), (lx, oy + total_h)], fill=C_BORDER, width=1)
+
+    # Label column separator (darker)
+    draw.line([(ox + LABEL_W, oy), (ox + LABEL_W, oy + total_h)], fill=C_BORDER_DARK, width=1)
+
+    # ── Header labels ─────────────────────────────────────────────────────────
+    # "Часові проміжки" in the top-left cell — two lines, centered
+    hdr_lines = ["Часові", "проміжки"]
+    line_h = _th(draw, "A", fonts["hdr_lbl"]) + 2
+    total_lines_h = len(hdr_lines) * line_h
+    txt_y = oy + (HEADER_H - total_lines_h) // 2
+    for line in hdr_lines:
+        tw = _tw(draw, line, fonts["hdr_lbl"])
+        draw.text(
+            (ox + (LABEL_W - tw) // 2, txt_y),
+            line, font=fonts["hdr_lbl"], fill=C_TEXT_MID,
+        )
+        txt_y += line_h
+
+    # Rotated hour labels "00-01" … "23-24"
+    for h in range(24):
+        label = f"{h:02d}-{h + 1:02d}"
+        cell_x = ox + LABEL_W + h * CELL_W
+        _paste_rotated_text(
+            img, label, fonts["col_lbl"],
+            cell_x, oy, HEADER_H, CELL_W, C_TEXT_MID,
+        )
+
+    # ── Date labels + row messages ────────────────────────────────────────────
+    for row_idx, (dt, ev_list) in enumerate([
+        (today_start,    today_ev),
+        (tomorrow_start, tomorrow_ev),
+    ]):
+        row_y = oy + HEADER_H + row_idx * ROW_H
+
+        # Date label (left column)
+        dlabel = _day_label(dt)
+        dtw = _tw(draw, dlabel, fonts["date_lbl"])
+        dth = _th(draw, dlabel, fonts["date_lbl"])
+        draw.text(
+            (ox + (LABEL_W - dtw) // 2, row_y + (ROW_H - dth) // 2),
+            dlabel, font=fonts["date_lbl"], fill=C_TEXT,
+        )
+
+        # Optional overlay message (spans the hours area)
+        if not has_data:
+            msg, msg_color = "Дані відсутні", C_NA_TEXT
+        elif not ev_list:
+            msg, msg_color = "Відключень не заплановано", C_OK_TEXT
+        else:
+            continue  # cells already drawn with states
+
+        hours_area_w = 24 * CELL_W
+        mtw = _tw(draw, msg, fonts["msg"])
+        mth = _th(draw, msg, fonts["msg"])
+        draw.text(
+            (ox + LABEL_W + (hours_area_w - mtw) // 2,
+             row_y + (ROW_H - mth) // 2),
+            msg, font=fonts["msg"], fill=msg_color,
+        )
+
+
+# ── Legend renderer ───────────────────────────────────────────────────────────
+
+def _draw_legend(draw, ox: int, oy: int, fonts: dict) -> None:
+    """Draw the icon legend row."""
+    items = [
+        ("on",     "Світло є"),
+        ("no",     "Світла нема"),
+        ("nfirst", "Перші 30 хв."),
+        ("nsecond","Другі 30 хв."),
+        ("maybe",  "Можливе відкл."),
+    ]
+    SWATCH_W, SWATCH_H = 24, 18
+    x = ox
+
+    for state, label in items:
+        # Swatch (small cell preview)
+        hw = SWATCH_W // 2
+        if state in ("nfirst",):
+            draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
+            draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+        elif state in ("nsecond",):
+            draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_ON)
+            draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+        elif state == "no":
+            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+        elif state == "maybe":
+            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_MAYBE)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_GRAY)
+        else:  # "on"
+            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
+            draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], outline=C_BORDER)
+
+        x += SWATCH_W + 5
+        lth = _th(draw, label, fonts["legend"])
+        draw.text((x, oy + (SWATCH_H - lth) // 2), label, font=fonts["legend"], fill=C_TEXT_MID)
+        x += _tw(draw, label, fonts["legend"]) + 20
+
+
+# ── Main public API ───────────────────────────────────────────────────────────
 
 def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None:
     try:
@@ -272,85 +418,74 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
     try:
         fonts = _load_fonts()
         now = datetime.now(KYIV_TZ)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
-        day_after = tomorrow_start + timedelta(days=1)
+        day_after      = tomorrow_start + timedelta(days=1)
 
         events = schedule_data.get("events", [])
-        today_ev = [e for e in events if today_start <= _parse_dt(e["start"]) < tomorrow_start]
+        has_data = schedule_data.get("hasData", False)
+
+        today_ev    = [e for e in events if today_start    <= _parse_dt(e["start"]) < tomorrow_start]
         tomorrow_ev = [e for e in events if tomorrow_start <= _parse_dt(e["start"]) < day_after]
 
         region_label = REGIONS[region].name if region in REGIONS else region
-        today_title = f"Сьогодні — {_format_date(now)} ({DAY_NAMES[now.weekday()]})"
-        tomorrow_title = f"Завтра — {_format_date(tomorrow_start)} ({DAY_NAMES[tomorrow_start.weekday()]})"
 
-        # Estimate total height (sections + header + legend + padding)
-        header_h = 66
-        sep_gap = 14
-        legend_h = 32
-        today_h = _section_height(len(today_ev))
-        tomorrow_h = _section_height(len(tomorrow_ev))
-        total_h = PAD + header_h + sep_gap + today_h + 12 + tomorrow_h + 14 + legend_h + PAD
+        # ── Image height ──────────────────────────────────────────────────────
+        badge_sec  = PAD_Y + BADGE_H
+        table_sec  = GAP + HEADER_H + 2 * ROW_H
+        legend_sec = GAP + LEGEND_H + PAD_Y
+        total_h    = badge_sec + table_sec + legend_sec
 
-        img = Image.new("RGB", (IMG_WIDTH, total_h), C_BG)
+        img  = Image.new("RGB", (IMG_W, total_h), C_BG)
         draw = ImageDraw.Draw(img)
-        cw = IMG_WIDTH - PAD * 2
-        y = PAD
 
-        # ── Header ───────────────────────────────────────────────────────────
-        draw.text((PAD, y), "ВОЛЬТИК", font=fonts["brand"], fill=C_BRAND)
-        draw.text((PAD, y + 28), region_label, font=fonts["region"], fill=C_MUTED)
+        y = PAD_Y
 
-        q_txt = f"Черга {queue}"
-        qtw = _tw(draw, q_txt, fonts["queue"])
-        qth = _th(draw, q_txt, fonts["queue"])
-        bp = 12
-        bx = IMG_WIDTH - PAD - qtw - bp * 2
-        by = y + (header_h - qth - 10) // 2
+        # ── Header badges ─────────────────────────────────────────────────────
+        update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
+        queue_txt  = f"{region_label}, Черга {queue}"
+
+        bp, bpv = 14, 7  # badge horizontal / vertical padding
+
+        # Left badge
+        btw_l = _tw(draw, update_txt, fonts["badge"])
+        bth   = _th(draw, update_txt, fonts["badge"])
+        bh    = bth + bpv * 2
         draw.rounded_rectangle(
-            [bx, by, bx + qtw + bp * 2, by + qth + 10],
-            radius=14, fill=C_CARD, outline=C_BORDER,
+            [PAD_X, y, PAD_X + btw_l + bp * 2, y + bh],
+            radius=8, fill=C_BADGE_L_BG, outline=C_BADGE_L_BD, width=1,
         )
-        draw.text((bx + bp, by + 5), q_txt, font=fonts["queue"], fill=C_TEXT)
+        draw.text((PAD_X + bp, y + bpv), update_txt, font=fonts["badge"], fill=C_TEXT_MID)
 
-        y += header_h
-        draw.line([(PAD, y), (IMG_WIDTH - PAD, y)], fill=C_BORDER, width=1)
-        y += sep_gap
-
-        # ── Today ─────────────────────────────────────────────────────────────
-        actual_today_h = _draw_section(
-            draw, PAD, y, cw, today_title, today_ev, today_start, fonts, now=now
+        # Right badge
+        btw_r = _tw(draw, queue_txt, fonts["badge_b"])
+        bth_r = _th(draw, queue_txt, fonts["badge_b"])
+        bh_r  = bth_r + bpv * 2
+        rx    = IMG_W - PAD_X - btw_r - bp * 2
+        draw.rounded_rectangle(
+            [rx, y, IMG_W - PAD_X, y + bh_r],
+            radius=8, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG, width=1,
         )
-        y += actual_today_h + 12
+        draw.text((rx + bp, y + bpv), queue_txt, font=fonts["badge_b"], fill=C_TEXT)
 
-        # ── Tomorrow ──────────────────────────────────────────────────────────
-        actual_tomorrow_h = _draw_section(
-            draw, PAD, y, cw, tomorrow_title, tomorrow_ev, tomorrow_start, fonts, now=None
+        y += BADGE_H + GAP
+
+        # ── Table ─────────────────────────────────────────────────────────────
+        _draw_table(
+            img, draw,
+            ox=PAD_X, oy=y,
+            today_ev=today_ev,
+            tomorrow_ev=tomorrow_ev,
+            today_start=today_start,
+            tomorrow_start=tomorrow_start,
+            has_data=has_data,
+            fonts=fonts,
         )
-        y += actual_tomorrow_h + 14
+        y += HEADER_H + 2 * ROW_H + GAP
 
         # ── Legend ────────────────────────────────────────────────────────────
-        lx = PAD + 8
-        legend_items = [
-            (SEG_ON,    "є світло"),
-            (SEG_OFF,   "відключення"),
-            (SEG_MAYBE, "можливе"),
-        ]
-        for color, label in legend_items:
-            draw.rectangle([lx, y + 5, lx + 12, y + 15], fill=color, outline=C_BORDER)
-            lx += 16
-            draw.text((lx, y + 3), label, font=fonts["legend"], fill=C_DIM)
-            lx += _tw(draw, label, fonts["legend"]) + 18
-
-        # Blue "зараз" indicator
-        draw.rectangle([lx, y + 7, lx + 2, y + 13], fill=C_BLUE)
-        lx += 6
-        draw.text((lx, y + 3), "зараз", font=fonts["legend"], fill=C_DIM)
-
-        # Crop to actual content
-        final_h = y + legend_h + PAD
-        if final_h < total_h:
-            img = img.crop((0, 0, IMG_WIDTH, final_h))
+        legend_y = y + (LEGEND_H - 18) // 2
+        _draw_legend(draw, PAD_X, legend_y, fonts)
 
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
@@ -362,7 +497,7 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
 
 
 async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) -> bytes | None:
-    """Generate a PNG chart for the given schedule.
+    """Generate a PNG schedule chart.
 
     Drawing is CPU-bound and runs in the default thread-pool executor so the
     asyncio event loop is never blocked.
