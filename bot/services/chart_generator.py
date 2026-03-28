@@ -42,8 +42,8 @@ PAD_X      = 15
 LABEL_W    = 130
 CELL_W     = 35     # 24*35 = 840; 840+130 = 970 = 1000-2*15 ✓
 
-BADGE_H    = 36     # header badge height
-GAP        = 12     # gap between badge section and table
+TITLE_H    = 80     # header section height (title + subtitle)
+GAP        = 14     # gap between header section and table
 HEADER_H   = 58     # table header row height (for rotated labels)
 ROW_H      = 40     # data row height
 LEGEND_H   = 36     # legend row height
@@ -74,10 +74,6 @@ CELL_MAYBE    = (158, 163, 169)   # medium gray
 # Icon colors (drawn on top of cells)
 ICON_ON_DARK  = (255, 255, 255)   # white bolt on dark cell
 ICON_ON_GRAY  = (220, 224, 228)   # light bolt on gray cell
-
-# "No outages" row message colors
-C_OK_TEXT     = (40, 150, 70)     # green for "no outages"
-C_NA_TEXT     = (140, 150, 162)   # gray for "no data"
 
 # ── Font helpers ──────────────────────────────────────────────────────────────
 _REG = [
@@ -111,14 +107,14 @@ def _font(paths: list[str], size: int):
 
 def _load_fonts() -> dict:
     return {
-        "badge":    _font(_REG,  13),
-        "badge_b":  _font(_BOLD, 13),
-        "hdr_lbl":  _font(_BOLD, 11),   # "Часові проміжки"
-        "col_lbl":  _font(_REG,   9),   # "00-01" rotated
-        "date_lbl": _font(_BOLD, 13),   # "27 березня"
-        "msg":      _font(_REG,  12),   # row messages
-        "legend":   _font(_REG,  12),
-        "legend_b": _font(_BOLD, 12),
+        "title":       _font(_BOLD, 20),   # "Графік відключень (...):"
+        "queue_badge": _font(_BOLD, 22),   # "Черга 3.1"
+        "subtitle":    _font(_REG,  11),   # date/time subtitle
+        "hdr_lbl":     _font(_BOLD, 11),   # "Часові проміжки"
+        "col_lbl":     _font(_REG,   9),   # "00-01" rotated
+        "date_lbl":    _font(_BOLD, 13),   # "27 березня"
+        "legend":      _font(_REG,  12),
+        "legend_b":    _font(_BOLD, 12),
     }
 
 
@@ -333,35 +329,15 @@ def _draw_table(
             cell_x, oy, HEADER_H, CELL_W, C_TEXT_MID,
         )
 
-    # ── Date labels + row messages ────────────────────────────────────────────
-    for row_idx, (dt, ev_list) in enumerate([
-        (today_start,    today_ev),
-        (tomorrow_start, tomorrow_ev),
-    ]):
+    # ── Date labels ───────────────────────────────────────────────────────────
+    for row_idx, dt in enumerate([today_start, tomorrow_start]):
         row_y = oy + HEADER_H + row_idx * ROW_H
-
-        # Date label (left column)
         dlabel = _day_label(dt)
         dtw = _tw(draw, dlabel, fonts["date_lbl"])
         dth = _th(draw, dlabel, fonts["date_lbl"])
         draw.text(
             (ox + (LABEL_W - dtw) // 2, row_y + (ROW_H - dth) // 2),
             dlabel, font=fonts["date_lbl"], fill=C_TEXT,
-        )
-
-        # Optional overlay message (spans the hours area)
-        if not ev_list:
-            msg, msg_color = "Відключень не заплановано", C_OK_TEXT
-        else:
-            continue  # cells already drawn with states
-
-        hours_area_w = 24 * CELL_W
-        mtw = _tw(draw, msg, fonts["msg"])
-        mth = _th(draw, msg, fonts["msg"])
-        draw.text(
-            (ox + LABEL_W + (hours_area_w - mtw) // 2,
-             row_y + (ROW_H - mth) // 2),
-            msg, font=fonts["msg"], fill=msg_color,
         )
 
 
@@ -430,53 +406,56 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         region_label = REGIONS[region].name if region in REGIONS else region
 
         # ── Image height ──────────────────────────────────────────────────────
-        badge_sec  = PAD_Y + BADGE_H
+        title_sec  = PAD_Y + TITLE_H
         table_sec  = GAP + HEADER_H + 2 * ROW_H
         legend_sec = GAP + LEGEND_H + PAD_Y
-        total_h    = badge_sec + table_sec + legend_sec
+        total_h    = title_sec + table_sec + legend_sec
 
         img  = Image.new("RGB", (IMG_W, total_h), C_BG)
         draw = ImageDraw.Draw(img)
 
         y = PAD_Y
 
-        # ── Header badges ─────────────────────────────────────────────────────
-        # Use DTEK's own published-at timestamp when available; fall back to render time.
-        dtek_raw = schedule_data.get("dtek_updated_at")  # "DD.MM.YYYY HH:MM" or None
+        # ── Header ────────────────────────────────────────────────────────────
+        title_txt = f"Графік відключень ({region_label}):"
+        queue_badge_txt = f"Черга {queue}"
+
+        # Right badge "Черга X" — large yellow pill, top-right
+        bph_q, bpv_q = 20, 10
+        btw_q = _tw(draw, queue_badge_txt, fonts["queue_badge"])
+        bth_q = _th(draw, queue_badge_txt, fonts["queue_badge"])
+        bh_q  = bth_q + bpv_q * 2
+        badge_rx = IMG_W - PAD_X - btw_q - bph_q * 2
+        draw.rounded_rectangle(
+            [badge_rx, y, IMG_W - PAD_X, y + bh_q],
+            radius=12, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
+        )
+        draw.text((badge_rx + bph_q, y + bpv_q), queue_badge_txt,
+                  font=fonts["queue_badge"], fill=C_TEXT)
+
+        # Title — bold, left-aligned, vertically centered with badge
+        title_line_h = _th(draw, title_txt, fonts["title"])
+        title_y = y + (bh_q - title_line_h) // 2
+        draw.text((PAD_X, title_y), title_txt, font=fonts["title"], fill=C_TEXT)
+
+        # Subtitle — DTEK update time, small gray, below title
+        dtek_raw = schedule_data.get("dtek_updated_at")
         if dtek_raw:
             try:
                 dtek_dt = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
-                update_txt = f"Оновлено ДТЕК {dtek_dt.strftime('%d.%m')} о {dtek_dt.strftime('%H:%M')}"
+                subtitle_txt = (
+                    "Дата та час останнього оновлення інформації на графіку: "
+                    f"{dtek_dt.strftime('%d.%m.%Y %H:%M')}"
+                )
             except ValueError:
-                update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
+                subtitle_txt = ""
         else:
-            update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
-        queue_txt  = f"{region_label}, Черга {queue}"
+            subtitle_txt = ""
+        if subtitle_txt:
+            sub_y = y + bh_q + 6
+            draw.text((PAD_X, sub_y), subtitle_txt, font=fonts["subtitle"], fill=C_TEXT_MID)
 
-        bp, bpv = 14, 7  # badge horizontal / vertical padding
-
-        # Left badge
-        btw_l = _tw(draw, update_txt, fonts["badge"])
-        bth   = _th(draw, update_txt, fonts["badge"])
-        bh    = bth + bpv * 2
-        draw.rounded_rectangle(
-            [PAD_X, y, PAD_X + btw_l + bp * 2, y + bh],
-            radius=8, fill=C_BADGE_L_BG, outline=C_BADGE_L_BD, width=1,
-        )
-        draw.text((PAD_X + bp, y + bpv), update_txt, font=fonts["badge"], fill=C_TEXT_MID)
-
-        # Right badge
-        btw_r = _tw(draw, queue_txt, fonts["badge_b"])
-        bth_r = _th(draw, queue_txt, fonts["badge_b"])
-        bh_r  = bth_r + bpv * 2
-        rx    = IMG_W - PAD_X - btw_r - bp * 2
-        draw.rounded_rectangle(
-            [rx, y, IMG_W - PAD_X, y + bh_r],
-            radius=8, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG, width=1,
-        )
-        draw.text((rx + bp, y + bpv), queue_txt, font=fonts["badge_b"], fill=C_TEXT)
-
-        y += BADGE_H + GAP
+        y += TITLE_H + GAP
 
         # ── Table ─────────────────────────────────────────────────────────────
         _draw_table(
