@@ -90,6 +90,9 @@ async def on_startup(bot: Bot) -> None:
     await init_http_client()
     logger.info("✅ HTTP client ініційований")
 
+    from bot.services import chart_cache
+    await chart_cache.init()
+
     await load_last_commit_sha()
     logger.info("✅ Стан коміту відновлено з БД")
 
@@ -122,6 +125,10 @@ async def on_shutdown(bot: Bot) -> None:
     _bg_tasks.clear()
 
     await close_http_client()
+
+    from bot.services import chart_cache
+    await chart_cache.close()
+
     await engine.dispose()
     logger.info("Bye!")
 

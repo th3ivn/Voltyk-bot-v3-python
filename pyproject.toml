@@ -20,7 +20,7 @@ dependencies = [
     "aioping>=0.4",
     "sentry-sdk[aiohttp]>=2.0,<3",
     "redis>=5.0",
-    "playwright>=1.40,<2",
+    "Pillow>=10.0,<12",
 ]
 
 [project.optional-dependencies]

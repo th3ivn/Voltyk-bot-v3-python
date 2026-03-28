@@ -46,7 +46,7 @@ async def test_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     plain_text, raw_entities = html_to_entities(html_text)
     entities = to_aiogram_entities(raw_entities)
 
-    image_bytes = await fetch_schedule_image(user.region, user.queue)
+    image_bytes = await fetch_schedule_image(user.region, user.queue, schedule_data)
 
     try:
         if image_bytes:
