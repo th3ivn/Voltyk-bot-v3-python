@@ -30,25 +30,23 @@ MONTHS_UK = [
 ]
 
 # ── Layout ────────────────────────────────────────────────────────────────────
-IMG_W      = 1000   # total image width
-PAD_X      = 20     # horizontal padding
-PAD_Y      = 16     # vertical padding
-LABEL_W    = 110    # width of the date-label column
-CELL_W     = 37     # width of each 1-hour column  (24*37 + 110 + 2*20 = 1018 → adjust)
-# Recalculate so everything fits:  24*CELL_W = IMG_W - 2*PAD_X - LABEL_W
-# 24*CELL_W = 1000 - 40 - 110 = 850  → CELL_W = 35.4 → use 35, LABEL_W = 860-840=130
-# Final: LABEL_W=130, CELL_W=35 → 130+24*35=130+840=970=1000-2*15 → PAD_X=15
-PAD_X      = 15
-LABEL_W    = 130
-CELL_W     = 35     # 24*35 = 840; 840+130 = 970 = 1000-2*15 ✓
+# Render at 2× resolution so text is crisp when Telegram scales the image down.
+# All pixel constants below are already at the 2× (render) scale.
+_S = 2        # scale factor — change to 1 for a 1000 px output
 
-TITLE_H    = 80     # header section height (title + subtitle)
-GAP        = 14     # gap between header section and table
-HEADER_H   = 58     # table header row height (for rotated labels)
-ROW_H      = 40     # data row height
-LEGEND_H   = 36     # legend row height
+IMG_W    = 1000 * _S   # 2000 px
+PAD_X    = 15   * _S
+PAD_Y    = 16   * _S
+LABEL_W  = 130  * _S
+CELL_W   = 35   * _S   # 24×35×2 = 1680; 1680+260 = 1940 = 2000−2×30 ✓
 
-TABLE_W    = LABEL_W + 24 * CELL_W  # = 970
+TITLE_H  = 80   * _S
+GAP      = 14   * _S
+HEADER_H = 58   * _S
+ROW_H    = 40   * _S
+LEGEND_H = 36   * _S
+
+TABLE_W  = LABEL_W + 24 * CELL_W   # = 1940
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 C_BG          = (245, 247, 249)   # overall image background
@@ -107,14 +105,14 @@ def _font(paths: list[str], size: int):
 
 def _load_fonts() -> dict:
     return {
-        "title":       _font(_BOLD, 20),   # "Графік відключень (...):"
-        "queue_badge": _font(_BOLD, 22),   # "Черга 3.1"
-        "subtitle":    _font(_REG,  11),   # date/time subtitle
-        "hdr_lbl":     _font(_BOLD, 11),   # "Часові проміжки"
-        "col_lbl":     _font(_REG,   9),   # "00-01" rotated
-        "date_lbl":    _font(_BOLD, 13),   # "27 березня"
-        "legend":      _font(_REG,  12),
-        "legend_b":    _font(_BOLD, 12),
+        "title":       _font(_BOLD, 20 * _S),   # "Графік відключень (...):"
+        "queue_badge": _font(_BOLD, 22 * _S),   # "Черга 3.1"
+        "subtitle":    _font(_REG,  11 * _S),   # date/time subtitle
+        "hdr_lbl":     _font(_BOLD, 11 * _S),   # "Часові проміжки"
+        "col_lbl":     _font(_REG,   9 * _S),   # "00-01" rotated
+        "date_lbl":    _font(_BOLD, 13 * _S),   # "27 березня"
+        "legend":      _font(_REG,  12 * _S),
+        "legend_b":    _font(_BOLD, 12 * _S),
     }
 
 
@@ -251,7 +249,7 @@ def _draw_cell(draw, x: int, y: int, state: str) -> None:
 
     icon_color = _ICON.get(state)
     if icon_color is not None:
-        _draw_bolt(draw, x + w // 2, y + h // 2, 11, icon_color)
+        _draw_bolt(draw, x + w // 2, y + h // 2, 11 * _S, icon_color)
 
 
 # ── Table renderer ────────────────────────────────────────────────────────────
@@ -272,7 +270,7 @@ def _draw_table(
     # ── Outer border & background ─────────────────────────────────────────────
     draw.rounded_rectangle(
         [ox, oy, ox + TABLE_W, oy + total_h],
-        radius=6, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=1,
+        radius=6 * _S, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=_S,
     )
 
     # Header row background
@@ -295,21 +293,21 @@ def _draw_table(
     # Horizontal separators
     for i in range(1, 3):
         ly = oy + HEADER_H + (i - 1) * ROW_H
-        draw.line([(ox, ly), (ox + TABLE_W, ly)], fill=C_BORDER, width=1)
-    draw.line([(ox, oy + total_h), (ox + TABLE_W, oy + total_h)], fill=C_BORDER_DARK, width=1)
+        draw.line([(ox, ly), (ox + TABLE_W, ly)], fill=C_BORDER, width=_S)
+    draw.line([(ox, oy + total_h), (ox + TABLE_W, oy + total_h)], fill=C_BORDER_DARK, width=_S)
 
     # Vertical separators between hour columns
     for col in range(1, 24):
         lx = ox + LABEL_W + col * CELL_W
-        draw.line([(lx, oy + HEADER_H), (lx, oy + total_h)], fill=C_BORDER, width=1)
+        draw.line([(lx, oy + HEADER_H), (lx, oy + total_h)], fill=C_BORDER, width=_S)
 
     # Label column separator (darker)
-    draw.line([(ox + LABEL_W, oy), (ox + LABEL_W, oy + total_h)], fill=C_BORDER_DARK, width=1)
+    draw.line([(ox + LABEL_W, oy), (ox + LABEL_W, oy + total_h)], fill=C_BORDER_DARK, width=_S)
 
     # ── Header labels ─────────────────────────────────────────────────────────
     # "Часові проміжки" in the top-left cell — two lines, centered
     hdr_lines = ["Часові", "проміжки"]
-    line_h = _th(draw, "A", fonts["hdr_lbl"]) + 2
+    line_h = _th(draw, "A", fonts["hdr_lbl"]) + 2 * _S
     total_lines_h = len(hdr_lines) * line_h
     txt_y = oy + (HEADER_H - total_lines_h) // 2
     for line in hdr_lines:
@@ -352,7 +350,7 @@ def _draw_legend(draw, ox: int, oy: int, fonts: dict) -> None:
         ("nsecond","Другі 30 хв."),
         ("maybe",  "Можливе відкл."),
     ]
-    SWATCH_W, SWATCH_H = 24, 18
+    SWATCH_W, SWATCH_H = 24 * _S, 18 * _S
     x = ox
 
     for state, label in items:
@@ -361,25 +359,25 @@ def _draw_legend(draw, ox: int, oy: int, fonts: dict) -> None:
         if state in ("nfirst",):
             draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
             draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
         elif state in ("nsecond",):
             draw.rectangle([x, oy, x + hw - 1, oy + SWATCH_H - 1], fill=CELL_ON)
             draw.rectangle([x + hw, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
         elif state == "no":
             draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_OFF)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_DARK)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_DARK)
         elif state == "maybe":
             draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_MAYBE)
-            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8, ICON_ON_GRAY)
+            _draw_bolt(draw, x + SWATCH_W // 2, oy + SWATCH_H // 2, 8 * _S, ICON_ON_GRAY)
         else:  # "on"
             draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], fill=CELL_ON)
             draw.rectangle([x, oy, x + SWATCH_W - 1, oy + SWATCH_H - 1], outline=C_BORDER)
 
-        x += SWATCH_W + 5
+        x += SWATCH_W + 5 * _S
         lth = _th(draw, label, fonts["legend"])
         draw.text((x, oy + (SWATCH_H - lth) // 2), label, font=fonts["legend"], fill=C_TEXT_MID)
-        x += _tw(draw, label, fonts["legend"]) + 20
+        x += _tw(draw, label, fonts["legend"]) + 20 * _S
 
 
 # ── Main public API ───────────────────────────────────────────────────────────
@@ -421,14 +419,14 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         queue_badge_txt = f"Черга {queue}"
 
         # Right badge "Черга X" — large yellow pill, top-right
-        bph_q, bpv_q = 20, 10
+        bph_q, bpv_q = 20 * _S, 10 * _S
         btw_q = _tw(draw, queue_badge_txt, fonts["queue_badge"])
         bth_q = _th(draw, queue_badge_txt, fonts["queue_badge"])
         bh_q  = bth_q + bpv_q * 2
         badge_rx = IMG_W - PAD_X - btw_q - bph_q * 2
         draw.rounded_rectangle(
             [badge_rx, y, IMG_W - PAD_X, y + bh_q],
-            radius=12, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
+            radius=12 * _S, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
         )
         draw.text((badge_rx + bph_q, y + bpv_q), queue_badge_txt,
                   font=fonts["queue_badge"], fill=C_TEXT)
@@ -452,7 +450,7 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         else:
             subtitle_txt = ""
         if subtitle_txt:
-            sub_y = y + bh_q + 6
+            sub_y = y + bh_q + 6 * _S
             draw.text((PAD_X, sub_y), subtitle_txt, font=fonts["subtitle"], fill=C_TEXT_MID)
 
         y += TITLE_H + GAP
