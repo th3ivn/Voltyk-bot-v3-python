@@ -428,7 +428,8 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
 
     events.sort(key=lambda e: e["start"])
 
-    return {"hasData": len(events) > 0, "events": events, "queue": queue}
+    dtek_updated_at: str | None = fact.get("update")  # "DD.MM.YYYY HH:MM" from DTEK source
+    return {"hasData": len(events) > 0, "events": events, "queue": queue, "dtek_updated_at": dtek_updated_at}
 
 
 def _parse_dt(dt_str: str) -> datetime:

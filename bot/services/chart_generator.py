@@ -441,7 +441,16 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         y = PAD_Y
 
         # ── Header badges ─────────────────────────────────────────────────────
-        update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
+        # Use DTEK's own published-at timestamp when available; fall back to render time.
+        dtek_raw = schedule_data.get("dtek_updated_at")  # "DD.MM.YYYY HH:MM" or None
+        if dtek_raw:
+            try:
+                dtek_dt = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
+                update_txt = f"Оновлено ДТЕК {dtek_dt.strftime('%d.%m')} о {dtek_dt.strftime('%H:%M')}"
+            except ValueError:
+                update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
+        else:
+            update_txt = f"Оновлення від {now.strftime('%H:%M')} {now.strftime('%d.%m')}"
         queue_txt  = f"{region_label}, Черга {queue}"
 
         bp, bpv = 14, 7  # badge horizontal / vertical padding
