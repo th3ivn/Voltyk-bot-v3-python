@@ -698,8 +698,21 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
         [_btn("💻 Система", "admin_system"), _btn("⏱ Інтервали", "admin_intervals")],
         [_btn("⏸ Debounce", "admin_debounce"), _btn("⏸️ Режим паузи", "admin_pause")],
         [_btn("🔄 Cooldown перевірки", "admin_refresh_cooldown")],
+        [_btn("🖼 Режим графіка", "admin_chart_render")],
         [_btn("🗑 Очистити базу", "admin_clear_db"), _btn("🔄 Перезапуск", "admin_restart")],
         [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
+
+
+def get_chart_render_mode_keyboard(current_mode: str = "on_change") -> InlineKeyboardMarkup:
+    def _mode_btn(label: str, mode: str) -> object:
+        prefix = "✅ " if mode == current_mode else ""
+        return _btn(f"{prefix}{label}", f"chart_render_mode_{mode}")
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_mode_btn("При зміні розкладу", "on_change")],
+        [_mode_btn("При кожному запиті", "on_demand")],
+        [_btn("← Назад", "admin_settings_menu")],
     ])
 
 

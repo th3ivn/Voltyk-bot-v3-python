@@ -99,6 +99,26 @@ async def on_startup(bot: Bot) -> None:
     me = await bot.get_me()
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
+    # Load chart render mode from DB
+    from bot.db.queries import get_setting
+    from bot.db.session import async_session
+    from bot.services.api import set_chart_render_mode
+    async with async_session() as _s:
+        _mode = await get_setting(_s, "chart_render_mode") or "on_change"
+        set_chart_render_mode(on_demand=(_mode == "on_demand"))
+    logger.info("Chart render mode: %s", _mode)
+
+    # Notify admins that bot started
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _now = datetime.now(ZoneInfo("Europe/Kyiv"))
+    _startup_text = f"✅ <b>Бот запущено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
+    for _admin_id in settings.all_admin_ids:
+        try:
+            await bot.send_message(_admin_id, _startup_text)
+        except Exception:
+            pass
+
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
     from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
 
@@ -112,6 +132,18 @@ async def on_startup(bot: Bot) -> None:
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
+
+    # Notify admins that bot is stopping
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    _now = datetime.now(ZoneInfo("Europe/Kyiv"))
+    _shutdown_text = f"⛔ <b>Бот зупинено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
+    for _admin_id in settings.all_admin_ids:
+        try:
+            await bot.send_message(_admin_id, _shutdown_text)
+        except Exception:
+            pass
+
     from bot.services.api import close_http_client
     from bot.services.power_monitor import stop_power_monitor
     from bot.services.scheduler import stop_scheduler
