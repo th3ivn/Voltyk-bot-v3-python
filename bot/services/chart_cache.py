@@ -66,6 +66,11 @@ def _key(region: str, queue: str) -> str:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def is_usable() -> bool:
+    """Return True when the Redis client has been initialised successfully."""
+    return _redis is not None
+
+
 async def get(region: str, queue: str) -> bytes | None:
     """Return the cached PNG bytes, or None if not found / Redis unavailable."""
     if _redis is None:

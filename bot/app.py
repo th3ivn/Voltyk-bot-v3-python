@@ -92,7 +92,6 @@ async def on_startup(bot: Bot) -> None:
 
     from bot.services import chart_cache
     await chart_cache.init()
-    logger.info("✅ Chart cache ініційований")
 
     await load_last_commit_sha()
     logger.info("✅ Стан коміту відновлено з БД")

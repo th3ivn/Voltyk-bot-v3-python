@@ -268,7 +268,6 @@ def _draw_table(
     tomorrow_ev: list[dict],
     today_start: datetime,
     tomorrow_start: datetime,
-    has_data: bool,
     fonts: dict,
 ) -> None:
     """Draw the full schedule table starting at (ox, oy)."""
@@ -287,12 +286,8 @@ def _draw_table(
     )
 
     # ── Fill data cells ───────────────────────────────────────────────────────
-    if has_data:
-        today_states    = _get_hour_states(today_ev,    today_start)
-        tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
-    else:
-        today_states    = ["on"] * 24
-        tomorrow_states = ["on"] * 24
+    today_states    = _get_hour_states(today_ev,    today_start)
+    tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
 
     for row_idx, states in enumerate([today_states, tomorrow_states]):
         row_y = oy + HEADER_H + row_idx * ROW_H
@@ -355,9 +350,7 @@ def _draw_table(
         )
 
         # Optional overlay message (spans the hours area)
-        if not has_data:
-            msg, msg_color = "Дані відсутні", C_NA_TEXT
-        elif not ev_list:
+        if not ev_list:
             msg, msg_color = "Відключень не заплановано", C_OK_TEXT
         else:
             continue  # cells already drawn with states
@@ -430,7 +423,6 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         day_after      = tomorrow_start + timedelta(days=1)
 
         events = schedule_data.get("events", [])
-        has_data = schedule_data.get("hasData", False)
 
         today_ev    = [e for e in events if today_start    <= _parse_dt(e["start"]) < tomorrow_start]
         tomorrow_ev = [e for e in events if tomorrow_start <= _parse_dt(e["start"]) < day_after]
@@ -485,7 +477,6 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
             tomorrow_ev=tomorrow_ev,
             today_start=today_start,
             tomorrow_start=tomorrow_start,
-            has_data=has_data,
             fonts=fonts,
         )
         y += HEADER_H + 2 * ROW_H + GAP

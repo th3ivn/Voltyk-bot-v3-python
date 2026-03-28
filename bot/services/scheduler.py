@@ -586,6 +586,10 @@ async def _prerender_chart(region: str, queue: str, sched_data: dict) -> None:
     from bot.services import chart_cache
     from bot.services.chart_generator import generate_schedule_chart
 
+    if not chart_cache.is_usable():
+        logger.debug("Chart pre-render skipped — Redis unavailable for %s/%s", region, queue)
+        return
+
     try:
         await chart_cache.delete(region, queue)
         data = await generate_schedule_chart(region, queue, sched_data)
