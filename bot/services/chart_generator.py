@@ -42,8 +42,8 @@ CELL_W   = 35   * _S   # 24×35×2 = 1680; 1680+260 = 1940 = 2000−2×30 ✓
 
 TITLE_H  = 90   * _S
 GAP      = 16   * _S
-HEADER_H = 70   * _S   # taller to avoid clipping rotated hour labels
-ROW_H    = 50   * _S   # taller data rows to match reference
+HEADER_H = 76   * _S   # enough height for rotated "00-01" labels
+ROW_H    = 50   * _S
 LEGEND_H = 44   * _S
 
 TABLE_W  = LABEL_W + 24 * CELL_W
@@ -60,8 +60,6 @@ C_TEXT_MID    = (88,  96, 108)
 C_TEXT_DIM    = (150, 160, 172)
 
 # Header badge colors
-C_BADGE_L_BG  = (236, 240, 244)   # left badge bg
-C_BADGE_L_BD  = (210, 218, 226)   # left badge border
 C_BADGE_R_BG  = (242, 178, 0)     # right badge bg (yellow)
 
 # Cell colors
@@ -200,13 +198,17 @@ def _paste_rotated_text(
     from PIL import Image as _Img
     from PIL import ImageDraw as _ID
 
-    dummy = _Img.new("RGBA", (300, 40), (0, 0, 0, 0))
+    # Measure text using a throw-away surface
+    dummy = _Img.new("RGBA", (500, 60), (0, 0, 0, 0))
     dd = _ID.Draw(dummy)
     bb = dd.textbbox((0, 0), text, font=font)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    # bb may have non-zero left/top offsets (font bearing) — account for them
+    tw = bb[2] - bb[0]
+    th = bb[3] - bb[1]
 
-    txt_img = _Img.new("RGBA", (tw + 2, th + 2), (0, 0, 0, 0))
-    _ID.Draw(txt_img).text((1, 1), text, font=font, fill=(*color, 255))
+    # Render at exact bounding-box size, compensating for bearing
+    txt_img = _Img.new("RGBA", (tw + 4, th + 4), (0, 0, 0, 0))
+    _ID.Draw(txt_img).text((2 - bb[0], 2 - bb[1]), text, font=font, fill=(*color, 255))
 
     rotated = txt_img.rotate(90, expand=True)
 
@@ -267,10 +269,10 @@ def _draw_table(
     """Draw the full schedule table starting at (ox, oy)."""
     total_h = HEADER_H + 2 * ROW_H
 
-    # ── Outer border & background ─────────────────────────────────────────────
+    # ── Step 1: Background fill with rounded corners ──────────────────────────
     draw.rounded_rectangle(
         [ox, oy, ox + TABLE_W, oy + total_h],
-        radius=8, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=_S,
+        radius=8, fill=C_TABLE_BG,
     )
 
     # Header row background
@@ -279,7 +281,7 @@ def _draw_table(
         fill=C_HDR_BG,
     )
 
-    # ── Fill data cells ───────────────────────────────────────────────────────
+    # ── Step 2: Fill data cells ───────────────────────────────────────────────
     today_states    = _get_hour_states(today_ev,    today_start)
     tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
 
@@ -289,22 +291,33 @@ def _draw_table(
             cell_x = ox + LABEL_W + col_idx * CELL_W
             _draw_cell(draw, cell_x, row_y, state)
 
-    # ── Grid lines ────────────────────────────────────────────────────────────
-    # Horizontal separators
-    for i in range(1, 3):
-        ly = oy + HEADER_H + (i - 1) * ROW_H
-        draw.line([(ox, ly), (ox + TABLE_W, ly)], fill=C_BORDER, width=_S)
-    draw.line([(ox, oy + total_h), (ox + TABLE_W, oy + total_h)], fill=C_BORDER_DARK, width=_S)
+    # ── Step 3: Grid lines (drawn over cells, under text) ─────────────────────
+    # Horizontal separator: header bottom / row separator / row bottom
+    for i in range(3):
+        ly = oy + HEADER_H + i * ROW_H
+        draw.line([(ox + 1, ly), (ox + TABLE_W - 1, ly)], fill=C_BORDER_DARK, width=_S)
 
-    # Vertical separators between hour columns
+    # Vertical separator: label column (full height, darker)
+    draw.line(
+        [(ox + LABEL_W, oy + 1), (ox + LABEL_W, oy + total_h - 1)],
+        fill=C_BORDER_DARK, width=_S,
+    )
+
+    # Vertical separators between hour columns — full height including header
     for col in range(1, 24):
         lx = ox + LABEL_W + col * CELL_W
-        draw.line([(lx, oy + HEADER_H), (lx, oy + total_h)], fill=C_BORDER, width=_S)
+        draw.line(
+            [(lx, oy + 1), (lx, oy + total_h - 1)],
+            fill=C_BORDER, width=_S,
+        )
 
-    # Label column separator (darker)
-    draw.line([(ox + LABEL_W, oy), (ox + LABEL_W, oy + total_h)], fill=C_BORDER_DARK, width=_S)
+    # ── Step 4: Outer border drawn last so rounded corners clip the grid ──────
+    draw.rounded_rectangle(
+        [ox, oy, ox + TABLE_W, oy + total_h],
+        radius=8, outline=C_BORDER_DARK, width=_S, fill=None,
+    )
 
-    # ── Header labels ─────────────────────────────────────────────────────────
+    # ── Step 5: Text labels (always on top) ───────────────────────────────────
     # "Часові проміжки" in the top-left cell — two lines, centered
     hdr_lines = ["Часові", "проміжки"]
     line_h = _th(draw, "A", fonts["hdr_lbl"]) + 2 * _S
@@ -327,7 +340,7 @@ def _draw_table(
             cell_x, oy, HEADER_H, CELL_W, C_TEXT_MID,
         )
 
-    # ── Date labels ───────────────────────────────────────────────────────────
+    # Date labels (left column of data rows)
     for row_idx, dt in enumerate([today_start, tomorrow_start]):
         row_y = oy + HEADER_H + row_idx * ROW_H
         dlabel = _day_label(dt)
