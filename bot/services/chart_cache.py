@@ -25,6 +25,10 @@ logger = get_logger(__name__)
 # 25 h — survives overnight; fresh data is always written when schedule changes
 CHART_TTL_S: int = 60 * 60 * 25
 
+# Bump this when the chart layout/design changes so old cached images are
+# automatically bypassed without needing a manual Redis flush.
+CHART_VERSION: int = 2
+
 _redis: aioredis.Redis | None = None
 
 
@@ -61,7 +65,7 @@ async def close() -> None:
 # ── Key helpers ───────────────────────────────────────────────────────────────
 
 def _key(region: str, queue: str) -> str:
-    return f"chart:{region}:{queue}"
+    return f"chart:v{CHART_VERSION}:{region}:{queue}"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
