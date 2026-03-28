@@ -38,10 +38,10 @@ PAD_X    = 15
 PAD_Y    = 20
 LABEL_W  = 130
 CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1000 − 2×15 ✓
-TITLE_H  = 90
-GAP      = 16
-HEADER_H = 76
-ROW_H    = 50
+TITLE_H  = 84    # reduced: less empty space between header block and table
+GAP      = 12    # ↓25 % — header block and table feel connected
+HEADER_H = 72    # accommodates larger bold hour labels without excess padding
+ROW_H    = 44    # slightly more compact data rows
 LEGEND_H = 44
 
 TABLE_W  = LABEL_W + 24 * CELL_W   # 970
@@ -170,7 +170,9 @@ def _cell_svg(x: float, y: float, state: str) -> str:
     bolt_color = _BOLT.get(state)
     if bolt_color:
         cx, cy = x + w / 2, y + h / 2
-        out.append(f'<polygon points="{_bolt_pts(cx, cy, 11)}" fill="{bolt_color}"/>')
+        # Bolt size proportional to cell: ~30 % of min(CELL_W, ROW_H)
+        bolt_sz = round(min(CELL_W, ROW_H) * 0.30)
+        out.append(f'<polygon points="{_bolt_pts(cx, cy, bolt_sz)}" fill="{bolt_color}"/>')
 
     return "\n".join(out)
 
@@ -234,7 +236,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:
     )
     p.append(
         f'<text x="{badge_cx:.1f}" y="{PAD_Y + badge_h / 2:.1f}" '
-        f'font-family="{FONT}" font-size="{badge_fs}" font-weight="bold" '
+        f'font-family="{FONT}" font-size="{badge_fs}" '
         f'fill="{C_TEXT}" text-anchor="middle" dominant-baseline="central">'
         f'{queue_txt}</text>'
     )
@@ -347,7 +349,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:
         col_cy = table_y + HEADER_H / 2
         p.append(
             f'<text transform="translate({col_cx:.1f},{col_cy:.1f}) rotate(-90)" '
-            f'font-family="{FONT}" font-size="9" '
+            f'font-family="{FONT}" font-size="11" font-weight="bold" '
             f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
             f'{label}</text>'
         )
@@ -379,17 +381,17 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:
         if state == "nfirst":
             p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_OFF}"/>')
             p.append(f'<rect x="{lx+hw:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="0.5"/>')
-            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 7)}" fill="#FFFFFF"/>')
         elif state == "nsecond":
             p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="0.5"/>')
             p.append(f'<rect x="{lx+hw:.1f}" y="{leg_y}" width="{hw:.1f}" height="{SH}" fill="{CELL_OFF}"/>')
-            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 7)}" fill="#FFFFFF"/>')
         elif state == "no":
             p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_OFF}"/>')
-            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#FFFFFF"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 7)}" fill="#FFFFFF"/>')
         elif state == "maybe":
             p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_MAYBE}"/>')
-            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 8)}" fill="#DCE0E4"/>')
+            p.append(f'<polygon points="{_bolt_pts(lx+SW/2, leg_y+SH/2, 7)}" fill="#DCE0E4"/>')
         else:  # "on"
             p.append(f'<rect x="{lx:.1f}" y="{leg_y}" width="{SW}" height="{SH}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="1"/>')
 
