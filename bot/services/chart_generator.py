@@ -36,17 +36,17 @@ _S = 2        # scale factor — change to 1 for a 1000 px output
 
 IMG_W    = 1000 * _S   # 2000 px
 PAD_X    = 15   * _S
-PAD_Y    = 16   * _S
+PAD_Y    = 20   * _S
 LABEL_W  = 130  * _S
 CELL_W   = 35   * _S   # 24×35×2 = 1680; 1680+260 = 1940 = 2000−2×30 ✓
 
-TITLE_H  = 80   * _S
-GAP      = 14   * _S
-HEADER_H = 58   * _S
-ROW_H    = 40   * _S
-LEGEND_H = 36   * _S
+TITLE_H  = 90   * _S
+GAP      = 16   * _S
+HEADER_H = 70   * _S   # taller to avoid clipping rotated hour labels
+ROW_H    = 50   * _S   # taller data rows to match reference
+LEGEND_H = 44   * _S
 
-TABLE_W  = LABEL_W + 24 * CELL_W   # = 1940
+TABLE_W  = LABEL_W + 24 * CELL_W
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 C_BG          = (245, 247, 249)   # overall image background
@@ -270,7 +270,7 @@ def _draw_table(
     # ── Outer border & background ─────────────────────────────────────────────
     draw.rounded_rectangle(
         [ox, oy, ox + TABLE_W, oy + total_h],
-        radius=6 * _S, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=_S,
+        radius=8, fill=C_TABLE_BG, outline=C_BORDER_DARK, width=_S,
     )
 
     # Header row background
@@ -418,15 +418,16 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
         title_txt = f"Графік відключень ({region_label}):"
         queue_badge_txt = f"Черга {queue}"
 
-        # Right badge "Черга X" — large yellow pill, top-right
-        bph_q, bpv_q = 20 * _S, 10 * _S
+        # Right badge "Черга X" — perfect pill shape, top-right
+        bph_q, bpv_q = 22 * _S, 10 * _S
         btw_q = _tw(draw, queue_badge_txt, fonts["queue_badge"])
         bth_q = _th(draw, queue_badge_txt, fonts["queue_badge"])
         bh_q  = bth_q + bpv_q * 2
         badge_rx = IMG_W - PAD_X - btw_q - bph_q * 2
         draw.rounded_rectangle(
             [badge_rx, y, IMG_W - PAD_X, y + bh_q],
-            radius=12 * _S, fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
+            radius=bh_q // 2,  # perfect pill
+            fill=C_BADGE_R_BG, outline=C_BADGE_R_BG,
         )
         draw.text((badge_rx + bph_q, y + bpv_q), queue_badge_txt,
                   font=fonts["queue_badge"], fill=C_TEXT)
