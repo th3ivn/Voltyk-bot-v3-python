@@ -150,14 +150,22 @@ def _get_hour_states(events: list[dict], day_start: datetime) -> list[str]:
     result = []
     for h in range(24):
         f, s = half_map[h * 2], half_map[h * 2 + 1]
-        if   f == 0 and s == 0: result.append("on")
-        elif f == 1 and s == 1: result.append("no")
-        elif f == 2 and s == 2: result.append("maybe")
-        elif f == 1 and s == 0: result.append("nfirst")
-        elif f == 0 and s == 1: result.append("nsecond")
-        elif f == 2 and s == 0: result.append("mfirst")
-        elif f == 0 and s == 2: result.append("msecond")
-        else:                   result.append("no" if 1 in (f, s) else "maybe")
+        if f == 0 and s == 0:
+            result.append("on")
+        elif f == 1 and s == 1:
+            result.append("no")
+        elif f == 2 and s == 2:
+            result.append("maybe")
+        elif f == 1 and s == 0:
+            result.append("nfirst")
+        elif f == 0 and s == 1:
+            result.append("nsecond")
+        elif f == 2 and s == 0:
+            result.append("mfirst")
+        elif f == 0 and s == 2:
+            result.append("msecond")
+        else:
+            result.append("no" if 1 in (f, s) else "maybe")
     return result
 
 
@@ -195,7 +203,8 @@ def _paste_rotated_text(
 
     cx / cy mark the top-left of the cell.
     """
-    from PIL import Image as _Img, ImageDraw as _ID
+    from PIL import Image as _Img
+    from PIL import ImageDraw as _ID
 
     dummy = _Img.new("RGBA", (300, 40), (0, 0, 0, 0))
     dd = _ID.Draw(dummy)
@@ -263,8 +272,6 @@ def _draw_table(
     fonts: dict,
 ) -> None:
     """Draw the full schedule table starting at (ox, oy)."""
-    from PIL import ImageDraw
-
     total_h = HEADER_H + 2 * ROW_H
 
     # ── Outer border & background ─────────────────────────────────────────────
