@@ -22,6 +22,19 @@ _image_cache: OrderedDict[str, tuple[datetime, bytes]] = OrderedDict()
 CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
+# Chart render mode: False = on_change (cache), True = on_demand (always re-render)
+_chart_render_on_demand: bool = False
+
+
+def set_chart_render_mode(on_demand: bool) -> None:
+    """Update the in-memory chart render mode flag (persisted in DB by the caller)."""
+    global _chart_render_on_demand
+    _chart_render_on_demand = on_demand
+
+
+def get_chart_render_on_demand() -> bool:
+    return _chart_render_on_demand
+
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
 _last_etag: str | None = None
@@ -254,6 +267,11 @@ async def fetch_schedule_image(
        upstream repository. Result is stored in both caches.
     """
     from bot.services import chart_cache
+
+    # ── on_demand mode: always render fresh, skip all caches ──────────────────
+    if _chart_render_on_demand and schedule_data is not None:
+        from bot.services.chart_generator import generate_schedule_chart
+        return await generate_schedule_chart(region, queue, schedule_data)
 
     cache_key = f"{region}_{queue}"
     now = datetime.now()
