@@ -630,7 +630,7 @@ async def _send_schedule_notification(
         ch_plain_text, raw_ch_entities = html_to_entities(html_text)
         ch_entities = to_aiogram_entities(raw_ch_entities)
 
-        image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue)
+        image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue, sched_data)
 
         sent_msg = None
         sent_ch_msg = None

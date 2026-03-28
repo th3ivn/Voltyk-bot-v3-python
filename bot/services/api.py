@@ -218,7 +218,7 @@ def invalidate_image_cache(region: str, queue: str) -> None:
     """Remove a specific region/queue image from the in-memory cache.
 
     Call this whenever the schedule for that pair changes so the next
-    fetch_schedule_image() call always pulls a fresh image from GitHub.
+    fetch_schedule_image() call always regenerates or pulls a fresh image.
     """
     cache_key = f"{region}_{queue}"
     if cache_key in _image_cache:
@@ -226,7 +226,20 @@ def invalidate_image_cache(region: str, queue: str) -> None:
         logger.debug("Image cache invalidated for %s/%s", region, queue)
 
 
-async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
+async def fetch_schedule_image(
+    region: str,
+    queue: str,
+    schedule_data: dict | None = None,
+) -> bytes | None:
+    """Return a PNG chart image for the given region/queue.
+
+    When *schedule_data* (result of ``parse_schedule_for_queue``) is supplied
+    the image is generated locally with Pillow and cached.  If generation
+    fails or no schedule data is available the function falls back to fetching
+    a pre-rendered PNG from GitHub.
+
+    The result is cached for ``CACHE_TTL`` regardless of its source.
+    """
     cache_key = f"{region}_{queue}"
     now = datetime.now()
     if cache_key in _image_cache:
@@ -235,6 +248,19 @@ async def fetch_schedule_image(region: str, queue: str) -> bytes | None:
             _image_cache.move_to_end(cache_key)
             return data
 
+    # ── Try to generate locally ───────────────────────────────────────────────
+    if schedule_data is not None:
+        from bot.services.chart_generator import generate_schedule_chart
+        generated = await generate_schedule_chart(region, queue, schedule_data)
+        if generated:
+            if len(_image_cache) >= MAX_CACHE_SIZE:
+                _image_cache.popitem(last=False)
+            _image_cache[cache_key] = (now, generated)
+            _image_cache.move_to_end(cache_key)
+            return generated
+        logger.warning("Local chart generation failed for %s/%s — falling back to GitHub", region, queue)
+
+    # ── Fallback: fetch pre-rendered PNG from GitHub ──────────────────────────
     queue_dashed = queue.replace(".", "-")
     url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
 

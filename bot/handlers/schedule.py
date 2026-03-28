@@ -38,7 +38,7 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
     plain_text, raw_entities = append_timestamp(html_text, now_unix)
     entities = to_aiogram_entities(raw_entities)
 
-    image_bytes = await fetch_schedule_image(user.region, user.queue)
+    image_bytes = await fetch_schedule_image(user.region, user.queue, schedule_data)
     if image_bytes:
         photo = BufferedInputFile(image_bytes, filename="schedule.png")
         await message.answer_photo(

@@ -138,7 +138,7 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
     plain_text, raw_entities = append_timestamp(html_text, last_check)
     entities = to_aiogram_entities(raw_entities)
 
-    image_bytes = await fetch_schedule_image(user.region, user.queue)
+    image_bytes = await fetch_schedule_image(user.region, user.queue, schedule_data)
 
     if image_bytes:
         photo = BufferedInputFile(image_bytes, filename="schedule.png")
