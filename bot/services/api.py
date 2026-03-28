@@ -215,15 +215,24 @@ async def fetch_schedule_data(
 
 
 def invalidate_image_cache(region: str, queue: str) -> None:
-    """Remove a specific region/queue image from the in-memory cache.
+    """Remove the L1 in-memory entry for the given region/queue.
 
-    Call this whenever the schedule for that pair changes so the next
-    fetch_schedule_image() call always regenerates or pulls a fresh image.
+    The Redis (L2) entry is deleted separately by the scheduler's
+    ``_prerender_chart`` coroutine, which runs right after this call and
+    immediately stores a freshly rendered replacement.
     """
     cache_key = f"{region}_{queue}"
     if cache_key in _image_cache:
         del _image_cache[cache_key]
-        logger.debug("Image cache invalidated for %s/%s", region, queue)
+        logger.debug("L1 image cache invalidated for %s/%s", region, queue)
+
+
+def _l1_store(cache_key: str, now: datetime, data: bytes) -> None:
+    """Write *data* into the L1 in-memory cache."""
+    if len(_image_cache) >= MAX_CACHE_SIZE:
+        _image_cache.popitem(last=False)
+    _image_cache[cache_key] = (now, data)
+    _image_cache.move_to_end(cache_key)
 
 
 async def fetch_schedule_image(
@@ -233,34 +242,46 @@ async def fetch_schedule_image(
 ) -> bytes | None:
     """Return a PNG chart image for the given region/queue.
 
-    When *schedule_data* (result of ``parse_schedule_for_queue``) is supplied
-    the image is generated locally with Pillow and cached.  If generation
-    fails or no schedule data is available the function falls back to fetching
-    a pre-rendered PNG from GitHub.
-
-    The result is cached for ``CACHE_TTL`` regardless of its source.
+    Lookup chain
+    ────────────
+    1. L1 in-memory cache (2 min TTL) — fastest path, no I/O.
+    2. L2 Redis cache (25 h TTL)      — pre-rendered on last schedule change.
+       On hit the result is also written back to L1 so subsequent requests
+       within the same hot window are served without a Redis round-trip.
+    3. Local generation via Pillow    — requires *schedule_data*.
+       Result is stored in both caches so the next N users get it for free.
+    4. GitHub fallback                — fetches a pre-built PNG from the
+       upstream repository. Result is stored in both caches.
     """
+    from bot.services import chart_cache
+
     cache_key = f"{region}_{queue}"
     now = datetime.now()
+
+    # ── L1: in-memory ─────────────────────────────────────────────────────────
     if cache_key in _image_cache:
         cached_at, data = _image_cache[cache_key]
         if now - cached_at < CACHE_TTL:
             _image_cache.move_to_end(cache_key)
             return data
 
-    # ── Try to generate locally ───────────────────────────────────────────────
+    # ── L2: Redis ─────────────────────────────────────────────────────────────
+    redis_data = await chart_cache.get(region, queue)
+    if redis_data:
+        _l1_store(cache_key, now, redis_data)
+        return redis_data
+
+    # ── Generate locally ──────────────────────────────────────────────────────
     if schedule_data is not None:
         from bot.services.chart_generator import generate_schedule_chart
         generated = await generate_schedule_chart(region, queue, schedule_data)
         if generated:
-            if len(_image_cache) >= MAX_CACHE_SIZE:
-                _image_cache.popitem(last=False)
-            _image_cache[cache_key] = (now, generated)
-            _image_cache.move_to_end(cache_key)
+            await chart_cache.store(region, queue, generated)
+            _l1_store(cache_key, now, generated)
             return generated
         logger.warning("Local chart generation failed for %s/%s — falling back to GitHub", region, queue)
 
-    # ── Fallback: fetch pre-rendered PNG from GitHub ──────────────────────────
+    # ── Fallback: GitHub pre-rendered PNG ─────────────────────────────────────
     queue_dashed = queue.replace(".", "-")
     url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
 
@@ -279,10 +300,8 @@ async def fetch_schedule_image(
             ) as resp:
                 if resp.status == 200:
                     data = await resp.read()
-                    if len(_image_cache) >= MAX_CACHE_SIZE:
-                        _image_cache.popitem(last=False)
-                    _image_cache[cache_key] = (now, data)
-                    _image_cache.move_to_end(cache_key)
+                    await chart_cache.store(region, queue, data)
+                    _l1_store(cache_key, now, data)
                     return data
         finally:
             if _owned:

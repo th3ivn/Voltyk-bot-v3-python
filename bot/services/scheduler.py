@@ -270,7 +270,8 @@ async def _check_single_queue(
 
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
-    invalidate_image_cache(region, queue)
+    invalidate_image_cache(region, queue)   # clear L1 in-memory cache
+    await _prerender_chart(region, queue, sched)   # delete L2 Redis + render fresh chart
 
     # First time we've ever seen this region/queue — treat as initial load, not an "update"
     is_initial = stored_hash is None
@@ -573,6 +574,31 @@ async def _send_notifications_to_users(
         # Stagger between sends to respect Telegram API rate limits
         if (i + 1) % batch_size == 0:
             await asyncio.sleep(stagger_ms / 1000)
+
+
+async def _prerender_chart(region: str, queue: str, sched_data: dict) -> None:
+    """Delete the stale Redis chart and render + store a fresh one.
+
+    Called immediately after a schedule change is detected and *before*
+    notifications are sent so that every user in the blast receives the
+    same pre-rendered image from L1/L2 cache — no per-user Pillow work.
+    """
+    from bot.services import chart_cache
+    from bot.services.chart_generator import generate_schedule_chart
+
+    try:
+        await chart_cache.delete(region, queue)
+        data = await generate_schedule_chart(region, queue, sched_data)
+        if data:
+            await chart_cache.store(region, queue, data)
+            logger.info(
+                "Chart pre-rendered for %s/%s (%d KB)",
+                region, queue, len(data) // 1024,
+            )
+        else:
+            logger.warning("Chart pre-render returned None for %s/%s", region, queue)
+    except Exception as e:
+        logger.warning("Chart pre-render failed for %s/%s: %s", region, queue, e)
 
 
 async def _safe_delete_message(bot: Bot, chat_id: int | str, message_id: int) -> None:
