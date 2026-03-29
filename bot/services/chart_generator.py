@@ -25,14 +25,14 @@ MONTHS_UK = [
 
 # ── Layout (logical pixels at 1×) ─────────────────────────────────────────────
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
-OUTPUT_SCALE = 2.0
+OUTPUT_SCALE = 3.0
 
-IMG_W    = 1000
-PAD_X    = 15
+IMG_W    = 1030   # 970 table + 2×30 padding
+PAD_X    = 30
 PAD_Y    = 16
 LABEL_W  = 130
-CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1000 − 2×15 ✓
-TITLE_H  = 52    # fits two gradient badges (h=40) + 12 px breathing room
+CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1030 − 2×30 ✓
+TITLE_H  = 58    # fits two gradient badges (h=46) + 12 px breathing room
 GAP      = 12
 HEADER_H = 72
 ROW_H    = 44
@@ -58,9 +58,9 @@ C_BADGE_G1  = "#DDE7F4"   # gradient top
 C_BADGE_G2  = "#CAD7E8"   # gradient bottom
 C_BADGE_BD  = "#BCCADE"   # border
 C_BADGE_TXT = "#3A4556"   # text
-BADGE_H     = 40
-BADGE_FS    = 14
-BADGE_PAD_H = 20          # horizontal padding inside badge
+BADGE_H     = 46
+BADGE_FS    = 16
+BADGE_PAD_H = 24          # horizontal padding inside badge
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
@@ -507,8 +507,8 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         ("nsecond", "Другі 30 хв."),
         ("maybe",   "Можливе відкл."),
     ]
-    SW: float = 24.0
-    SH: float = 18.0
+    SW: float = float(CELL_W)   # same width as table cell
+    SH: float = float(ROW_H)   # same height as table cell
     leg_y   = table_y + table_h + GAP + (LEGEND_H - SH) / 2
     lx: float = PAD_X
 
