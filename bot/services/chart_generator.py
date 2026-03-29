@@ -188,25 +188,46 @@ def _half_icon_svg(
     left_paths: list[tuple[str, str]],
     right_paths: list[tuple[str, str]],
 ) -> str:
-    """Render a split (left/right) icon using viewBox cropping.
+    """Render a split (left/right) icon using clipPath.
 
-    Each half is a nested <svg> with viewBox showing only the left (0-10) or
-    right (10-20) portion of the 20×20 icon coordinate space.
+    Both halves scale the full 20×20 icon to fit the whole cell (w×h),
+    then clip each group to its respective half-width rect. This avoids
+    the aspect-ratio distortion of the half-viewBox approach and produces
+    a seamless split icon identical to the reference SVG.
     """
     hw = w / 2
-    left_inner  = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in left_paths)
-    right_inner = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in right_paths)
-    left_svg = (
-        f'<svg x="{x:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}" '
-        f'viewBox="0 0 10 20" preserveAspectRatio="xMidYMid meet" overflow="hidden">'
-        f'{left_inner}</svg>'
-    )
-    right_svg = (
-        f'<svg x="{x+hw:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}" '
-        f'viewBox="10 0 10 20" preserveAspectRatio="xMidYMid meet" overflow="hidden">'
-        f'{right_inner}</svg>'
-    )
-    return left_svg + right_svg
+    # Unique ID suffix derived from cell position — no collisions across cells.
+    uid = f"{int(x * 10):d}x{int(y * 10):d}"
+
+    # Scale icon (20×20 viewBox) into the full cell with "meet" centering.
+    scale = min(w / 20.0, h / 20.0)
+    ix = x + (w - 20.0 * scale) / 2.0
+    iy = y + (h - 20.0 * scale) / 2.0
+    transform = f"translate({ix:.3f},{iy:.3f}) scale({scale:.4f})"
+
+    out: list[str] = ["<defs>"]
+    if left_paths:
+        out.append(
+            f'<clipPath id="hl{uid}">'
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}"/>'
+            f'</clipPath>'
+        )
+    if right_paths:
+        out.append(
+            f'<clipPath id="hr{uid}">'
+            f'<rect x="{x + hw:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}"/>'
+            f'</clipPath>'
+        )
+    out.append("</defs>")
+
+    if left_paths:
+        paths_svg = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in left_paths)
+        out.append(f'<g clip-path="url(#hl{uid})" transform="{transform}">{paths_svg}</g>')
+    if right_paths:
+        paths_svg = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in right_paths)
+        out.append(f'<g clip-path="url(#hr{uid})" transform="{transform}">{paths_svg}</g>')
+
+    return "\n".join(out)
 
 
 # ── Cell renderer ─────────────────────────────────────────────────────────────
