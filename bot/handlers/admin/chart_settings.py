@@ -158,6 +158,10 @@ async def chart_preview_render(callback: CallbackQuery) -> None:
     mock_data = _make_preview_data(scenario, today_start, tomorrow_start)
     png_bytes = await generate_schedule_chart("Київ", "1.1", mock_data)
 
+    if png_bytes is None:
+        await callback.message.answer("❌ Не вдалося згенерувати графік. Перевірте логи.")
+        return
+
     label = _SCENARIO_LABELS[scenario]
     await callback.message.answer_photo(
         BufferedInputFile(png_bytes, filename="preview.png"),
