@@ -57,7 +57,8 @@ CELL_OFF   = "#DADDE4"    # "no power" cell background (per spec §4)
 C_BADGE_G1  = "#DDE7F4"   # gradient top
 C_BADGE_G2  = "#CAD7E8"   # gradient bottom
 C_BADGE_BD  = "#BCCADE"   # border
-C_BADGE_TXT = "#3A4556"   # text
+C_BADGE_TXT  = "#3A4556"   # text
+C_WATERMARK  = "#B8C2CC"   # subtle watermark text
 BADGE_H     = 48
 BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
@@ -531,18 +532,18 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         lx += SW + 5 + len(label) * 12 * 0.58 + 18
 
     # ── Watermark (bottom-right, subtle) ─────────────────────────────────────
-    wm_x  = IMG_W - PAD_X          # right-aligned edge
-    wm_y2 = img_h - PAD_Y - 1      # bottom line baseline (link)
-    wm_y1 = wm_y2 - 12             # top line baseline (bot name)
+    wm_x  = IMG_W - PAD_X      # right-aligned within right margin
+    wm_y2 = img_h - 8          # bottom line — 8px from image bottom
+    wm_y1 = wm_y2 - 12         # top line — 12px above (both within PAD_Y zone)
     p.append(
         f'<text x="{wm_x}" y="{wm_y1:.1f}" '
-        f'font-family="{FONT}" font-size="9" fill="#B8C2CC" text-anchor="end">'
-        f'Вольтик</text>'
+        f'font-family="{FONT}" font-size="9" fill="{C_WATERMARK}" text-anchor="end">'
+        f'{_esc("Вольтик")}</text>'
     )
     p.append(
         f'<text x="{wm_x}" y="{wm_y2:.1f}" '
-        f'font-family="{FONT}" font-size="9" fill="#B8C2CC" text-anchor="end">'
-        f't.me/VoltykBot</text>'
+        f'font-family="{FONT}" font-size="9" fill="{C_WATERMARK}" text-anchor="end">'
+        f'{_esc("t.me/VoltykBot")}</text>'
     )
 
     p.append("</svg>")
