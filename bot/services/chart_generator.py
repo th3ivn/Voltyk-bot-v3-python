@@ -247,7 +247,6 @@ def _cell_svg(x: float, y: float, state: str) -> str:
 
     if state == "on":
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
-        out.append(_icon_svg(x, y, w, h, _CLEAN_PATHS))
 
     elif state in ("no", "maybe"):
         bg = CELL_OFF
@@ -265,7 +264,7 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         # Left: possible off (muted) | Right: on
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
-        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, _CLEAN_PATHS))
+        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, []))
 
     elif state == "nsecond":
         # Left: on | Right: definite off
@@ -277,7 +276,7 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         # Left: on | Right: possible off (muted)
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
-        out.append(_half_icon_svg(x, y, w, h, _CLEAN_PATHS, _MAYBE_PATHS))
+        out.append(_half_icon_svg(x, y, w, h, [], _MAYBE_PATHS))
 
     else:
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
@@ -294,7 +293,6 @@ def _legend_swatch(lx: float, leg_y: float, state: str, sw: float, sh: float) ->
 
     if state == "on":
         out.append(f'<rect x="{lx:.1f}" y="{leg_y:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="1"/>')
-        out.append(_icon_svg(lx, leg_y, sw, sh, _CLEAN_PATHS))
 
     elif state in ("no", "maybe"):
         bg = CELL_OFF
