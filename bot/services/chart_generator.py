@@ -262,10 +262,10 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         out.append(_half_icon_svg(x, y, w, h, _SLASH_PATHS, _CLEAN_PATHS))
 
     elif state == "mfirst":
-        # Left: possible off (muted) | Right: on (no icon)
+        # Left: possible off (muted) | Right: on
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
-        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, []))
+        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, _CLEAN_PATHS))
 
     elif state == "nsecond":
         # Left: on | Right: definite off
@@ -274,10 +274,10 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         out.append(_half_icon_svg(x, y, w, h, _CLEAN_PATHS, _SLASH_PATHS))
 
     elif state == "msecond":
-        # Left: on (no icon) | Right: possible off (muted)
+        # Left: on | Right: possible off (muted)
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
-        out.append(_half_icon_svg(x, y, w, h, [], _MAYBE_PATHS))
+        out.append(_half_icon_svg(x, y, w, h, _CLEAN_PATHS, _MAYBE_PATHS))
 
     else:
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
