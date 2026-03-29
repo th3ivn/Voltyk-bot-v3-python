@@ -25,14 +25,14 @@ MONTHS_UK = [
 
 # ── Layout (logical pixels at 1×) ─────────────────────────────────────────────
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
-OUTPUT_SCALE = 3.0
+OUTPUT_SCALE = 5.0
 
 IMG_W    = 1030   # 970 table + 2×30 padding
 PAD_X    = 30
 PAD_Y    = 16
 LABEL_W  = 130
 CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1030 − 2×30 ✓
-TITLE_H  = 58    # fits two gradient badges (h=46) + 12 px breathing room
+TITLE_H  = 60    # fits two gradient badges (h=48) + 12 px breathing room
 GAP      = 12
 HEADER_H = 72
 ROW_H    = 44
@@ -58,8 +58,8 @@ C_BADGE_G1  = "#DDE7F4"   # gradient top
 C_BADGE_G2  = "#CAD7E8"   # gradient bottom
 C_BADGE_BD  = "#BCCADE"   # border
 C_BADGE_TXT = "#3A4556"   # text
-BADGE_H     = 46
-BADGE_FS    = 16
+BADGE_H     = 48
+BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
@@ -468,12 +468,12 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     # "Часові проміжки" — two lines, left-aligned (per spec §3)
     p.append(
         f'<text x="{text_lx}" y="{hdr_mid - 7:.1f}" '
-        f'font-family="{FONT}" font-size="11" font-weight="bold" '
+        f'font-family="{FONT}" font-size="13" font-weight="bold" '
         f'fill="{C_TEXT_MID}">Часові</text>'
     )
     p.append(
         f'<text x="{text_lx}" y="{hdr_mid + 7:.1f}" '
-        f'font-family="{FONT}" font-size="11" font-weight="bold" '
+        f'font-family="{FONT}" font-size="13" font-weight="bold" '
         f'fill="{C_TEXT_MID}">проміжки</text>'
     )
 
@@ -484,7 +484,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         col_cy = table_y + HEADER_H / 2
         p.append(
             f'<text transform="translate({col_cx:.1f},{col_cy:.1f}) rotate(-90)" '
-            f'font-family="{FONT}" font-size="11" font-weight="bold" '
+            f'font-family="{FONT}" font-size="12" font-weight="bold" '
             f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
             f'{label}</text>'
         )
