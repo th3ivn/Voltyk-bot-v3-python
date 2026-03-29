@@ -425,6 +425,11 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     # Data cells
     for row_i, states in enumerate([today_states, tomorrow_states]):
         row_y = table_y + HEADER_H + row_i * ROW_H
+        # Label column — same background as header row
+        p.append(
+            f'<rect x="{PAD_X}" y="{row_y}" width="{LABEL_W}" '
+            f'height="{ROW_H}" fill="{C_HDR_BG}"/>'
+        )
         for col_i, state in enumerate(states):
             cx = PAD_X + LABEL_W + col_i * CELL_W
             p.append(_cell_svg(cx, row_y, state))
@@ -465,16 +470,17 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     hdr_mid  = table_y + HEADER_H / 2
     text_lx  = PAD_X + LABEL_PAD   # left-aligned start x for label column
 
-    # "Часові проміжки" — two lines, left-aligned (per spec §3)
+    # "Часові проміжки" — two lines, left-aligned, vertically centered (per spec §3)
+    # dominant-baseline="central" centers each glyph on its y; ±8 gives 16px line-gap
     p.append(
-        f'<text x="{text_lx}" y="{hdr_mid - 7:.1f}" '
-        f'font-family="{FONT}" font-size="13" font-weight="bold" '
-        f'fill="{C_TEXT_MID}">Часові</text>'
+        f'<text x="{text_lx}" y="{hdr_mid - 8:.1f}" '
+        f'font-family="{FONT}" font-size="14" font-weight="bold" '
+        f'fill="{C_TEXT_MID}" dominant-baseline="central">Часові</text>'
     )
     p.append(
-        f'<text x="{text_lx}" y="{hdr_mid + 7:.1f}" '
-        f'font-family="{FONT}" font-size="13" font-weight="bold" '
-        f'fill="{C_TEXT_MID}">проміжки</text>'
+        f'<text x="{text_lx}" y="{hdr_mid + 8:.1f}" '
+        f'font-family="{FONT}" font-size="14" font-weight="bold" '
+        f'fill="{C_TEXT_MID}" dominant-baseline="central">проміжки</text>'
     )
 
     # Rotated hour labels "00-01" … "23-24" — bold, larger (per spec §1)
@@ -484,7 +490,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         col_cy = table_y + HEADER_H / 2
         p.append(
             f'<text transform="translate({col_cx:.1f},{col_cy:.1f}) rotate(-90)" '
-            f'font-family="{FONT}" font-size="12" font-weight="bold" '
+            f'font-family="{FONT}" font-size="13" font-weight="bold" '
             f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
             f'{label}</text>'
         )
@@ -502,7 +508,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     # ── Legend ────────────────────────────────────────────────────────────────
     legend_items = [
         ("on",      "Світло є"),
-        ("no",      "Світла нема"),
+        ("no",      "Світла не буде"),
         ("nfirst",  "Перші 30 хв."),
         ("nsecond", "Другі 30 хв."),
         ("maybe",   "Можливе відкл."),
