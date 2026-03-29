@@ -47,6 +47,10 @@ async def set_chart_render(callback: CallbackQuery, session: AsyncSession) -> No
     if mode not in ("on_change", "on_demand"):
         await callback.answer("❌ Невідомий режим")
         return
+    current_mode = await get_setting(session, SETTING_KEY) or "on_change"
+    if mode == current_mode:
+        await callback.answer()
+        return
     await set_setting(session, SETTING_KEY, mode)
     await session.commit()
     set_chart_render_mode(on_demand=(mode == "on_demand"))
