@@ -706,13 +706,26 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
 
 def get_chart_render_mode_keyboard(current_mode: str = "on_change") -> InlineKeyboardMarkup:
     def _mode_btn(label: str, mode: str) -> object:
-        prefix = "✅ " if mode == current_mode else ""
-        return _btn(f"{prefix}{label}", f"chart_render_mode_{mode}")
+        selected = mode == current_mode
+        prefix = "✅ " if selected else ""
+        return _btn(f"{prefix}{label}", f"chart_render_mode_{mode}",
+                    style="success" if selected else None)
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [_mode_btn("При зміні розкладу", "on_change")],
         [_mode_btn("При кожному запиті", "on_demand")],
+        [_btn("👁 Перегляд графіка", "chart_preview_menu")],
         [_btn("← Назад", "admin_settings_menu")],
+    ])
+
+
+def get_chart_preview_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("💡 2 відключення на день",  "chart_preview:two_outages")],
+        [_btn("⚡ 3 відключення на день",  "chart_preview:three_outages")],
+        [_btn("🚫 Цілий день без світла",  "chart_preview:allday")],
+        [_btn("⏱ 30-хвилинні стани",      "chart_preview:halfhour")],
+        [_btn("← Назад", "admin_chart_render")],
     ])
 
 
