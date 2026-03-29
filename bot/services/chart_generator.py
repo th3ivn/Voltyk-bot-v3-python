@@ -530,6 +530,21 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         )
         lx += SW + 5 + len(label) * 12 * 0.58 + 18
 
+    # ── Watermark (bottom-right, subtle) ─────────────────────────────────────
+    wm_x  = IMG_W - PAD_X          # right-aligned edge
+    wm_y2 = img_h - PAD_Y - 1      # bottom line baseline (link)
+    wm_y1 = wm_y2 - 12             # top line baseline (bot name)
+    p.append(
+        f'<text x="{wm_x}" y="{wm_y1:.1f}" '
+        f'font-family="{FONT}" font-size="9" fill="#B8C2CC" text-anchor="end">'
+        f'Вольтик</text>'
+    )
+    p.append(
+        f'<text x="{wm_x}" y="{wm_y2:.1f}" '
+        f'font-family="{FONT}" font-size="9" fill="#B8C2CC" text-anchor="end">'
+        f't.me/VoltykBot</text>'
+    )
+
     p.append("</svg>")
     return "\n".join(p)
 
