@@ -62,6 +62,7 @@ C_WATERMARK  = "#B8C2CC"   # subtle watermark text
 BADGE_H     = 48
 BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
+ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
@@ -176,9 +177,13 @@ def _icon_svg(x: float, y: float, w: float, h: float, paths: list[tuple[str, str
     xMidYMid meet keeps the bolt proportional — the cell background
     rect (drawn separately) covers any letterbox gap.
     """
+    iw = w * ICON_SCALE
+    ih = h * ICON_SCALE
+    ix = x + (w - iw) / 2
+    iy = y + (h - ih) / 2
     inner = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in paths)
     return (
-        f'<svg x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
+        f'<svg x="{ix:.2f}" y="{iy:.2f}" width="{iw:.2f}" height="{ih:.2f}" '
         f'viewBox="0 0 20 20" preserveAspectRatio="xMidYMid meet" overflow="hidden">'
         f'{inner}</svg>'
     )
@@ -200,9 +205,9 @@ def _half_icon_svg(
     No clipPath IDs are needed, avoiding any CairoSVG defs-placement issues.
     """
     hw = w / 2
-    # Scale icon (20×20) to fill the full cell with "meet"
-    scale = min(w / 20.0, h / 20.0)
-    # Icon's top-left in global coordinates (may have letterbox)
+    # Scale icon (20×20) to ICON_SCALE fraction of the cell with "meet"
+    scale = min(w * ICON_SCALE / 20.0, h * ICON_SCALE / 20.0)
+    # Icon's top-left in global coordinates (centered in full cell)
     ix = x + (w - 20.0 * scale) / 2.0
     iy = y + (h - 20.0 * scale) / 2.0
 
