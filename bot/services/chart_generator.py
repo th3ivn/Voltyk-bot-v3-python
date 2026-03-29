@@ -188,44 +188,46 @@ def _half_icon_svg(
     left_paths: list[tuple[str, str]],
     right_paths: list[tuple[str, str]],
 ) -> str:
-    """Render a split (left/right) icon using clipPath.
+    """Render a split (left/right) icon using nested <svg overflow="hidden">.
 
-    Both halves scale the full 20×20 icon to fit the whole cell (w×h),
-    then clip each group to its respective half-width rect. This avoids
-    the aspect-ratio distortion of the half-viewBox approach and produces
-    a seamless split icon identical to the reference SVG.
+    Both halves scale the full 20×20 icon to fit the whole cell (w×h) with
+    "meet" centering, then each nested <svg> clips its content to half-width
+    via overflow="hidden". The transform inside each nested SVG is expressed
+    in local coordinates (relative to the nested SVG's own origin), so the
+    icon appears seamlessly split at x=10 of the 20×20 viewBox regardless of
+    whether the scale is limited by width or height (cells vs legend swatches).
+    No clipPath IDs are needed, avoiding any CairoSVG defs-placement issues.
     """
     hw = w / 2
-    # Unique ID suffix derived from cell position — no collisions across cells.
-    uid = f"{int(x * 10):d}x{int(y * 10):d}"
-
-    # Scale icon (20×20 viewBox) into the full cell with "meet" centering.
+    # Scale icon (20×20) to fill the full cell with "meet"
     scale = min(w / 20.0, h / 20.0)
+    # Icon's top-left in global coordinates (may have letterbox)
     ix = x + (w - 20.0 * scale) / 2.0
     iy = y + (h - 20.0 * scale) / 2.0
-    transform = f"translate({ix:.3f},{iy:.3f}) scale({scale:.4f})"
 
-    out: list[str] = ["<defs>"]
-    if left_paths:
-        out.append(
-            f'<clipPath id="hl{uid}">'
-            f'<rect x="{x:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}"/>'
-            f'</clipPath>'
-        )
-    if right_paths:
-        out.append(
-            f'<clipPath id="hr{uid}">'
-            f'<rect x="{x + hw:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}"/>'
-            f'</clipPath>'
-        )
-    out.append("</defs>")
+    out: list[str] = []
 
     if left_paths:
-        paths_svg = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in left_paths)
-        out.append(f'<g clip-path="url(#hl{uid})" transform="{transform}">{paths_svg}</g>')
+        # Local transform: icon origin relative to the nested SVG's x,y
+        tx = ix - x
+        ty = iy - y
+        inner = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in left_paths)
+        out.append(
+            f'<svg x="{x:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}" overflow="hidden">'
+            f'<g transform="translate({tx:.3f},{ty:.3f}) scale({scale:.4f})">{inner}</g>'
+            f'</svg>'
+        )
+
     if right_paths:
-        paths_svg = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in right_paths)
-        out.append(f'<g clip-path="url(#hr{uid})" transform="{transform}">{paths_svg}</g>')
+        # The icon's global x is ix; relative to the right half's origin (x+hw)
+        tx = ix - (x + hw)
+        ty = iy - y
+        inner = "".join(f'<path d="{d}" fill="{c}"/>' for d, c in right_paths)
+        out.append(
+            f'<svg x="{x + hw:.2f}" y="{y:.2f}" width="{hw:.2f}" height="{h:.2f}" overflow="hidden">'
+            f'<g transform="translate({tx:.3f},{ty:.3f}) scale({scale:.4f})">{inner}</g>'
+            f'</svg>'
+        )
 
     return "\n".join(out)
 
