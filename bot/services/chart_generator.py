@@ -27,18 +27,18 @@ MONTHS_UK = [
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
 OUTPUT_SCALE = 5.0
 
-IMG_W    = 1030   # 970 table + 2×30 padding
+IMG_W    = 1078   # 1018 table + 2×30 padding
 PAD_X    = 30
-PAD_Y    = 16
+PAD_Y    = 30     # equal to PAD_X — uniform margins on all sides
 LABEL_W  = 130
-CELL_W   = 35    # 24 × 35 = 840;  840 + 130 = 970 = 1030 − 2×30 ✓
+CELL_W   = 37    # 24 × 37 = 888;  888 + 130 = 1018 = 1078 − 2×30 ✓
 TITLE_H  = 60    # fits two gradient badges (h=48) + 12 px breathing room
 GAP      = 12
 HEADER_H = 72
-ROW_H    = 44
-LEGEND_H = 44
+ROW_H    = 46
+LEGEND_H = 46
 
-TABLE_W   = LABEL_W + 24 * CELL_W  # 970
+TABLE_W   = LABEL_W + 24 * CELL_W  # 1018
 LABEL_PAD = 10   # left padding inside the label column
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -247,6 +247,7 @@ def _cell_svg(x: float, y: float, state: str) -> str:
 
     if state == "on":
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
+        out.append(_icon_svg(x, y, w, h, _CLEAN_PATHS))
 
     elif state in ("no", "maybe"):
         bg = CELL_OFF
@@ -261,10 +262,10 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         out.append(_half_icon_svg(x, y, w, h, _SLASH_PATHS, _CLEAN_PATHS))
 
     elif state == "mfirst":
-        # Left: possible off (muted) | Right: on (no icon)
+        # Left: possible off (muted) | Right: on
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
-        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, []))
+        out.append(_half_icon_svg(x, y, w, h, _MAYBE_PATHS, _CLEAN_PATHS))
 
     elif state == "nsecond":
         # Left: on | Right: definite off
@@ -273,10 +274,10 @@ def _cell_svg(x: float, y: float, state: str) -> str:
         out.append(_half_icon_svg(x, y, w, h, _CLEAN_PATHS, _SLASH_PATHS))
 
     elif state == "msecond":
-        # Left: on (no icon) | Right: possible off (muted)
+        # Left: on | Right: possible off (muted)
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
         out.append(f'<rect x="{x+hw:.1f}" y="{y:.1f}" width="{hw:.1f}" height="{h:.1f}" fill="{CELL_OFF}"/>')
-        out.append(_half_icon_svg(x, y, w, h, [], _MAYBE_PATHS))
+        out.append(_half_icon_svg(x, y, w, h, _CLEAN_PATHS, _MAYBE_PATHS))
 
     else:
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{CELL_ON}"/>')
@@ -293,6 +294,7 @@ def _legend_swatch(lx: float, leg_y: float, state: str, sw: float, sh: float) ->
 
     if state == "on":
         out.append(f'<rect x="{lx:.1f}" y="{leg_y:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="{CELL_ON}" stroke="{C_BORDER}" stroke-width="1"/>')
+        out.append(_icon_svg(lx, leg_y, sw, sh, _CLEAN_PATHS))
 
     elif state in ("no", "maybe"):
         bg = CELL_OFF
