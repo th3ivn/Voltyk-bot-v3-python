@@ -664,7 +664,7 @@ async def delete_old_pending_notifications(session: AsyncSession, older_than_hou
 
     Returns number of deleted rows.
     """
-    cutoff = datetime.now(UTC) - timedelta(hours=older_than_hours)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=older_than_hours)
     result = await session.execute(
         delete(PendingNotification).where(PendingNotification.created_at < cutoff)
     )

@@ -898,10 +898,11 @@ async def _check_and_send_reminders(bot: Bot) -> None:
                     continue
                 ns = user.notification_settings
                 cc = user.channel_config
-                await _send_reminder(
+                sent = await _send_reminder(
                     bot, user, next_event, remind_m, sched, region, queue, is_possible, ns, cc
                 )
-                to_mark.append((str(user.telegram_id), region, queue, anchor_iso, reminder_type))
+                if sent:
+                    to_mark.append((str(user.telegram_id), region, queue, anchor_iso, reminder_type))
 
             # Single session + single commit: batch-persist all newly sent reminders
             if to_mark:
@@ -1060,7 +1061,8 @@ async def _send_reminder(
     is_possible: bool,
     ns,
     cc,
-) -> None:
+) -> bool:
+    """Send reminder notification. Returns True if at least one message was successfully sent."""
     text = _build_reminder_text(next_event, remind_m, sched, region, queue, is_possible)
     kb = get_reminder_keyboard()
 
@@ -1123,3 +1125,5 @@ async def _send_reminder(
                     await session.commit()
         except Exception as e:
             logger.warning("Could not save reminder message IDs for user %s: %s", user.telegram_id, e)
+
+    return bool(bot_msg_id or ch_msg_id)

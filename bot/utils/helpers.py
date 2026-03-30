@@ -34,8 +34,6 @@ async def retry_bot_call(
                 raise
             await asyncio.sleep(e.retry_after + 1)
 
-    raise RuntimeError("unreachable")
-
 
 def is_valid_ip_or_domain(address: str) -> dict:
     address = address.strip()
