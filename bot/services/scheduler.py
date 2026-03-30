@@ -186,6 +186,8 @@ async def _check_all_schedules(
             if not batch:
                 break
             for user in batch:
+                if not user.region or not user.queue:
+                    continue
                 region_queue_pairs.add((user.region, user.queue))
             if len(batch) < batch_size_inner:
                 break
@@ -455,16 +457,25 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         sched = json.loads(notif.schedule_data)
                         update_type = json.loads(notif.update_type) if notif.update_type else {}
                         changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
-                        is_daily_planned_flag = bool(update_type.get("initial"))
+                        is_daily_planned_flag = bool(update_type.get("initial") or update_type.get("dailyPlanned"))
 
                         await _send_notifications_to_users(
                             bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                         )
 
                         sent_hash = calculate_schedule_hash(sched.get("events", []))
+                        _snap_today = _kyiv_date_str()
+                        _snap_tomorrow = _tomorrow_date_str()
+                        _snap_events = sched.get("events", [])
                         async with async_session() as session:
                             await mark_pending_notifications_sent(session, region, queue)
                             await update_schedule_check_time(session, region, queue, last_hash=sent_hash)
+                            await upsert_daily_snapshot(
+                                session, region, queue, _snap_today,
+                                notif.schedule_data,
+                                _compute_date_hash(_snap_events, _snap_today),
+                                _compute_date_hash(_snap_events, _snap_tomorrow),
+                            )
                             await session.commit()
                         continue
 
@@ -488,8 +499,18 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 )
 
                 fresh_hash = calculate_schedule_hash(sched.get("events", []))
+                _snap_today = _kyiv_date_str()
+                _snap_tomorrow = _tomorrow_date_str()
+                _snap_events = sched.get("events", [])
+                _snap_data = json.dumps(sched)
                 async with async_session() as session:
                     await update_schedule_check_time(session, region, queue, last_hash=fresh_hash)
+                    await upsert_daily_snapshot(
+                        session, region, queue, _snap_today,
+                        _snap_data,
+                        _compute_date_hash(_snap_events, _snap_today),
+                        _compute_date_hash(_snap_events, _snap_tomorrow),
+                    )
                     await session.commit()
 
             except Exception as e:
