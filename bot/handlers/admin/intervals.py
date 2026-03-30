@@ -23,7 +23,7 @@ async def admin_intervals(callback: CallbackQuery, session: AsyncSession) -> Non
         return
     await callback.answer()
     sched = int(await get_setting(session, "schedule_check_interval") or "180")
-    ip = int(await get_setting(session, "power_check_interval") or "2")
+    ip = int(await get_setting(session, "power_check_interval") or "10")
     await callback.message.edit_text(
         "⏱ Інтервали",
         reply_markup=get_admin_intervals_keyboard(schedule_interval=sched, ip_interval=ip),
