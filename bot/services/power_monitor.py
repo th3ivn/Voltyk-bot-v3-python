@@ -1002,6 +1002,7 @@ async def update_power_notifications_on_schedule_change(
         if bot_msg_id and new_schedule_line is not None:
             try:
                 duration_text = "—"
+                time_str = ""
                 if pt.power_changed_at:
                     try:
                         changed = pt.power_changed_at
@@ -1009,17 +1010,18 @@ async def update_power_notifications_on_schedule_change(
                             changed = changed.replace(tzinfo=UTC)
                         elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
                         duration_text = _format_exact_duration(elapsed_min)
+                        time_str = changed.astimezone(KYIV_TZ).strftime("%H:%M") + " "
                     except Exception:
                         pass
                 if current_state == "off":
                     base = (
-                        f"🔴 <b>Світло зникло</b>\n"
+                        f"🔴 <b>{time_str}Світло зникло</b>\n"
                         f"🕓 Воно було {duration_text or '—'}"
                         f"{new_schedule_line}"
                     )
                 else:
                     base = (
-                        f"🟢 <b>Світло з'явилося</b>\n"
+                        f"🟢 <b>{time_str}Світло з'явилося</b>\n"
                         f"🕓 Його не було {duration_text or '—'}"
                         f"{new_schedule_line}"
                     )
@@ -1067,6 +1069,7 @@ async def update_power_notifications_on_schedule_change(
                     ch_id = cc.channel_id
 
                 duration_text = "—"
+                time_str = ""
                 if pt.power_changed_at:
                     try:
                         changed = pt.power_changed_at
@@ -1074,17 +1077,18 @@ async def update_power_notifications_on_schedule_change(
                             changed = changed.replace(tzinfo=UTC)
                         elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
                         duration_text = _format_exact_duration(elapsed_min)
+                        time_str = changed.astimezone(KYIV_TZ).strftime("%H:%M") + " "
                     except Exception:
                         pass
                 if current_state == "off":
                     base_ch = (
-                        f"🔴 <b>Світло зникло</b>\n"
+                        f"🔴 <b>{time_str}Світло зникло</b>\n"
                         f"🕓 Воно було {duration_text}"
                         f"{new_schedule_line}"
                     )
                 else:
                     base_ch = (
-                        f"🟢 <b>Світло з'явилося</b>\n"
+                        f"🟢 <b>{time_str}Світло з'явилося</b>\n"
                         f"🕓 Його не було {duration_text}"
                         f"{new_schedule_line}"
                     )
