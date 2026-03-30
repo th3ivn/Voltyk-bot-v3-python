@@ -541,6 +541,123 @@ async def flush_pending_notifications(bot: Bot) -> None:
         logger.warning("Could not purge old sent_reminders: %s", e)
 
 
+async def catch_up_missed_reminders(bot: Bot) -> None:
+    """Send reminders that were suppressed during quiet hours (00:00–05:59 Kyiv).
+
+    Called immediately after the 06:00 flush.  The regular reminder checker uses
+    a tight ±1-minute window, so events whose reminder window fell entirely inside
+    quiet hours (e.g. a 06:00 outage whose 15-min reminder was due at 05:45) are
+    silently skipped.  This catch-up widens the window: for every upcoming event
+    that starts within the next ``max(reminder_minutes) + 1`` minutes, we send any
+    reminder type whose ideal send-time has already passed.
+
+    Deduplication via the SentReminder table prevents double-sends when the
+    regular checker fires around the same time.
+    """
+    logger.info("Running post-quiet-hours reminder catch-up")
+
+    # Collect users grouped by (region, queue) who want any reminder
+    pairs: dict[tuple[str, str], list] = {}
+    offset = 0
+    while True:
+        async with async_session() as session:
+            batch = await get_active_users_paginated(session, limit=_DB_SCAN_BATCH_SIZE, offset=offset)
+        if not batch:
+            break
+        for user in batch:
+            ns = user.notification_settings
+            if not ns:
+                continue
+            has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+            if not (has_any and (ns.notify_remind_off or ns.notify_remind_on)):
+                continue
+            if not user.region or not user.queue:
+                continue
+            pairs.setdefault((user.region, user.queue), []).append(user)
+        if len(batch) < _DB_SCAN_BATCH_SIZE:
+            break
+        offset += _DB_SCAN_BATCH_SIZE
+
+    max_remind_m = max(_REMIND_MINUTES)  # 60
+
+    for (region, queue), users in pairs.items():
+        try:
+            raw = await fetch_schedule_data(region)
+            if not raw:
+                continue
+            sched = parse_schedule_for_queue(raw, queue)
+            next_event = find_next_event(sched)
+            if not next_event:
+                continue
+
+            minutes_until: int = next_event["minutes"]
+            event_type: str    = next_event["type"]
+            anchor_iso: str    = next_event["time"]
+            is_possible: bool  = next_event.get("isPossible", False)
+
+            # Only care about events starting within the largest reminder window.
+            # Events further away haven't missed any window yet; the regular checker
+            # will handle them.  Events already started (≤ 0) are skipped.
+            if minutes_until <= 0 or minutes_until > max_remind_m + 1:
+                continue
+
+            for remind_m in _REMIND_MINUTES:
+                # The ideal send time for this reminder was remind_m minutes before the
+                # event.  If minutes_until ≤ remind_m + 1 that window is now past (or
+                # just within the tight ±1 window that the regular checker might also
+                # fire) — send it now.  The SentReminder dedup table prevents doubles.
+                if minutes_until > remind_m + 1:
+                    continue
+
+                reminder_type = _REMIND_TYPE_MAP[remind_m]
+
+                # Build per-user send list for this reminder type
+                to_send: list = []
+                for user in users:
+                    ns = user.notification_settings
+                    if event_type == "power_off" and not ns.notify_remind_off:
+                        continue
+                    if event_type == "power_on" and not ns.notify_remind_on:
+                        continue
+                    if not getattr(ns, _REMIND_FIELDS[remind_m], False):
+                        continue
+                    to_send.append(user)
+
+                if not to_send:
+                    continue
+
+                async with async_session() as session:
+                    already_sent: set[str] = set()
+                    for user in to_send:
+                        if await check_reminder_sent(
+                            session, str(user.telegram_id), anchor_iso, reminder_type
+                        ):
+                            already_sent.add(str(user.telegram_id))
+
+                to_mark: list[tuple[str, str, str, str, str]] = []
+                for user in to_send:
+                    if str(user.telegram_id) in already_sent:
+                        continue
+                    ns = user.notification_settings
+                    cc = user.channel_config
+                    sent = await _send_reminder(
+                        bot, user, next_event, remind_m, sched, region, queue, is_possible, ns, cc
+                    )
+                    if sent:
+                        to_mark.append((str(user.telegram_id), region, queue, anchor_iso, reminder_type))
+
+                if to_mark:
+                    async with async_session() as session:
+                        for tid, reg, q, pk, rt in to_mark:
+                            await mark_reminder_sent(session, tid, reg, q, pk, rt)
+                        await session.commit()
+
+        except Exception as e:
+            logger.error("Catch-up reminder error for %s/%s: %s", region, queue, e)
+
+    logger.info("Post-quiet-hours reminder catch-up complete")
+
+
 async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
     logger.info("Daily flush loop started")
@@ -569,6 +686,15 @@ async def daily_flush_loop(bot: Bot) -> None:
                 sentry_sdk.capture_exception(e)
                 if attempt < MAX_DAILY_FLUSH_RETRIES - 1:
                     await asyncio.sleep(DAILY_FLUSH_RETRY_DELAY_S)
+
+        # Send catch-up reminders for events whose reminder windows fell inside
+        # quiet hours (00:00–05:59).  Must run outside _notify_lock — reminders
+        # are independent of schedule-change notifications.
+        try:
+            await catch_up_missed_reminders(bot)
+        except Exception as e:
+            logger.error("Post-quiet-hours reminder catch-up error: %s", e)
+            sentry_sdk.capture_exception(e)
 
 
 # ─── Notification sending ─────────────────────────────────────────────────
