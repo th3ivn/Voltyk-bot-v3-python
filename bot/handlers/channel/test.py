@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.queries import get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_test_publication_keyboard
-from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
+from bot.services.api import fetch_schedule_data, fetch_schedule_image, parse_schedule_for_queue
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.html_to_entities import html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
@@ -39,10 +39,9 @@ async def test_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
 
     # Channel format: same as format_schedule_message but without timestamp and without keyboard
-    html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    html_text = format_schedule_message(user.region, user.queue, schedule_data)
     plain_text, raw_entities = html_to_entities(html_text)
     entities = to_aiogram_entities(raw_entities)
 

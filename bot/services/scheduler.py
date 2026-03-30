@@ -661,12 +661,10 @@ async def _send_schedule_notification(
 
             last_check = await get_schedule_check_time(session, fresh_user.region, fresh_user.queue)
 
-        next_event = find_next_event(sched_data)
         html_text = format_schedule_message(
             fresh_user.region,
             fresh_user.queue,
             sched_data,
-            next_event,
             changes=changes if changes and (changes.get("added") or changes.get("removed")) else None,
             update_type=update_type if update_type else None,
             is_daily_planned=is_daily_planned,

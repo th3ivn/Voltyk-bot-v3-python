@@ -475,13 +475,14 @@ def find_next_event(schedule_data: dict) -> dict | None:
             while j < len(events) and _parse_dt(events[j]["start"]) == final_end:
                 final_end = _parse_dt(events[j]["end"])
                 j += 1
+            is_possible = any(events[k].get("isPossible", False) for k in range(i, j))
             return {
                 "type": "power_on",
                 "time": final_end.isoformat(),
                 "startTime": ev["start"],
                 "endTime": None,
                 "minutes": int((final_end - now).total_seconds() / 60),
-                "isPossible": ev.get("isPossible", False),
+                "isPossible": is_possible,
             }
 
         if now < start:
