@@ -137,8 +137,6 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
         if _owned:
             await _session.close()
 
-    return True, None
-
 
 async def _save_commit_state() -> None:
     """Persist current commit SHA and ETag to database."""
