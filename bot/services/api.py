@@ -127,6 +127,9 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
                         return True, new_sha
                     logger.debug("No new commits (SHA: %s)", new_sha[:8])
                     return False, None
+                # Empty or non-list response body — trigger a full check
+                logger.warning("GitHub API returned empty or non-list commits body, falling back to full fetch")
+                return True, None
             else:
                 logger.warning("GitHub Commits API returned %d, falling back to full fetch", resp.status)
                 return True, None
