@@ -130,8 +130,7 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
         return
 
     schedule_data = parse_schedule_for_queue(data, user.queue)
-    next_event = find_next_event(schedule_data)
-    html_text = format_schedule_message(user.region, user.queue, schedule_data, next_event)
+    html_text = format_schedule_message(user.region, user.queue, schedule_data)
     kb = get_schedule_view_keyboard()
 
     last_check = await get_schedule_check_time(session, user.region, user.queue)

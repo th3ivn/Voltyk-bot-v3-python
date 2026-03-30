@@ -52,7 +52,6 @@ def format_schedule_message(
     region: str,
     queue: str,
     schedule_data: dict,
-    next_event: dict | None = None,
     changes: dict | None = None,
     update_type: dict | None = None,
     is_daily_planned: bool = False,

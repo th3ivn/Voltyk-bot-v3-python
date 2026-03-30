@@ -17,18 +17,6 @@ REGIONS: dict[str, Region] = {
 }
 
 
-def _make_queues(start: float, end: float) -> list[str]:
-    result = []
-    g = start
-    while g <= end:
-        whole = int(g)
-        frac = round(g - whole, 1)
-        label = f"{whole}.{int(frac * 10)}"
-        result.append(label)
-        g = round(g + 0.1, 1)
-    return result
-
-
 STANDARD_QUEUES: list[str] = []
 for group in range(1, 7):
     STANDARD_QUEUES.append(f"{group}.1")
