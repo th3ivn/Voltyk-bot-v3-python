@@ -76,6 +76,9 @@ async def admin_router_toggle_notify(callback: CallbackQuery, session: AsyncSess
     if ar:
         ar.notifications_on = not ar.notifications_on
         await callback.answer(f"{'✅ Увімкнено' if ar.notifications_on else '❌ Вимкнено'}")
+        await callback.message.edit_reply_markup(
+            reply_markup=get_admin_router_keyboard(has_ip=bool(ar.router_ip), notifications_on=ar.notifications_on)
+        )
     else:
         await callback.answer()
 
