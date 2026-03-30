@@ -48,6 +48,8 @@ _MSG_NOT_MODIFIED = "message is not modified"
 # Per-user cooldown: user_id → timestamp of last "Перевірити" press
 _user_last_check: dict[int, float] = {}
 _DEFAULT_COOLDOWN_S = 30
+_LAST_CHECK_CLEANUP_INTERVAL = 300  # clean up stale entries every 5 minutes
+_last_check_cleanup_at: float = 0.0
 
 
 async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTML") -> bool:
@@ -188,8 +190,21 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
         return
 
     # --- Cooldown check ---
-    cooldown_s = int(await get_setting(session, "refresh_cooldown") or str(_DEFAULT_COOLDOWN_S))
+    global _last_check_cleanup_at
+    try:
+        cooldown_s = int(await get_setting(session, "refresh_cooldown") or _DEFAULT_COOLDOWN_S)
+    except (ValueError, TypeError):
+        cooldown_s = _DEFAULT_COOLDOWN_S
     now = time.monotonic()
+
+    # Periodically evict entries older than cooldown_s to prevent unbounded growth
+    if now - _last_check_cleanup_at > _LAST_CHECK_CLEANUP_INTERVAL:
+        cutoff = now - cooldown_s
+        stale = [uid for uid, t in _user_last_check.items() if t <= cutoff]
+        for uid in stale:
+            del _user_last_check[uid]
+        _last_check_cleanup_at = now
+
     last = _user_last_check.get(callback.from_user.id, 0.0)
     elapsed = now - last
     if elapsed < cooldown_s:
