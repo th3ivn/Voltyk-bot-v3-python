@@ -440,6 +440,8 @@ async def flush_pending_notifications(bot: Bot) -> None:
             if not batch:
                 break
             for user in batch:
+                if not user.region or not user.queue:
+                    continue
                 all_pairs.add((user.region, user.queue))
             if len(batch) < batch_size_inner:
                 break
