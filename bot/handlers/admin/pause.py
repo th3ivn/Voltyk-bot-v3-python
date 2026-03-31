@@ -73,6 +73,9 @@ async def pause_message_settings(callback: CallbackQuery, session: AsyncSession)
 
 @router.callback_query(F.data.startswith("pause_template_"))
 async def pause_template(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     templates = {
         "1": "🔧 Бот тимчасово недоступний. Спробуйте пізніше.",
         "2": "⏸️ Бот на паузі. Скоро повернемось",
@@ -102,6 +105,9 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
 
 @router.callback_query(F.data == "pause_toggle_support")
 async def pause_toggle_support(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     current = (await get_setting(session, "pause_show_support") or "false") == "true"
     new_val = "false" if current else "true"
     await set_setting(session, "pause_show_support", new_val)
@@ -127,6 +133,9 @@ async def pause_type_select(callback: CallbackQuery, session: AsyncSession) -> N
 
 @router.callback_query(F.data.startswith("pause_type_"))
 async def pause_type_set(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     pause_type = callback.data.replace("pause_type_", "")
     if pause_type == "select":
         return

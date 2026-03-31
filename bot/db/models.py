@@ -75,9 +75,37 @@ class UserNotificationSettings(Base):
     auto_delete_commands: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     auto_delete_bot_messages: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
+    notify_emergency_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    notify_emergency_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user: Mapped[User] = relationship(back_populates="notification_settings")
+
+
+class UserEmergencyConfig(Base):
+    """Address config for emergency outage lookups (migration 0007)."""
+
+    __tablename__ = "user_emergency_config"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    city: Mapped[str | None] = mapped_column(String(128))
+    street: Mapped[str | None] = mapped_column(String(255))
+    house: Mapped[str | None] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class UserEmergencyState(Base):
+    """Cached emergency outage state per user (migration 0007)."""
+
+    __tablename__ = "user_emergency_state"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), server_default="none")
+    start_date: Mapped[str | None] = mapped_column(String(32))
+    end_date: Mapped[str | None] = mapped_column(String(32))
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserChannelConfig(Base):
