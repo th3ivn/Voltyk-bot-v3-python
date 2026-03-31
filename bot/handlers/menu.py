@@ -580,7 +580,12 @@ async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("timer_"))
 async def timer_callback(callback: CallbackQuery, session: AsyncSession) -> None:
     user_id_str = callback.data.replace("timer_", "")
-    result = await session.execute(select(User).where(User.id == int(user_id_str)))
+    try:
+        user_pk = int(user_id_str)
+    except ValueError:
+        await callback.answer()
+        return
+    result = await session.execute(select(User).where(User.id == user_pk))
     user = result.scalars().first()
     if not user:
         await callback.answer("❌ Користувач не знайдений")

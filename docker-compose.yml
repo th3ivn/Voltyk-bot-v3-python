@@ -7,24 +7,6 @@ services:
       - redis
     restart: unless-stopped
 
-  celery-worker:
-    build: .
-    command: celery -A bot.tasks.celery_app worker --loglevel=info --concurrency=4
-    env_file: .env
-    depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
-
-  celery-beat:
-    build: .
-    command: celery -A bot.tasks.celery_app beat --loglevel=info
-    env_file: .env
-    depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
-
   postgres:
     image: postgres:16-alpine
     environment:

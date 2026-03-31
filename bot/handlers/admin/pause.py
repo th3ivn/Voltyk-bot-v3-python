@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
@@ -101,6 +101,22 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_pause_message)
     await callback.message.edit_text("✏️ Введіть текст повідомлення паузи:")
+
+
+@router.message(ChannelConversationSG.waiting_for_pause_message)
+async def pause_custom_message_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not settings.is_admin(message.from_user.id):
+        return
+    if not message.text:
+        await message.reply("❌ Введіть текст повідомлення")
+        return
+    await set_setting(session, "pause_message", message.text.strip())
+    await state.clear()
+    show_support = (await get_setting(session, "pause_show_support") or "false") == "true"
+    await message.answer(
+        f"✅ Повідомлення паузи збережено: {message.text.strip()[:80]}",
+        reply_markup=get_pause_message_keyboard(show_support_button=show_support, current_message=message.text.strip()),
+    )
 
 
 @router.callback_query(F.data == "pause_toggle_support")

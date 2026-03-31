@@ -61,6 +61,9 @@ async def broadcast_text(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "broadcast_edit_text")
 async def broadcast_edit_text(callback: CallbackQuery, state: FSMContext) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     await callback.answer()
     await state.set_state(BroadcastSG.waiting_for_text)
     await callback.message.edit_text(
@@ -70,6 +73,9 @@ async def broadcast_edit_text(callback: CallbackQuery, state: FSMContext) -> Non
 
 @router.callback_query(F.data == "broadcast_confirm_send")
 async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     await state.clear()
@@ -119,6 +125,9 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext, ses
 
 @router.callback_query(F.data == "broadcast_cancel")
 async def broadcast_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    if not settings.is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ заборонено")
+        return
     await callback.answer()
     await state.clear()
     await callback.message.edit_text("❌ Розсилку скасовано.")
