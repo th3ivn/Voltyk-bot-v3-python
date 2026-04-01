@@ -9,22 +9,34 @@ from bot.config import settings
 
 
 def _prepare_database_url(url: str) -> tuple[str, dict]:
-    """Strip asyncpg-incompatible params (sslmode, channel_binding) from URL
-    and return (clean_url, connect_args)."""
+    """Normalise DATABASE_URL for asyncpg and return (clean_url, connect_args).
+
+    • Auto-converts ``postgresql://`` scheme to ``postgresql+asyncpg://``.
+    • Railway internal URLs (hostname contains ``railway.internal``) skip SSL
+      entirely — the internal network is already encrypted at transport level.
+    • External URLs with ``sslmode=require/verify-*`` get an SSL context with
+      disabled hostname verification (Neon / hosted PostgreSQL compatibility).
+    • Strips asyncpg-incompatible params (``sslmode``, ``channel_binding``).
+    """
+    # ── scheme normalisation ─────────────────────────────────────────
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+
     parsed = urlparse(url)
     connect_args: dict = {}
+
+    is_railway_internal = parsed.hostname and "railway.internal" in parsed.hostname
 
     if parsed.query:
         params = parse_qs(parsed.query, keep_blank_values=True)
 
         if "sslmode" in params:
             sslmode = params.pop("sslmode")[0]
-            if sslmode in ("require", "verify-ca", "verify-full", "prefer"):
+            # Railway internal network — no SSL needed
+            if not is_railway_internal and sslmode in (
+                "require", "verify-ca", "verify-full", "prefer",
+            ):
                 ssl_ctx = ssl_module.create_default_context()
-                # Hostname verification and certificate validation are intentionally
-                # disabled for Railway/Neon PostgreSQL compatibility: their SSL
-                # certificates may not match the proxy hostname. This is acceptable
-                # because the connection is still encrypted.
                 ssl_ctx.check_hostname = False
                 ssl_ctx.verify_mode = ssl_module.CERT_NONE
                 connect_args["ssl"] = ssl_ctx
@@ -41,8 +53,9 @@ _clean_url, _connect_args = _prepare_database_url(settings.DATABASE_URL)
 
 engine = create_async_engine(
     _clean_url,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=30,
+    max_overflow=20,
+    pool_timeout=30,
     pool_pre_ping=True,
     pool_recycle=3600,
     connect_args=_connect_args,
