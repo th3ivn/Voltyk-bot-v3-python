@@ -144,6 +144,41 @@ async def get_active_users_by_region(
     return list(result.scalars().all())
 
 
+async def get_distinct_region_queue_pairs(session: AsyncSession) -> list[tuple[str, str]]:
+    """Return unique (region, queue) pairs for all active users.
+
+    Uses idx_users_region_queue index.  Returns ~50-100 rows instead of
+    scanning the entire users table — critical for 100k-scale loops.
+    """
+    result = await session.execute(
+        select(User.region, User.queue)
+        .where(
+            User.is_active.is_(True),
+            User.region.isnot(None),
+            User.queue.isnot(None),
+        )
+        .distinct()
+    )
+    return list(result.all())
+
+
+async def get_active_user_ids_paginated(
+    session: AsyncSession, limit: int = 500, offset: int = 0,
+) -> list[tuple[int, str]]:
+    """Return (id, telegram_id) for active users — no relation loading.
+
+    Designed for broadcast where only telegram_id is needed.
+    """
+    result = await session.execute(
+        select(User.id, User.telegram_id)
+        .where(User.is_active.is_(True))
+        .order_by(User.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.all())
+
+
 async def get_all_active_users(session: AsyncSession) -> list[User]:
     result = await session.execute(
         select(User).options(*_user_with_relations()).where(User.is_active.is_(True)).order_by(User.id)

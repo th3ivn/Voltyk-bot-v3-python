@@ -411,11 +411,16 @@ async def _handle_power_state_change(
 # ─── Per-user state machine ───────────────────────────────────────────────
 
 
-async def _check_user_power(bot: Bot, user) -> None:
-    """Run one check cycle for a single user and advance their state machine."""
+async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None) -> None:
+    """Run one check cycle for a single user and advance their state machine.
+
+    If *is_available* is provided the HTTP ping is skipped — used when
+    multiple users share the same router IP and the ping was already done.
+    """
     try:
         telegram_id = str(user.telegram_id)
-        is_available = await _check_router_http(user.router_ip)
+        if is_available is None:
+            is_available = await _check_router_http(user.router_ip)
 
         if is_available is None:
             # No IP configured — skip this user silently
@@ -604,15 +609,28 @@ async def _check_all_ips(bot: Bot) -> None:
         if not users:
             return
 
-        logger.debug("Checking %d users (max %d concurrent)", len(users), settings.POWER_MAX_CONCURRENT_PINGS)
+        # Group users by router IP so each unique IP is pinged only once.
+        ip_groups: dict[str, list] = {}
+        for user in users:
+            ip_groups.setdefault(user.router_ip, []).append(user)
+
+        logger.debug(
+            "Checking %d unique IPs (%d users, max %d concurrent)",
+            len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
+        )
 
         semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
 
-        async def _with_semaphore(u):
+        async def _check_ip_group(ip: str, group_users: list):
             async with semaphore:
-                await _check_user_power(bot, u)
+                ping_result = await _check_router_http(ip)
+            for u in group_users:
+                await _check_user_power(bot, u, is_available=ping_result)
 
-        await asyncio.gather(*[_with_semaphore(u) for u in users])
+        await asyncio.gather(*[
+            _check_ip_group(ip, group_users)
+            for ip, group_users in ip_groups.items()
+        ])
 
     except Exception as e:
         logger.error("Error in _check_all_ips: %s", e)

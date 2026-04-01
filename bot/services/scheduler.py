@@ -18,9 +18,9 @@ from bot.db.queries import (
     delete_old_pending_notifications,
     get_active_reminder_anchors,
     get_active_users_by_region,
-    get_active_users_paginated,
     get_all_pending_region_queue_pairs,
     get_daily_snapshot,
+    get_distinct_region_queue_pairs,
     get_latest_pending_notification,
     get_schedule_check_time,
     get_schedule_hash,
@@ -177,21 +177,8 @@ async def _check_all_schedules(
     # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
     # cannot race with the checker and send duplicate notifications.
     async with _notify_lock:
-        region_queue_pairs: set[tuple[str, str]] = set()
-        batch_size_inner = _DB_SCAN_BATCH_SIZE
-        offset = 0
-        while True:
-            async with async_session() as session:
-                batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
-            if not batch:
-                break
-            for user in batch:
-                if not user.region or not user.queue:
-                    continue
-                region_queue_pairs.add((user.region, user.queue))
-            if len(batch) < batch_size_inner:
-                break
-            offset += batch_size_inner
+        async with async_session() as session:
+            region_queue_pairs = set(await get_distinct_region_queue_pairs(session))
 
         # Collect unique regions and fetch their data in parallel
         unique_regions = list({region for region, queue in region_queue_pairs})
@@ -431,21 +418,8 @@ async def flush_pending_notifications(bot: Bot) -> None:
         pending_set = set(tuple(p) for p in pending_pairs)
 
         # Collect all active region/queue pairs
-        all_pairs: set[tuple[str, str]] = set()
-        offset = 0
-        batch_size_inner = _DB_SCAN_BATCH_SIZE
-        while True:
-            async with async_session() as session:
-                batch = await get_active_users_paginated(session, limit=batch_size_inner, offset=offset)
-            if not batch:
-                break
-            for user in batch:
-                if not user.region or not user.queue:
-                    continue
-                all_pairs.add((user.region, user.queue))
-            if len(batch) < batch_size_inner:
-                break
-            offset += batch_size_inner
+        async with async_session() as session:
+            all_pairs = set(await get_distinct_region_queue_pairs(session))
 
         for region, queue in all_pairs:
             try:
@@ -556,31 +530,13 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
     """
     logger.info("Running post-quiet-hours reminder catch-up")
 
-    # Collect users grouped by (region, queue) who want any reminder
-    pairs: dict[tuple[str, str], list] = {}
-    offset = 0
-    while True:
-        async with async_session() as session:
-            batch = await get_active_users_paginated(session, limit=_DB_SCAN_BATCH_SIZE, offset=offset)
-        if not batch:
-            break
-        for user in batch:
-            ns = user.notification_settings
-            if not ns:
-                continue
-            has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
-            if not (has_any and (ns.notify_remind_off or ns.notify_remind_on)):
-                continue
-            if not user.region or not user.queue:
-                continue
-            pairs.setdefault((user.region, user.queue), []).append(user)
-        if len(batch) < _DB_SCAN_BATCH_SIZE:
-            break
-        offset += _DB_SCAN_BATCH_SIZE
+    # Get distinct (region, queue) pairs, then fetch users per pair
+    async with async_session() as session:
+        all_pairs = await get_distinct_region_queue_pairs(session)
 
     max_remind_m = max(_REMIND_MINUTES)  # 60
 
-    for (region, queue), users in pairs.items():
+    for region, queue in all_pairs:
         try:
             raw = await fetch_schedule_data(region)
             if not raw:
@@ -600,6 +556,18 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
             # will handle them.  Events already started (≤ 0) are skipped.
             if minutes_until <= 0 or minutes_until > max_remind_m + 1:
                 continue
+
+            # Fetch users with reminder settings for this pair
+            async with async_session() as session:
+                pair_users = await get_active_users_by_region(session, region, queue=queue)
+            users = []
+            for u in pair_users:
+                ns = u.notification_settings
+                if not ns:
+                    continue
+                has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+                if has_any and (ns.notify_remind_off or ns.notify_remind_on):
+                    users.append(u)
 
             for remind_m in _REMIND_MINUTES:
                 # The ideal send time for this reminder was remind_m minutes before the
@@ -950,30 +918,12 @@ async def _check_and_send_reminders(bot: Bot) -> None:
     except Exception as e:
         logger.warning("Reminder cleanup DB error: %s", e)
 
-    # ── 2. Collect users grouped by (region, queue) ───────────────────
-    pairs: dict[tuple[str, str], list] = {}
-    offset = 0
-    while True:
-        async with async_session() as session:
-            batch = await get_active_users_paginated(session, limit=1000, offset=offset)
-        if not batch:
-            break
-        for user in batch:
-            ns = user.notification_settings
-            if not ns:
-                continue
-            has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
-            if not (has_any and (ns.notify_remind_off or ns.notify_remind_on)):
-                continue
-            if not user.region or not user.queue:
-                continue
-            pairs.setdefault((user.region, user.queue), []).append(user)
-        if len(batch) < 1000:
-            break
-        offset += 1000
+    # ── 2. Get distinct (region, queue) pairs, then fetch users per pair ──
+    async with async_session() as session:
+        all_pairs = await get_distinct_region_queue_pairs(session)
 
     # ── 3. For each (region, queue) check schedule and fire reminders ──
-    for (region, queue), users in pairs.items():
+    for region, queue in all_pairs:
         try:
             raw = await fetch_schedule_data(region)
             if not raw:
@@ -987,6 +937,18 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             anchor_iso: str    = next_event["time"]   # key for dedup
             minutes_until: int = next_event["minutes"]
             is_possible: bool  = next_event.get("isPossible", False)
+
+            # Fetch only users for this pair and filter by reminder settings
+            async with async_session() as session:
+                pair_users = await get_active_users_by_region(session, region, queue=queue)
+            users = []
+            for u in pair_users:
+                ns = u.notification_settings
+                if not ns:
+                    continue
+                has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+                if has_any and (ns.notify_remind_off or ns.notify_remind_on):
+                    users.append(u)
 
             # Collect (user, remind_m) pairs that are in the timing window
             to_send: list[tuple] = []
