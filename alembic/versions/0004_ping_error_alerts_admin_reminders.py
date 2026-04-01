@@ -8,7 +8,21 @@ Create Date: 2026-03-15
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
+
+
+def _table_exists(name: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
 
 revision = "0004"
 down_revision = "0003"
@@ -49,10 +63,11 @@ def upgrade() -> None:
     )
     op.create_index("idx_admin_ticket_reminders_ticket_id", "admin_ticket_reminders", ["ticket_id"])
 
-    op.add_column(
-        "user_channel_config",
-        sa.Column("last_power_message_id", sa.Integer(), nullable=True),
-    )
+    if _table_exists("user_channel_config"):
+        op.add_column(
+            "user_channel_config",
+            sa.Column("last_power_message_id", sa.Integer(), nullable=True),
+        )
 
 
 def downgrade() -> None:

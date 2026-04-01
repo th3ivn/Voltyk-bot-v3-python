@@ -8,7 +8,21 @@ Create Date: 2026-03-21
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
+
+
+def _table_exists(name: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
 
 revision = "0007"
 down_revision = "0006"
@@ -34,14 +48,15 @@ def upgrade() -> None:
         sa.Column("detected_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.add_column(
-        "user_notification_settings",
-        sa.Column("notify_emergency_off", sa.Boolean, server_default="true", nullable=False),
-    )
-    op.add_column(
-        "user_notification_settings",
-        sa.Column("notify_emergency_on", sa.Boolean, server_default="true", nullable=False),
-    )
+    if _table_exists("user_notification_settings"):
+        op.add_column(
+            "user_notification_settings",
+            sa.Column("notify_emergency_off", sa.Boolean, server_default="true", nullable=False),
+        )
+        op.add_column(
+            "user_notification_settings",
+            sa.Column("notify_emergency_on", sa.Boolean, server_default="true", nullable=False),
+        )
 
 
 def downgrade() -> None:

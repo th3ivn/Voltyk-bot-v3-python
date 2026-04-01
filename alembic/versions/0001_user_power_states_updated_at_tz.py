@@ -13,8 +13,9 @@ leaving every user in `is_first_check=True` and suppressing all notifications.
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0001"
@@ -23,7 +24,21 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
+    if not _table_exists("user_power_states"):
+        return
     op.execute(
         "ALTER TABLE user_power_states "
         "ALTER COLUMN updated_at TYPE TIMESTAMPTZ "

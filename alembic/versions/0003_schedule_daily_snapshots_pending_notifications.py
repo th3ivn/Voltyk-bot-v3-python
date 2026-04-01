@@ -8,7 +8,20 @@ Create Date: 2026-03-14
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
+
+
+def _table_exists(name: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
 
 revision = "0003"
 down_revision = "0002"
@@ -55,10 +68,11 @@ def upgrade() -> None:
         ["region", "queue", "status"],
     )
 
-    op.add_column(
-        "user_message_tracking",
-        sa.Column("last_schedule_message_id", sa.BigInteger(), nullable=True),
-    )
+    if _table_exists("user_message_tracking"):
+        op.add_column(
+            "user_message_tracking",
+            sa.Column("last_schedule_message_id", sa.BigInteger(), nullable=True),
+        )
 
 
 def downgrade() -> None:

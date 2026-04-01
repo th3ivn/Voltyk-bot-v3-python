@@ -8,6 +8,7 @@ Create Date: 2026-03-21
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0006"
@@ -16,7 +17,21 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
+    if not _table_exists("user_power_states"):
+        return
     op.execute("""
         ALTER TABLE user_power_states
             ALTER COLUMN pending_state_time
