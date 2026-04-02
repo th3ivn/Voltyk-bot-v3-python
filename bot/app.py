@@ -60,6 +60,7 @@ def create_dispatcher() -> Dispatcher:
     dp.callback_query.middleware(MaintenanceMiddleware())
 
     dp.message.middleware(ThrottleMiddleware(rate_limit=0.3))
+    dp.callback_query.middleware(ThrottleMiddleware(rate_limit=0.2))
 
     register_all_handlers(dp)
 

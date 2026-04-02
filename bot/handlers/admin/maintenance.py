@@ -60,6 +60,9 @@ async def maintenance_edit_message(callback: CallbackQuery, state: FSMContext) -
 
 @router.message(MaintenanceSG.waiting_for_message)
 async def maintenance_message_input(message: Message, state: FSMContext) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await state.clear()
+        return
     if not message.text:
         return
     set_maintenance_mode(is_maintenance_mode(), message=message.text.strip())

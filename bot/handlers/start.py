@@ -131,7 +131,10 @@ async def wizard_region(callback: CallbackQuery, state: FSMContext, session: Asy
 @router.callback_query(WizardSG.queue, F.data.startswith("queue_page_"))
 async def wizard_queue_page(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    page = int(callback.data.replace("queue_page_", ""))
+    from bot.utils.helpers import safe_parse_callback_int
+    page = safe_parse_callback_int(callback.data, "queue_page_")
+    if page is None:
+        return
     data = await state.get_data()
     region_code = data.get("region", "kyiv")
     region = REGIONS.get(region_code)
@@ -239,7 +242,11 @@ async def wizard_toggle_schedule(callback: CallbackQuery, state: FSMContext, ses
 
 @router.callback_query(WizardSG.bot_notifications, F.data.startswith("wizard_notif_time_"))
 async def wizard_toggle_time(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    minutes = int(callback.data.replace("wizard_notif_time_", ""))
+    from bot.utils.helpers import safe_parse_callback_int
+    minutes = safe_parse_callback_int(callback.data, "wizard_notif_time_")
+    if minutes is None:
+        await callback.answer()
+        return
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if user and user.notification_settings:
         ns = user.notification_settings

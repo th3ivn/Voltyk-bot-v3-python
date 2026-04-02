@@ -53,6 +53,9 @@ async def admin_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(BroadcastSG.waiting_for_text)
 async def broadcast_text(message: Message, state: FSMContext) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await state.clear()
+        return
     if not message.text:
         await message.reply("❌ Введіть текст повідомлення")
         return

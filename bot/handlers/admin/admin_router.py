@@ -50,6 +50,9 @@ async def admin_router_set_ip(callback: CallbackQuery, state: FSMContext) -> Non
 
 @router.message(AdminRouterIpSG.waiting_for_ip)
 async def admin_router_ip_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await state.clear()
+        return
     if not message.text:
         return
     result = is_valid_ip_or_domain(message.text)

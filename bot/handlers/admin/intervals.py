@@ -12,6 +12,7 @@ from bot.keyboards.inline import (
     get_refresh_cooldown_keyboard,
     get_schedule_interval_keyboard,
 )
+from bot.utils.helpers import safe_parse_callback_int
 
 router = Router(name="admin_intervals")
 
@@ -48,7 +49,10 @@ async def admin_schedule_set(callback: CallbackQuery, session: AsyncSession) -> 
     if not settings.is_owner(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
-    minutes = int(callback.data.replace("admin_schedule_", ""))
+    minutes = safe_parse_callback_int(callback.data, "admin_schedule_")
+    if minutes is None:
+        await callback.answer()
+        return
     seconds = minutes * 60
     await set_setting(session, "schedule_check_interval", str(seconds))
     await callback.answer(f"✅ Інтервал: {minutes} хв")
@@ -75,7 +79,10 @@ async def admin_ip_set(callback: CallbackQuery, session: AsyncSession) -> None:
     if not settings.is_owner(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
-    seconds = int(callback.data.replace("admin_ip_", ""))
+    seconds = safe_parse_callback_int(callback.data, "admin_ip_")
+    if seconds is None:
+        await callback.answer()
+        return
     await set_setting(session, "power_check_interval", str(seconds))
     label = "Динамічний" if seconds == 0 else f"{seconds} сек"
     await callback.answer(f"✅ Інтервал: {label}")
@@ -102,7 +109,10 @@ async def admin_cooldown_set(callback: CallbackQuery, session: AsyncSession) -> 
     if not settings.is_owner(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
-    seconds = int(callback.data.replace("admin_cooldown_set_", ""))
+    seconds = safe_parse_callback_int(callback.data, "admin_cooldown_set_")
+    if seconds is None:
+        await callback.answer()
+        return
     await set_setting(session, "refresh_cooldown", str(seconds))
     await callback.answer(f"✅ Cooldown: {seconds} сек")
     await callback.message.edit_reply_markup(
