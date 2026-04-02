@@ -194,7 +194,7 @@ async def _check_all_schedules(
 
         region_data: dict[str, dict | None] = {}
         for result in fetch_results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.error("Failed to fetch region data: %s", result)
                 continue
             r, data = result

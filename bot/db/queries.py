@@ -576,7 +576,6 @@ async def get_recent_user_power_states(
     session: AsyncSession,
 ) -> list[UserPowerState]:
     """Return UserPowerState rows updated within the last hour."""
-    from datetime import timedelta
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
     result = await session.execute(
         select(UserPowerState).where(UserPowerState.updated_at > cutoff)
@@ -774,7 +773,6 @@ async def update_ping_error_alert_time(
 
 async def get_power_history_week(session: AsyncSession, user_id: int) -> list[PowerHistory]:
     """Return PowerHistory records for a user from the last 7 days."""
-    from datetime import timedelta
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
     result = await session.execute(
         select(PowerHistory)
@@ -804,8 +802,6 @@ async def get_pending_admin_reminders(
     session: AsyncSession,
 ) -> list[AdminTicketReminder]:
     """Return unresolved reminders where last_reminder_at is older than 24 hours."""
-    from datetime import timedelta
-
     cutoff = datetime.now(UTC) - timedelta(hours=24)
     result = await session.execute(
         select(AdminTicketReminder).where(
