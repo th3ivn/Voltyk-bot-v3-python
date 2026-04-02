@@ -117,8 +117,8 @@ async def on_startup(bot: Bot) -> None:
     for _admin_id in settings.all_admin_ids:
         try:
             await bot.send_message(_admin_id, _startup_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
 
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
     from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
@@ -142,8 +142,8 @@ async def on_shutdown(bot: Bot) -> None:
     for _admin_id in settings.all_admin_ids:
         try:
             await bot.send_message(_admin_id, _shutdown_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
 
     from bot.services.api import close_http_client
     from bot.services.power_monitor import stop_power_monitor
