@@ -241,7 +241,7 @@ async def fetch_schedule_data(
     return None
 
 
-def invalidate_image_cache(region: str, queue: str) -> None:
+async def invalidate_image_cache(region: str, queue: str) -> None:
     """Remove the L1 in-memory entry for the given region/queue.
 
     The Redis (L2) entry is deleted separately by the scheduler's
@@ -249,9 +249,10 @@ def invalidate_image_cache(region: str, queue: str) -> None:
     immediately stores a freshly rendered replacement.
     """
     cache_key = f"{region}_{queue}"
-    if cache_key in _image_cache:
-        del _image_cache[cache_key]
-        logger.debug("L1 image cache invalidated for %s/%s", region, queue)
+    async with _image_cache_lock:
+        if cache_key in _image_cache:
+            del _image_cache[cache_key]
+            logger.debug("L1 image cache invalidated for %s/%s", region, queue)
 
 
 async def _l1_store_async(cache_key: str, now: datetime, data: bytes) -> None:
@@ -261,14 +262,6 @@ async def _l1_store_async(cache_key: str, now: datetime, data: bytes) -> None:
             _image_cache.popitem(last=False)
         _image_cache[cache_key] = (now, data)
         _image_cache.move_to_end(cache_key)
-
-
-def _l1_store(cache_key: str, now: datetime, data: bytes) -> None:
-    """Write *data* into the L1 in-memory cache (sync path, called from async context)."""
-    if len(_image_cache) >= MAX_CACHE_SIZE:
-        _image_cache.popitem(last=False)
-    _image_cache[cache_key] = (now, data)
-    _image_cache.move_to_end(cache_key)
 
 
 async def fetch_schedule_image(

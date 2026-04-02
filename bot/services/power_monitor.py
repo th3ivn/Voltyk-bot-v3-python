@@ -674,7 +674,7 @@ async def _save_user_state_to_db(telegram_id: str, state: dict) -> None:
 
 
 async def _save_all_user_states() -> None:
-    """Save all in-memory user states to DB (called every 5 minutes)."""
+    """Save all in-memory user states to DB (called every save_interval_s)."""
     count = 0
     for tid, state in list(_user_states.items()):
         await _save_user_state_to_db(tid, state)
@@ -839,7 +839,7 @@ async def power_monitor_loop(bot: Bot) -> None:
             logger.error("Power monitor check error: %s", e)
             sentry_sdk.capture_exception(e)
 
-        # Periodic state save (every 5 minutes)
+        # Periodic state save
         now_t = asyncio.get_running_loop().time()
         if now_t - last_save_at >= save_interval_s:
             await _save_all_user_states()

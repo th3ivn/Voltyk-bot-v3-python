@@ -259,7 +259,7 @@ async def _check_single_queue(
 
     # Hash changed — determine what changed
     logger.info("Schedule changed for region=%s queue=%s", region, queue)
-    invalidate_image_cache(region, queue)   # clear L1 in-memory cache
+    await invalidate_image_cache(region, queue)   # clear L1 in-memory cache
     await _prerender_chart(region, queue, sched)   # delete L2 Redis + render fresh chart
 
     # First time we've ever seen this region/queue — treat as initial load, not an "update"

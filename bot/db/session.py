@@ -51,6 +51,9 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
 
 _clean_url, _connect_args = _prepare_database_url(settings.DATABASE_URL)
 
+# Prevent runaway queries from holding connections indefinitely
+_connect_args.setdefault("command_timeout", 30)
+
 engine = create_async_engine(
     _clean_url,
     pool_size=30,
