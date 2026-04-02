@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import settings
-from bot.db.queries import get_active_user_ids_paginated
+from bot.db.queries import get_active_user_ids_cursor
 from bot.db.session import async_session
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
@@ -26,6 +26,7 @@ _PROGRESS_EVERY = 1000
 
 _active_broadcast: asyncio.Task | None = None
 _broadcast_cancel: asyncio.Event = asyncio.Event()
+_broadcast_lock: asyncio.Lock = asyncio.Lock()
 
 
 def is_broadcast_running() -> bool:
@@ -96,26 +97,28 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext) -> 
     if not settings.is_admin(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено")
         return
-    if is_broadcast_running():
-        await callback.answer("⚠️ Розсилка вже виконується", show_alert=True)
-        return
-    data = await state.get_data()
-    text = data.get("broadcast_text", "")
-    await state.clear()
-    await callback.answer()
 
-    _broadcast_cancel.clear()
-    cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⏹ Зупинити розсилку", callback_data="broadcast_cancel_active")],
-        ]
-    )
-    await callback.message.edit_text("📤 Розсилка розпочата...", reply_markup=cancel_kb)
+    async with _broadcast_lock:
+        if is_broadcast_running():
+            await callback.answer("⚠️ Розсилка вже виконується", show_alert=True)
+            return
+        data = await state.get_data()
+        text = data.get("broadcast_text", "")
+        await state.clear()
+        await callback.answer()
 
-    admin_id = callback.from_user.id
-    _active_broadcast = asyncio.create_task(
-        _run_broadcast(callback.bot, BROADCAST_HEADER + text, admin_id)
-    )
+        _broadcast_cancel.clear()
+        cancel_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⏹ Зупинити розсилку", callback_data="broadcast_cancel_active")],
+            ]
+        )
+        await callback.message.edit_text("📤 Розсилка розпочата...", reply_markup=cancel_kb)
+
+        admin_id = callback.from_user.id
+        _active_broadcast = asyncio.create_task(
+            _run_broadcast(callback.bot, BROADCAST_HEADER + text, admin_id)
+        )
 
 
 @router.callback_query(F.data == "broadcast_cancel_active")
@@ -149,7 +152,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
     sent = 0
     failed = 0
     blocked = 0
-    offset = 0
+    last_id = 0
     batch_size = 500
 
     try:
@@ -158,7 +161,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                 break
 
             async with async_session() as session:
-                batch = await get_active_user_ids_paginated(session, limit=batch_size, offset=offset)
+                batch = await get_active_user_ids_cursor(session, limit=batch_size, after_id=last_id)
             if not batch:
                 break
 
@@ -198,7 +201,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                     except Exception:
                         pass
 
-            offset += len(batch)
+            last_id = batch[-1].id if batch else last_id
 
     except asyncio.CancelledError:
         logger.info("Broadcast task cancelled")

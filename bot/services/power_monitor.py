@@ -41,6 +41,7 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 # ─── In-memory state ──────────────────────────────────────────────────────
 
 _user_states: dict[str, dict] = {}
+_user_states_lock: asyncio.Lock = asyncio.Lock()
 _running = False
 _is_checking = False
 _is_checking_started_at: float | None = None
@@ -814,7 +815,7 @@ async def power_monitor_loop(bot: Bot) -> None:
         logger.error("Initial power monitor check error: %s", e)
 
     last_save_at = asyncio.get_running_loop().time()
-    save_interval_s = 5 * 60  # 5 minutes
+    save_interval_s = 60  # 1 minute — minimize data loss on crash
 
     while _running:
         # Read interval from DB each iteration (admin panel can change it)

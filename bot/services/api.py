@@ -22,6 +22,11 @@ _image_cache: OrderedDict[str, tuple[datetime, bytes]] = OrderedDict()
 CACHE_TTL = timedelta(minutes=2)
 MAX_CACHE_SIZE = 100
 
+# Locks protecting concurrent access to caches and commit state
+_schedule_cache_lock: asyncio.Lock = asyncio.Lock()
+_image_cache_lock: asyncio.Lock = asyncio.Lock()
+_commit_state_lock: asyncio.Lock = asyncio.Lock()
+
 # Chart render mode: False = on_change (cache), True = on_demand (always re-render)
 _chart_render_on_demand: bool = False
 
@@ -70,6 +75,12 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
       updated so callers do **not** need to call any confirm function.
     - ``(False, None)``  — no new commits; skip the check.
     """
+    global _last_commit_sha, _last_etag
+    async with _commit_state_lock:
+        return await _check_source_repo_updated_inner()
+
+
+async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
     global _last_commit_sha, _last_etag
 
     headers = {
@@ -183,11 +194,12 @@ async def fetch_schedule_data(
 
     cache_key = region
     now = datetime.now()
-    if not force_refresh and cache_key in _schedule_cache:
-        cached_at, data = _schedule_cache[cache_key]
-        if now - cached_at < effective_ttl:
-            _schedule_cache.move_to_end(cache_key)
-            return data
+    async with _schedule_cache_lock:
+        if not force_refresh and cache_key in _schedule_cache:
+            cached_at, data = _schedule_cache[cache_key]
+            if now - cached_at < effective_ttl:
+                _schedule_cache.move_to_end(cache_key)
+                return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
@@ -211,10 +223,11 @@ async def fetch_schedule_data(
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
-                    if len(_schedule_cache) >= MAX_CACHE_SIZE:
-                        _schedule_cache.popitem(last=False)
-                    _schedule_cache[cache_key] = (now, data)
-                    _schedule_cache.move_to_end(cache_key)
+                    async with _schedule_cache_lock:
+                        if len(_schedule_cache) >= MAX_CACHE_SIZE:
+                            _schedule_cache.popitem(last=False)
+                        _schedule_cache[cache_key] = (now, data)
+                        _schedule_cache.move_to_end(cache_key)
                     return data
                 logger.warning("Schedule fetch %s returned %d", region, resp.status)
         except (TimeoutError, aiohttp.ClientError) as e:
@@ -241,8 +254,17 @@ def invalidate_image_cache(region: str, queue: str) -> None:
         logger.debug("L1 image cache invalidated for %s/%s", region, queue)
 
 
+async def _l1_store_async(cache_key: str, now: datetime, data: bytes) -> None:
+    """Write *data* into the L1 in-memory cache (async-safe)."""
+    async with _image_cache_lock:
+        if len(_image_cache) >= MAX_CACHE_SIZE:
+            _image_cache.popitem(last=False)
+        _image_cache[cache_key] = (now, data)
+        _image_cache.move_to_end(cache_key)
+
+
 def _l1_store(cache_key: str, now: datetime, data: bytes) -> None:
-    """Write *data* into the L1 in-memory cache."""
+    """Write *data* into the L1 in-memory cache (sync path, called from async context)."""
     if len(_image_cache) >= MAX_CACHE_SIZE:
         _image_cache.popitem(last=False)
     _image_cache[cache_key] = (now, data)
@@ -278,16 +300,17 @@ async def fetch_schedule_image(
     now = datetime.now()
 
     # ── L1: in-memory ─────────────────────────────────────────────────────────
-    if cache_key in _image_cache:
-        cached_at, data = _image_cache[cache_key]
-        if now - cached_at < CACHE_TTL:
-            _image_cache.move_to_end(cache_key)
-            return data
+    async with _image_cache_lock:
+        if cache_key in _image_cache:
+            cached_at, data = _image_cache[cache_key]
+            if now - cached_at < CACHE_TTL:
+                _image_cache.move_to_end(cache_key)
+                return data
 
     # ── L2: Redis ─────────────────────────────────────────────────────────────
     redis_data = await chart_cache.get(region, queue)
     if redis_data:
-        _l1_store(cache_key, now, redis_data)
+        await _l1_store_async(cache_key, now, redis_data)
         return redis_data
 
     # ── Generate locally ──────────────────────────────────────────────────────
@@ -296,7 +319,7 @@ async def fetch_schedule_image(
         generated = await generate_schedule_chart(region, queue, schedule_data)
         if generated:
             await chart_cache.store(region, queue, generated)
-            _l1_store(cache_key, now, generated)
+            await _l1_store_async(cache_key, now, generated)
             return generated
         logger.warning("Local chart generation failed for %s/%s — falling back to GitHub", region, queue)
 
@@ -320,7 +343,7 @@ async def fetch_schedule_image(
                 if resp.status == 200:
                     data = await resp.read()
                     await chart_cache.store(region, queue, data)
-                    _l1_store(cache_key, now, data)
+                    await _l1_store_async(cache_key, now, data)
                     return data
         finally:
             if _owned:
