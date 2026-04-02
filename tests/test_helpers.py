@@ -238,3 +238,6 @@ class TestSafeParseCallbackInt:
 
     def test_float_value(self):
         assert safe_parse_callback_int("prefix_3.14", "prefix_") is None
+
+    def test_none_data(self):
+        assert safe_parse_callback_int(None, "prefix_") is None

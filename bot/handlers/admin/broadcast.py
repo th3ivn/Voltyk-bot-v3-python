@@ -116,8 +116,10 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext) -> 
         await callback.message.edit_text("📤 Розсилка розпочата...", reply_markup=cancel_kb)
 
         admin_id = callback.from_user.id
+        bot = callback.bot
+        assert bot is not None  # always set inside handlers
         _active_broadcast = asyncio.create_task(
-            _run_broadcast(callback.bot, BROADCAST_HEADER + text, admin_id)
+            _run_broadcast(bot, BROADCAST_HEADER + text, admin_id)
         )
 
 
@@ -168,7 +170,8 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
             for row in batch:
                 if _broadcast_cancel.is_set():
                     break
-                telegram_id = int(row.telegram_id)
+                row_id, row_tid = row
+                telegram_id = int(row_tid)
                 for attempt in range(settings.TELEGRAM_MAX_RETRIES + 1):
                     try:
                         await bot.send_message(telegram_id, full_text, parse_mode="HTML")
@@ -201,7 +204,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                     except Exception:
                         pass
 
-            last_id = batch[-1].id if batch else last_id
+            last_id = batch[-1][0] if batch else last_id
 
     except asyncio.CancelledError:
         logger.info("Broadcast task cancelled")

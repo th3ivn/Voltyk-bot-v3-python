@@ -110,7 +110,7 @@ async def handle_chat_member(event: ChatMemberUpdated, session: AsyncSession) ->
         await delete_pending_channel(session, channel_id)
 
         user = await get_user_by_channel_id(session, channel_id)
-        if user:
+        if user and user.channel_config:
             user.channel_config.channel_id = None
             user.channel_config.channel_title = None
             user.channel_config.channel_status = "disconnected"

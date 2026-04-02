@@ -43,7 +43,7 @@ jobs:
         run: pip install -e ".[dev]" mypy
 
       - name: Run mypy
-        run: mypy bot/ --ignore-missing-imports || true
+        run: mypy bot/ --ignore-missing-imports --disable-error-code=union-attr
 
   test:
     name: Tests (pytest)

@@ -44,6 +44,7 @@ def create_bot() -> Bot:
 
 def create_dispatcher() -> Dispatcher:
     redis_url = settings.REDIS_URL
+    storage: RedisStorage | MemoryStorage
     if redis_url and "localhost" not in redis_url:
         storage = RedisStorage.from_url(redis_url)
         logger.info("✅ Redis FSM storage (%s)", redis_url.split("@")[-1])
