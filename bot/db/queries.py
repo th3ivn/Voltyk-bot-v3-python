@@ -168,6 +168,7 @@ async def get_active_user_ids_paginated(
     """Return (id, telegram_id) for active users — no relation loading.
 
     Designed for broadcast where only telegram_id is needed.
+    DEPRECATED: prefer get_active_user_ids_cursor() for 100k-scale.
     """
     result = await session.execute(
         select(User.id, User.telegram_id)
@@ -175,6 +176,24 @@ async def get_active_user_ids_paginated(
         .order_by(User.id)
         .limit(limit)
         .offset(offset)
+    )
+    return list(result.all())
+
+
+async def get_active_user_ids_cursor(
+    session: AsyncSession, limit: int = 500, after_id: int = 0,
+) -> list[tuple[int, str]]:
+    """Return (id, telegram_id) for active users using cursor-based pagination.
+
+    Uses ``WHERE id > after_id`` instead of OFFSET — O(1) seek instead of
+    O(N) skip, critical for 100k+ users.  Pass ``after_id=last_row.id``
+    from previous batch to get the next page.
+    """
+    result = await session.execute(
+        select(User.id, User.telegram_id)
+        .where(User.is_active.is_(True), User.id > after_id)
+        .order_by(User.id)
+        .limit(limit)
     )
     return list(result.all())
 

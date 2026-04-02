@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import sentry_sdk
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile
 
 from bot.config import settings
@@ -676,21 +676,49 @@ async def _send_notifications_to_users(
     changes: dict,
     is_daily_planned: bool = False,
 ) -> None:
-    """Send schedule notifications to a list of users, respecting their settings."""
-    batch_size = settings.SCHEDULER_BATCH_SIZE
-    stagger_ms = settings.SCHEDULER_STAGGER_MS
+    """Send schedule notifications with backpressure via bounded asyncio.Queue.
 
-    for i, user in enumerate(users):
-        try:
-            await _send_schedule_notification(
-                bot, user, sched_data, update_type, changes, is_daily_planned
-            )
-        except Exception as e:
-            logger.error("Error sending notification to user %s: %s", user.telegram_id, e)
+    Workers pull from a bounded queue, so the producer blocks when all workers
+    are busy — providing natural backpressure.  TelegramRetryAfter is handled
+    per-worker with proper sleep-and-retry.
+    """
+    if not users:
+        return
 
-        # Stagger between sends to respect Telegram API rate limits
-        if (i + 1) % batch_size == 0:
-            await asyncio.sleep(stagger_ms / 1000)
+    num_workers = min(settings.SCHEDULER_BATCH_SIZE, len(users))
+    queue: asyncio.Queue = asyncio.Queue(maxsize=num_workers * 2)
+    send_delay = settings.SCHEDULER_STAGGER_MS / 1000
+
+    async def _worker() -> None:
+        while True:
+            user = await queue.get()
+            try:
+                await _send_schedule_notification(
+                    bot, user, sched_data, update_type, changes, is_daily_planned
+                )
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after + 1)
+                try:
+                    await _send_schedule_notification(
+                        bot, user, sched_data, update_type, changes, is_daily_planned
+                    )
+                except Exception as exc:
+                    logger.error("Error sending notification to user %s after retry: %s", user.telegram_id, exc)
+            except Exception as e:
+                logger.error("Error sending notification to user %s: %s", user.telegram_id, e)
+            finally:
+                queue.task_done()
+            await asyncio.sleep(send_delay)
+
+    workers = [asyncio.create_task(_worker()) for _ in range(num_workers)]
+    try:
+        for user in users:
+            await queue.put(user)
+        await queue.join()
+    finally:
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
 
 
 async def _prerender_chart(region: str, queue: str, sched_data: dict) -> None:

@@ -53,5 +53,5 @@ omit = ["bot/__main__.py", "bot/app.py"]
 
 [tool.coverage.report]
 show_missing = true
-# Starting threshold — raise incrementally as more tests are added
-fail_under = 15
+# Raised from 15% — enforces no regression; increase as more tests are added
+fail_under = 18
