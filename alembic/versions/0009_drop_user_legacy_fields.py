@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision = "0009"
 down_revision = "0008"
@@ -22,7 +22,23 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
+    if not _table_exists("users"):
+        return
     op.drop_column("users", "last_hash")
     op.drop_column("users", "today_snapshot_hash")
     op.drop_column("users", "tomorrow_snapshot_hash")

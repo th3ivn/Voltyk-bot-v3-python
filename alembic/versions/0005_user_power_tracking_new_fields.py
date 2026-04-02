@@ -8,7 +8,8 @@ Create Date: 2026-03-15
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
+
+from alembic import context, op
 
 revision = "0005"
 down_revision = "0004"
@@ -16,7 +17,23 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
+    if not _table_exists("user_power_tracking"):
+        return
     op.add_column(
         "user_power_tracking",
         sa.Column("last_ping_error_at", sa.DateTime(timezone=True), nullable=True),
