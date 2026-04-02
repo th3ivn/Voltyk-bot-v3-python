@@ -61,3 +61,18 @@ def is_valid_ip_or_domain(address: str) -> dict:
 
     return {"valid": False, "error": "Невірний формат адреси. Приклад: 192.168.1.1 або router.example.com"}
 
+
+def safe_parse_callback_int(data: str, prefix: str) -> int | None:
+    """Safely extract an integer from callback data by removing the prefix.
+
+    Returns None if the data doesn't start with the prefix or the remainder
+    is not a valid integer.
+    """
+    if not data.startswith(prefix):
+        return None
+    remainder = data[len(prefix):]
+    try:
+        return int(remainder)
+    except (ValueError, TypeError):
+        return None
+

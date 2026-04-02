@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiogram.exceptions import TelegramRetryAfter
 
-from bot.utils.helpers import is_valid_ip_or_domain, retry_bot_call
+from bot.utils.helpers import is_valid_ip_or_domain, retry_bot_call, safe_parse_callback_int
 
 
 # ─── is_valid_ip_or_domain ────────────────────────────────────────────────
@@ -209,3 +209,32 @@ class TestRetryBotCall:
 
         result = await retry_bot_call(lambda: coro())
         assert result == {"data": 42}
+
+
+# ─── safe_parse_callback_int ─────────────────────────────────────────────
+
+
+class TestSafeParseCallbackInt:
+    def test_valid_int(self):
+        assert safe_parse_callback_int("notif_time_15", "notif_time_") == 15
+
+    def test_valid_zero(self):
+        assert safe_parse_callback_int("prefix_0", "prefix_") == 0
+
+    def test_valid_negative(self):
+        assert safe_parse_callback_int("prefix_-5", "prefix_") == -5
+
+    def test_invalid_not_a_number(self):
+        assert safe_parse_callback_int("notif_time_abc", "notif_time_") is None
+
+    def test_invalid_empty_remainder(self):
+        assert safe_parse_callback_int("notif_time_", "notif_time_") is None
+
+    def test_wrong_prefix(self):
+        assert safe_parse_callback_int("other_data_15", "notif_time_") is None
+
+    def test_empty_data(self):
+        assert safe_parse_callback_int("", "notif_time_") is None
+
+    def test_float_value(self):
+        assert safe_parse_callback_int("prefix_3.14", "prefix_") is None

@@ -211,7 +211,11 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("notif_time_"))
 async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
-    minutes = int(callback.data.replace("notif_time_", ""))
+    from bot.utils.helpers import safe_parse_callback_int
+    minutes = safe_parse_callback_int(callback.data, "notif_time_")
+    if minutes is None:
+        await callback.answer()
+        return
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user or not user.notification_settings:
         await callback.answer()

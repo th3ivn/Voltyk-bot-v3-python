@@ -106,6 +106,7 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(ChannelConversationSG.waiting_for_pause_message)
 async def pause_custom_message_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not settings.is_admin(message.from_user.id):
+        await state.clear()
         return
     if not message.text:
         await message.reply("❌ Введіть текст повідомлення")
@@ -197,7 +198,11 @@ async def debounce_set(callback: CallbackQuery, session: AsyncSession) -> None:
     if not settings.is_owner(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено. Тільки головний адмін може змінювати ці налаштування")
         return
-    value = int(callback.data.replace("debounce_set_", ""))
+    from bot.utils.helpers import safe_parse_callback_int
+    value = safe_parse_callback_int(callback.data, "debounce_set_")
+    if value is None:
+        await callback.answer()
+        return
     await set_setting(session, "power_debounce_minutes", str(value))
     label = "Вимкнено" if value == 0 else f"{value} хв"
     await callback.answer(f"✅ Debounce: {label}")

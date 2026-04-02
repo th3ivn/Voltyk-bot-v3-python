@@ -806,7 +806,12 @@ async def power_monitor_loop(bot: Bot) -> None:
     logger.info("⚡ Power monitor started (default interval: %ds, admin-overridable via DB)", DEFAULT_CHECK_INTERVAL_S)
 
     # First check immediately
-    await _check_all_ips(bot)
+    try:
+        await asyncio.wait_for(_check_all_ips(bot), timeout=300)
+    except asyncio.TimeoutError:
+        logger.error("Initial power monitor check timed out after 300s")
+    except Exception as e:
+        logger.error("Initial power monitor check error: %s", e)
 
     last_save_at = asyncio.get_running_loop().time()
     save_interval_s = 5 * 60  # 5 minutes
@@ -826,7 +831,9 @@ async def power_monitor_loop(bot: Bot) -> None:
             break
 
         try:
-            await _check_all_ips(bot)
+            await asyncio.wait_for(_check_all_ips(bot), timeout=300)
+        except asyncio.TimeoutError:
+            logger.error("Power monitor check timed out after 300s")
         except Exception as e:
             logger.error("Power monitor check error: %s", e)
             sentry_sdk.capture_exception(e)
