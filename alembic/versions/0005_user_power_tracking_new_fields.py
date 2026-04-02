@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision = "0005"
 down_revision = "0004"
@@ -18,6 +18,8 @@ depends_on = None
 
 
 def _table_exists(name: str) -> bool:
+    if context.is_offline_mode():
+        return True
     bind = op.get_bind()
     result = bind.execute(
         sa.text(
