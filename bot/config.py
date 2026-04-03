@@ -96,7 +96,7 @@ class Settings(BaseSettings):
         return self.DATABASE_URL.replace("+asyncpg", "")
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
 
 if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
     if settings.ENVIRONMENT == "production":

@@ -852,17 +852,18 @@ async def _send_schedule_notification(
         # ── Send to channel ─────────────────────────────────────────────────
         cc = fresh_user.channel_config
         if cc and cc.channel_id and cc.channel_status == "active" and not cc.channel_paused:
+            ch_id: str = cc.channel_id
             if cc.ch_notify_schedule:
                 try:
                     # Delete the previous channel schedule message; skip for
                     # daily planned messages (first message of the day at 06:00).
                     if not is_daily_planned and cc.last_schedule_message_id:
-                        await _safe_delete_message(bot, cc.channel_id, cc.last_schedule_message_id)
+                        await _safe_delete_message(bot, ch_id, cc.last_schedule_message_id)
 
                     if image_bytes:
                         photo = BufferedInputFile(image_bytes, filename="schedule.png")
                         sent_ch_msg = await retry_bot_call(lambda: bot.send_photo(
-                            cc.channel_id,
+                            ch_id,
                             photo=photo,
                             caption=ch_plain_text,
                             caption_entities=ch_entities,
@@ -870,7 +871,7 @@ async def _send_schedule_notification(
                         ))
                     else:
                         sent_ch_msg = await retry_bot_call(lambda: bot.send_message(
-                            cc.channel_id,
+                            ch_id,
                             ch_plain_text,
                             entities=ch_entities,
                             parse_mode=None,
@@ -962,7 +963,7 @@ async def _check_and_send_reminders(bot: Bot) -> None:
                 continue
 
             event_type: str    = next_event["type"]   # "power_off" | "power_on"
-            anchor_iso: str    = next_event["time"]   # key for dedup
+            anchor_iso: str    = next_event["time"]   # type: ignore[no-redef]  # key for dedup
             minutes_until: int = next_event["minutes"]
             is_possible: bool  = next_event.get("isPossible", False)
 

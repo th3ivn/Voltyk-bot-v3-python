@@ -33,6 +33,7 @@ async def retry_bot_call(
             if attempt >= max_retries:
                 raise
             await asyncio.sleep(e.retry_after + 1)
+    raise RuntimeError("unreachable")
 
 
 def is_valid_ip_or_domain(address: str) -> dict:
