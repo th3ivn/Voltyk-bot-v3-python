@@ -59,8 +59,12 @@ async def handle_description(message: Message, state: FSMContext, session: Async
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.channel_user_description = desc
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+
+    user.channel_config.channel_user_description = desc
 
     await state.clear()
     await apply_channel_branding(

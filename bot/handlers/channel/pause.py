@@ -31,7 +31,10 @@ async def channel_pause(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "channel_pause_confirm")
 async def channel_pause_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if user and user.channel_config and user.channel_config.channel_id:
+    if not user:
+        await callback.answer("❌ Помилка")
+        return
+    if user.channel_config and user.channel_config.channel_id:
         user.channel_config.channel_paused = True
         try:
             await callback.bot.send_message(
@@ -66,7 +69,10 @@ async def channel_resume(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "channel_resume_confirm")
 async def channel_resume_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if user and user.channel_config and user.channel_config.channel_id:
+    if not user:
+        await callback.answer("❌ Помилка")
+        return
+    if user.channel_config and user.channel_config.channel_id:
         user.channel_config.channel_paused = False
         try:
             await callback.bot.send_message(

@@ -522,7 +522,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     SW: float = float(CELL_W)   # same width as table cell
     SH: float = float(ROW_H)   # same height as table cell
     leg_y   = table_y + table_h + GAP + (LEGEND_H - SH) / 2
-    lx: float = PAD_X
+    lx: float = PAD_X  # type: ignore[no-redef]
 
     for state, label in legend_items:
         p.append(_legend_swatch(lx, leg_y, state, SW, SH))
@@ -534,7 +534,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
             f'fill="{C_TEXT_MID}" dominant-baseline="central">'
             f'{_esc(label)}</text>'
         )
-        lx += SW + 5 + len(label) * 12 * 0.58 + 18
+        lx += SW + 5 + len(label) * 12 * 0.58 + 18  # type: ignore[assignment]
 
     # ── Watermark (bottom-right, subtle) ─────────────────────────────────────
     wm_x  = IMG_W - PAD_X      # right-aligned within right margin

@@ -45,7 +45,7 @@ async def init() -> None:
     )
     # Verify connectivity
     try:
-        await _redis.ping()
+        await _redis.ping()  # type: ignore[misc]
         logger.info("✅ Chart cache Redis client ініційований (%s)", settings.REDIS_URL.split("@")[-1])
     except Exception as e:
         logger.warning("Chart cache Redis ping failed (will retry on use): %s", e)

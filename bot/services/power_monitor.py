@@ -613,7 +613,7 @@ async def _check_all_ips(bot: Bot) -> None:
         # Group users by router IP so each unique IP is pinged only once.
         ip_groups: dict[str, list] = {}
         for user in users:
-            ip_groups.setdefault(user.router_ip, []).append(user)
+            ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
 
         logger.debug(
             "Checking %d unique IPs (%d users, max %d concurrent)",
@@ -738,7 +738,7 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
     for telegram_id, user_state in list(_user_states.items()):
         if user_state.get("pending_state") and user_state.get("debounce_task") is None:
             pending_state_time = user_state.get("pending_state_time")
-            remaining_s = debounce_s
+            remaining_s: float = debounce_s
 
             if isinstance(pending_state_time, datetime):
                 pending_at = pending_state_time

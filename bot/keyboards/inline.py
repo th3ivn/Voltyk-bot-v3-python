@@ -705,7 +705,7 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_chart_render_mode_keyboard(current_mode: str = "on_change") -> InlineKeyboardMarkup:
-    def _mode_btn(label: str, mode: str) -> object:
+    def _mode_btn(label: str, mode: str) -> InlineKeyboardButton:
         selected = mode == current_mode
         prefix = "✅ " if selected else ""
         return _btn(f"{prefix}{label}", f"chart_render_mode_{mode}",

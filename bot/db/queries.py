@@ -159,7 +159,7 @@ async def get_distinct_region_queue_pairs(session: AsyncSession) -> list[tuple[s
         )
         .distinct()
     )
-    return list(result.all())
+    return list(result.all())  # type: ignore[arg-type]
 
 
 async def get_active_user_ids_paginated(
@@ -177,7 +177,7 @@ async def get_active_user_ids_paginated(
         .limit(limit)
         .offset(offset)
     )
-    return list(result.all())
+    return list(result.all())  # type: ignore[arg-type]
 
 
 async def get_active_user_ids_cursor(
@@ -195,7 +195,7 @@ async def get_active_user_ids_cursor(
         .order_by(User.id)
         .limit(limit)
     )
-    return list(result.all())
+    return list(result.all())  # type: ignore[arg-type]
 
 
 async def get_all_active_users(session: AsyncSession) -> list[User]:
@@ -696,7 +696,7 @@ async def get_all_pending_region_queue_pairs(session: AsyncSession) -> list[tupl
         .where(PendingNotification.status == "pending")
         .distinct()
     )
-    return list(result.all())
+    return list(result.all())  # type: ignore[arg-type]
 
 
 async def mark_pending_notifications_sent(session: AsyncSession, region: str, queue: str) -> None:
@@ -721,7 +721,7 @@ async def delete_old_pending_notifications(session: AsyncSession, older_than_hou
     result = await session.execute(
         delete(PendingNotification).where(PendingNotification.created_at < cutoff)
     )
-    return result.rowcount  # type: ignore[return-value]
+    return result.rowcount  # type: ignore[attr-defined]
 
 
 # ─── Ping Error Alerts ────────────────────────────────────────────────────
@@ -871,7 +871,7 @@ async def cleanup_old_reminders(session: AsyncSession, older_than_hours: int = 4
     result = await session.execute(
         delete(SentReminder).where(SentReminder.created_at < cutoff)
     )
-    return result.rowcount  # type: ignore[return-value]
+    return result.rowcount  # type: ignore[attr-defined]
 
 
 async def get_active_reminder_anchors(
