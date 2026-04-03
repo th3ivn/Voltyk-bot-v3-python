@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     BOT_TOKEN: str
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
+    DB_SSL_INSECURE_SKIP_VERIFY: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
     OWNER_ID: int | None = None
