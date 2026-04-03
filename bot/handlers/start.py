@@ -204,6 +204,10 @@ async def wizard_notify_bot(callback: CallbackQuery, state: FSMContext, session:
 
     await state.set_state(WizardSG.bot_notifications)
     ns = user.notification_settings
+    if not ns:
+        await callback.message.edit_text("❌ Помилка. Спробуйте /start")
+        await state.clear()
+        return
     await callback.message.edit_text(
         "🔔 Налаштуйте сповіщення в боті:",
         reply_markup=get_wizard_bot_notification_keyboard(

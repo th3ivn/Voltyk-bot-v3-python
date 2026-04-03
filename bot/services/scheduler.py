@@ -1180,6 +1180,8 @@ async def _send_reminder(
     cc,
 ) -> bool:
     """Send reminder notification. Returns True if at least one message was successfully sent."""
+    if ns is None:
+        return False
     text = _build_reminder_text(next_event, remind_m, sched, region, queue, is_possible)
     kb = get_reminder_keyboard()
 
