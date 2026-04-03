@@ -14,8 +14,10 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
     • Auto-converts ``postgresql://`` scheme to ``postgresql+asyncpg://``.
     • Railway internal URLs (hostname contains ``railway.internal``) skip SSL
       entirely — the internal network is already encrypted at transport level.
-    • External URLs with ``sslmode=require/verify-*`` get an SSL context with
-      disabled hostname verification (Neon / hosted PostgreSQL compatibility).
+    • External URLs with ``sslmode=require/verify-*`` get an SSL context.
+      By default certificate and hostname verification stay enabled.
+      Set ``DATABASE_SSL_INSECURE=true`` only if your provider requires
+      relaxed TLS checks as a temporary compatibility workaround.
     • Strips asyncpg-incompatible params (``sslmode``, ``channel_binding``).
     """
     # ── scheme normalisation ─────────────────────────────────────────
@@ -37,8 +39,9 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
                 "require", "verify-ca", "verify-full", "prefer",
             ):
                 ssl_ctx = ssl_module.create_default_context()
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl_module.CERT_NONE
+                if settings.DATABASE_SSL_INSECURE:
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl_module.CERT_NONE
                 connect_args["ssl"] = ssl_ctx
 
         params.pop("channel_binding", None)

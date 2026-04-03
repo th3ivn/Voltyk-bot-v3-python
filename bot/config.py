@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 from bot.utils.logger import get_logger
@@ -13,10 +13,11 @@ class Settings(BaseSettings):
 
     BOT_TOKEN: str
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
+    DATABASE_SSL_INSECURE: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
     OWNER_ID: int | None = None
-    ADMIN_IDS: list[int] = []
+    ADMIN_IDS: list[int] = Field(default_factory=list)
 
     TZ: str = "Europe/Kyiv"
 
