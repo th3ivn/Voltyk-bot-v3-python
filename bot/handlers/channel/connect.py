@@ -77,7 +77,7 @@ async def channel_confirm(callback: CallbackQuery, state: FSMContext, session: A
     await callback.answer()
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
+    if not user or not user.channel_config:
         return
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
@@ -106,7 +106,7 @@ async def connect_channel(callback: CallbackQuery, state: FSMContext, session: A
     await callback.answer()
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
+    if not user or not user.channel_config:
         return
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
@@ -134,7 +134,7 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
     await callback.answer()
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)
-    if not user:
+    if not user or not user.channel_config:
         return
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
