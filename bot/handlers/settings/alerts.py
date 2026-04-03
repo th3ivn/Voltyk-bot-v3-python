@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
+from bot.utils.helpers import safe_parse_callback_int
 from bot.formatter.messages import build_channel_notification_message, build_notification_settings_message
 from bot.keyboards.inline import (
     E_BELL,
@@ -211,7 +212,6 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("notif_time_"))
 async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
-    from bot.utils.helpers import safe_parse_callback_int
     minutes = safe_parse_callback_int(callback.data, "notif_time_")
     if minutes is None:
         await callback.answer()
@@ -336,7 +336,10 @@ async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> No
         cc.ch_notify_fact_off = new_val
         cc.ch_notify_fact_on = new_val
     elif action.startswith("time_"):
-        minutes = int(action.replace("time_", ""))
+        minutes = safe_parse_callback_int(action, "time_")
+        if minutes is None:
+            await callback.answer()
+            return
         if minutes == 15:
             cc.ch_remind_15m = not cc.ch_remind_15m
         elif minutes == 30:
