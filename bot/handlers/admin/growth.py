@@ -54,10 +54,15 @@ async def growth_stage_set(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.answer("❌ Доступ заборонено")
         return
     stage = callback.data.replace("growth_stage_", "")
+    try:
+        stage_int = int(stage)
+    except (ValueError, TypeError):
+        await callback.answer()
+        return
     await set_setting(session, "growth_stage", stage)
     await callback.answer(f"✅ Етап встановлено: {stage}")
     await callback.message.edit_reply_markup(
-        reply_markup=get_growth_stage_keyboard(current_stage=int(stage))
+        reply_markup=get_growth_stage_keyboard(current_stage=stage_int)
     )
 
 
