@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -233,7 +233,7 @@ async def _handle_power_state_change(
             else:
                 changed_at = raw
             if changed_at.tzinfo is None:
-                changed_at = changed_at.replace(tzinfo=UTC)
+                changed_at = changed_at.replace(tzinfo=timezone.utc)
             changed_at = changed_at.astimezone(KYIV_TZ)
 
         # ── Duration text ─────────────────────────────────────────────
@@ -889,13 +889,13 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
         logger.error("Could not fetch ping error alerts: %s", e)
         return
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     for alert in alerts:
         try:
             last_at = alert.last_alert_at
             if last_at is not None:
                 if last_at.tzinfo is None:
-                    last_at = last_at.replace(tzinfo=UTC)
+                    last_at = last_at.replace(tzinfo=timezone.utc)
                 if (now - last_at).total_seconds() < 86400:
                     continue
 
@@ -1033,8 +1033,8 @@ async def update_power_notifications_on_schedule_change(
                     try:
                         changed = pt.power_changed_at
                         if changed.tzinfo is None:
-                            changed = changed.replace(tzinfo=UTC)
-                        elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
+                            changed = changed.replace(tzinfo=timezone.utc)
+                        elapsed_min = (datetime.now(timezone.utc) - changed).total_seconds() / 60
                         duration_text = _format_exact_duration(elapsed_min)
                         time_str = changed.astimezone(KYIV_TZ).strftime("%H:%M") + " "
                     except Exception:
@@ -1100,8 +1100,8 @@ async def update_power_notifications_on_schedule_change(
                     try:
                         changed = pt.power_changed_at
                         if changed.tzinfo is None:
-                            changed = changed.replace(tzinfo=UTC)
-                        elapsed_min = (datetime.now(UTC) - changed).total_seconds() / 60
+                            changed = changed.replace(tzinfo=timezone.utc)
+                        elapsed_min = (datetime.now(timezone.utc) - changed).total_seconds() / 60
                         duration_text = _format_exact_duration(elapsed_min)
                         time_str = changed.astimezone(KYIV_TZ).strftime("%H:%M") + " "
                     except Exception:
