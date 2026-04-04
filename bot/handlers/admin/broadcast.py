@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import settings
-from bot.db.queries import get_active_user_ids_cursor
+from bot.db.queries import deactivate_user, get_active_user_ids_cursor
 from bot.db.session import async_session
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
@@ -179,6 +179,13 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                         break
                     except TelegramForbiddenError:
                         blocked += 1
+                        # User blocked the bot — deactivate to avoid future sends.
+                        try:
+                            async with async_session() as session:
+                                await deactivate_user(session, row_tid)
+                                await session.commit()
+                        except Exception as _de:
+                            logger.warning("Could not deactivate blocked user %s: %s", row_tid, _de)
                         break
                     except TelegramRetryAfter as e:
                         if attempt >= settings.TELEGRAM_MAX_RETRIES:

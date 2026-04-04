@@ -43,8 +43,11 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 _user_states: dict[str, dict] = {}
 _user_states_lock: asyncio.Lock = asyncio.Lock()
 _running = False
-_is_checking = False
-_is_checking_started_at: float | None = None
+# Mutex that prevents concurrent _check_all_ips invocations.
+# A bare boolean + timestamp was previously used, which had a TOCTOU race: two
+# coroutines could both observe _is_checking=False before either set it True.
+# asyncio.Lock() is FIFO and safe under asyncio's cooperative multitasking.
+_check_all_ips_lock: asyncio.Lock = asyncio.Lock()
 
 # Shared aiohttp connector — reused across all router checks
 _http_connector: aiohttp.TCPConnector | None = None
@@ -587,58 +590,50 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
 
 
 async def _check_all_ips(bot: Bot) -> None:
-    """Check all users with a router IP configured, with concurrency limiting."""
-    global _is_checking, _is_checking_started_at
+    """Check all users with a router IP configured, with concurrency limiting.
 
-    # Reset stale lock if it has been held for more than 5 minutes
-    if _is_checking and _is_checking_started_at is not None:
-        if asyncio.get_running_loop().time() - _is_checking_started_at > 300:
-            logger.warning("_check_all_ips lock was stale (>5min), resetting")
-            _is_checking = False
-            _is_checking_started_at = None
-
-    if _is_checking:
+    Uses an asyncio.Lock to prevent concurrent invocations.  The lock check and
+    acquire happen in a single uninterrupted sequence (no await between them),
+    which is safe under asyncio's cooperative multitasking — no TOCTOU race.
+    """
+    if _check_all_ips_lock.locked():
         logger.debug("_check_all_ips already running, skipping")
         return
 
-    _is_checking = True
-    _is_checking_started_at = asyncio.get_running_loop().time()
-    try:
-        async with async_session() as session:
-            users = await get_users_with_ip(session)
+    async with _check_all_ips_lock:
+        try:
+            async with async_session() as session:
+                users = await get_users_with_ip(session)
 
-        if not users:
-            return
+            if not users:
+                return
 
-        # Group users by router IP so each unique IP is pinged only once.
-        ip_groups: dict[str, list] = {}
-        for user in users:
-            ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
+            # Group users by router IP so each unique IP is pinged only once.
+            ip_groups: dict[str, list] = {}
+            for user in users:
+                ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
 
-        logger.debug(
-            "Checking %d unique IPs (%d users, max %d concurrent)",
-            len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
-        )
+            logger.debug(
+                "Checking %d unique IPs (%d users, max %d concurrent)",
+                len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
+            )
 
-        semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
+            semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
 
-        async def _check_ip_group(ip: str, group_users: list):
-            async with semaphore:
-                ping_result = await _check_router_http(ip)
-            for u in group_users:
-                await _check_user_power(bot, u, is_available=ping_result)
+            async def _check_ip_group(ip: str, group_users: list) -> None:
+                async with semaphore:
+                    ping_result = await _check_router_http(ip)
+                for u in group_users:
+                    await _check_user_power(bot, u, is_available=ping_result)
 
-        await asyncio.gather(*[
-            _check_ip_group(ip, group_users)
-            for ip, group_users in ip_groups.items()
-        ])
+            await asyncio.gather(*[
+                _check_ip_group(ip, group_users)
+                for ip, group_users in ip_groups.items()
+            ])
 
-    except Exception as e:
-        logger.error("Error in _check_all_ips: %s", e)
-        sentry_sdk.capture_exception(e)
-    finally:
-        _is_checking = False
-        _is_checking_started_at = None
+        except Exception as e:
+            logger.error("Error in _check_all_ips: %s", e)
+            sentry_sdk.capture_exception(e)
 
 
 # ─── State persistence ────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 from aiogram import Router
 
+from bot.filters.admin import AdminFilter
 from bot.handlers.admin.admin_router import router as admin_router_r
 from bot.handlers.admin.broadcast import router as broadcast_router
 from bot.handlers.admin.chart_settings import router as chart_settings_router
@@ -11,6 +12,13 @@ from bot.handlers.admin.panel import router as panel_router
 from bot.handlers.admin.pause import router as pause_router
 
 router = Router(name="admin")
+
+# Defence-in-depth: reject all messages/callbacks from non-admins at the
+# router level before they even reach individual handlers.  Per-handler
+# checks are preserved for user-facing error replies ("❌ Доступ заборонено").
+router.message.filter(AdminFilter())
+router.callback_query.filter(AdminFilter())
+
 router.include_router(panel_router)
 router.include_router(broadcast_router)
 router.include_router(maintenance_router)

@@ -30,15 +30,26 @@ class TestIsValidIpOrDomain:
         assert result["host"] == "192.168.1.1"
         assert result["port"] == 8080
 
-    def test_valid_ipv4_all_zeros(self):
+    def test_invalid_ipv4_all_zeros(self):
+        # 0.0.0.0 is the "unspecified address" — not a valid router IP and
+        # falls in a blocked network range (SSRF protection).
         result = is_valid_ip_or_domain("0.0.0.0")
-        assert result["valid"] is True
-        assert result["type"] == "ip"
+        assert result["valid"] is False
 
-    def test_valid_ipv4_max_values(self):
+    def test_invalid_ipv4_broadcast(self):
+        # 255.255.255.255 is the broadcast address — rejected for SSRF safety.
         result = is_valid_ip_or_domain("255.255.255.255")
-        assert result["valid"] is True
-        assert result["type"] == "ip"
+        assert result["valid"] is False
+
+    def test_invalid_ipv4_loopback(self):
+        # 127.0.0.1 loopback must be rejected (SSRF risk).
+        result = is_valid_ip_or_domain("127.0.0.1")
+        assert result["valid"] is False
+
+    def test_invalid_ipv4_link_local_metadata(self):
+        # 169.254.169.254 is the cloud metadata endpoint — must be rejected.
+        result = is_valid_ip_or_domain("169.254.169.254")
+        assert result["valid"] is False
 
     def test_valid_ipv4_port_min(self):
         result = is_valid_ip_or_domain("10.0.0.1:1")
