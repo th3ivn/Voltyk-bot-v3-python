@@ -577,10 +577,25 @@ async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) 
 
     Drawing is CPU-bound and runs in the default thread-pool executor so the
     asyncio event loop is never blocked.
+
+    Note: ``asyncio.wait_for`` cancels the *awaitable* (unblocks the coroutine)
+    but the underlying thread in the pool continues running until it finishes or
+    the process exits — Python threads cannot be forcibly killed.  The timeout
+    therefore prevents the *caller* from hanging indefinitely, but a stuck
+    CairoSVG/Pillow render still occupies one pool thread until it returns.
+    For production deployments with many concurrent requests consider using a
+    dedicated ``ThreadPoolExecutor`` with a small ``max_workers`` bound so that
+    stuck renders do not starve other bot operations.
     """
     try:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _generate_sync, region, queue, schedule_data)
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _generate_sync, region, queue, schedule_data),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Chart generation timed out for %s/%s", region, queue)
+        return None
     except Exception as e:
         logger.warning("Chart generation failed for %s/%s: %s", region, queue, e)
         return None
