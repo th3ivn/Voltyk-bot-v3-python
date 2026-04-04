@@ -110,7 +110,7 @@ async def connect_channel(callback: CallbackQuery, state: FSMContext, session: A
         return
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
-    if not pending:
+    if not pending or pending.channel_id != channel_id:
         await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
         return
 
@@ -138,7 +138,7 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
         return
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
-    if not pending:
+    if not pending or pending.channel_id != channel_id:
         await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
         return
 
