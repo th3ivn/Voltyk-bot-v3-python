@@ -124,7 +124,9 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                         _last_commit_sha = new_sha
                         logger.info("Initial commit SHA: %s", new_sha[:8])
                         try:
-                            asyncio.get_running_loop().create_task(_save_commit_state())
+                            asyncio.get_running_loop().create_task(
+                                _save_commit_state(), name="save_commit_state"
+                            )
                         except RuntimeError:
                             pass
                         return True, None
@@ -132,7 +134,13 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
                         _last_commit_sha = new_sha
                         try:
-                            asyncio.get_running_loop().create_task(_save_commit_state())
+                            # create_task is fire-and-forget by design here: the
+                            # state is already in-memory (_last_commit_sha) and the
+                            # DB write is best-effort persistence for restart recovery.
+                            # We name the task so it shows up in asyncio debug logs.
+                            asyncio.get_running_loop().create_task(
+                                _save_commit_state(), name="save_commit_state"
+                            )
                         except RuntimeError:
                             logger.debug("No running event loop; commit state save deferred")
                         return True, new_sha

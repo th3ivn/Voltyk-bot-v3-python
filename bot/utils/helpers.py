@@ -16,33 +16,17 @@ _DOMAIN_RE = re.compile(
     r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$"
 )
 
-# Networks that must never be reachable via user-supplied router IPs.
-# Allowing these would enable SSRF attacks against the internal network,
-# cloud metadata services (169.254.169.254), or the loopback interface.
-_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
-    ipaddress.IPv4Network("10.0.0.0/8"),        # RFC 1918 private
-    ipaddress.IPv4Network("172.16.0.0/12"),      # RFC 1918 private
-    ipaddress.IPv4Network("192.168.0.0/16"),     # RFC 1918 private
+# Ranges that must never be reachable via user-supplied router IPs.
+# RFC-1918 private ranges (192.168.x, 10.x, 172.16-31.x) are intentionally
+# NOT listed here — most home routers live on those subnets and users need to
+# point the bot at them.  See is_valid_ip_or_domain() for the full policy.
+_SSRF_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
     ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
     ipaddress.IPv4Network("169.254.0.0/16"),     # link-local / cloud metadata
     ipaddress.IPv4Network("0.0.0.0/8"),          # "this" network
-    ipaddress.IPv4Network("100.64.0.0/10"),      # carrier-grade NAT
-    ipaddress.IPv4Network("192.0.0.0/24"),       # IETF protocol assignments
-    ipaddress.IPv4Network("198.18.0.0/15"),      # benchmarking
-    ipaddress.IPv4Network("198.51.100.0/24"),    # documentation (TEST-NET-2)
-    ipaddress.IPv4Network("203.0.113.0/24"),     # documentation (TEST-NET-3)
     ipaddress.IPv4Network("240.0.0.0/4"),        # reserved
     ipaddress.IPv4Network("255.255.255.255/32"), # broadcast
 )
-
-
-def _is_private_ip(address: str) -> bool:
-    """Return True if *address* belongs to any SSRF-blocked network."""
-    try:
-        ip = ipaddress.IPv4Address(address)
-        return any(ip in net for net in _BLOCKED_NETWORKS)
-    except ValueError:
-        return False
 
 
 async def retry_bot_call(
@@ -102,14 +86,7 @@ def is_valid_ip_or_domain(address: str) -> dict:
             # Private RFC-1918 ranges are allowed — typical home router IPs.
             try:
                 ip = ipaddress.IPv4Address(host)
-                _ssrf_blocked = (
-                    ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
-                    ipaddress.IPv4Network("169.254.0.0/16"),     # link-local / AWS metadata
-                    ipaddress.IPv4Network("0.0.0.0/8"),          # "this" network
-                    ipaddress.IPv4Network("240.0.0.0/4"),        # reserved
-                    ipaddress.IPv4Network("255.255.255.255/32"), # broadcast
-                )
-                if any(ip in net for net in _ssrf_blocked):
+                if any(ip in net for net in _SSRF_BLOCKED_NETWORKS):
                     return {"valid": False, "error": "Недопустима адреса"}
             except ValueError:
                 pass

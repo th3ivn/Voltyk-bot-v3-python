@@ -60,6 +60,12 @@ async def _run_migrations() -> None:
     logger.info("Alembic migrations applied")
 
 
+async def _health_handler(_request: object) -> object:
+    """Shared /health handler used in both polling and webhook modes."""
+    from aiohttp import web
+    return web.json_response({"status": "ok"})
+
+
 async def _start_health_server() -> None:
     """Start lightweight health endpoint for polling deployments."""
     global _health_runner
@@ -69,11 +75,7 @@ async def _start_health_server() -> None:
     from aiohttp import web
 
     app = web.Application()
-
-    async def health_handler(_request: web.Request) -> web.Response:
-        return web.json_response({"status": "ok"})
-
-    app.router.add_get("/health", health_handler)
+    app.router.add_get("/health", _health_handler)
 
     port = int(os.getenv("PORT", settings.HEALTH_PORT))
     runner = web.AppRunner(app)
@@ -252,11 +254,7 @@ async def main() -> None:
             logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application()
-
-            async def health_handler(_request: web.Request) -> web.Response:
-                return web.json_response({"status": "ok"})
-
-            app.router.add_get("/health", health_handler)
+            app.router.add_get("/health", _health_handler)
 
             handler = SimpleRequestHandler(
                 dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,
