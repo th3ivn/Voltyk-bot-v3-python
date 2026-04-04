@@ -1070,8 +1070,12 @@ async def update_power_notifications_on_schedule_change(
                                     db_user.power_tracking.alert_on_message_id = None
                                 db_user.power_tracking.bot_power_message_id = None
                                 await session.commit()
-                    except Exception:
-                        pass
+                    except Exception as clear_exc:
+                        logger.warning(
+                            "Could not clear stale bot message ID for user %s: %s",
+                            telegram_id, clear_exc,
+                            exc_info=clear_exc,
+                        )
                 else:
                     logger.debug(
                         "Could not edit power message for user %s: %s", telegram_id, e
@@ -1135,8 +1139,12 @@ async def update_power_notifications_on_schedule_change(
                             if db_user and db_user.power_tracking:
                                 db_user.power_tracking.ch_power_message_id = None
                             await session.commit()
-                    except Exception:
-                        pass
+                    except Exception as clear_exc:
+                        logger.warning(
+                            "Could not clear stale channel message ID for user %s: %s",
+                            telegram_id, clear_exc,
+                            exc_info=clear_exc,
+                        )
                 else:
                     logger.debug(
                         "Could not edit channel power message for user %s: %s", telegram_id, e
