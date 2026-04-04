@@ -46,6 +46,12 @@ class User(Base):
     message_tracking: Mapped[UserMessageTracking | None] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
     )
+    emergency_config: Mapped[UserEmergencyConfig | None] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
+    emergency_state: Mapped[UserEmergencyState | None] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan", lazy="noload"
+    )
     __table_args__ = (
         Index("idx_users_region_queue", "region", "queue"),
         Index("idx_users_active_region", "is_active", "region"),
@@ -92,7 +98,9 @@ class UserEmergencyConfig(Base):
     city: Mapped[str | None] = mapped_column(String(128))
     street: Mapped[str | None] = mapped_column(String(255))
     house: Mapped[str | None] = mapped_column(String(32))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user: Mapped[User] = relationship(back_populates="emergency_config")
 
 
 class UserEmergencyState(Base):
@@ -105,7 +113,9 @@ class UserEmergencyState(Base):
     start_date: Mapped[str | None] = mapped_column(String(32))
     end_date: Mapped[str | None] = mapped_column(String(32))
     detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user: Mapped[User] = relationship(back_populates="emergency_state")
 
 
 class UserChannelConfig(Base):

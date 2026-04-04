@@ -48,3 +48,13 @@ class AdminRouterIpSG(StatesGroup):
     waiting_for_ip = State()
 
 
+class EmergencySetupSG(StatesGroup):
+    waiting_for_city = State()
+    waiting_for_street = State()
+    waiting_for_house = State()
+
+
+class AddressCheckSG(StatesGroup):
+    waiting_for_region = State()
+    waiting_for_address = State()
+

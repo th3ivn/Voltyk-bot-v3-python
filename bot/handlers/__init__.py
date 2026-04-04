@@ -1,5 +1,6 @@
 from aiogram import Dispatcher
 
+from bot.handlers.address_check import router as address_check_router
 from bot.handlers.admin import router as admin_router
 from bot.handlers.channel import router as channel_router
 from bot.handlers.chat_member import router as chat_member_router
@@ -12,6 +13,7 @@ from bot.handlers.start import router as start_router
 def register_all_handlers(dp: Dispatcher) -> None:
     dp.include_router(start_router)
     dp.include_router(menu_router)
+    dp.include_router(address_check_router)
     dp.include_router(schedule_router)
     dp.include_router(chat_member_router)
     dp.include_router(settings_router)

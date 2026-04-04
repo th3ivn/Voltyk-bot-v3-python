@@ -185,6 +185,7 @@ async def on_startup(bot: Bot) -> None:
         except Exception as e:
             logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
 
+    from bot.services.emergency_monitor import emergency_monitor_loop
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
     from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
 
@@ -193,6 +194,7 @@ async def on_startup(bot: Bot) -> None:
     _track_bg_task(asyncio.create_task(daily_ping_error_loop(bot), name="daily_ping_error_loop"))
     _track_bg_task(asyncio.create_task(daily_flush_loop(bot), name="daily_flush_loop"))
     _track_bg_task(asyncio.create_task(reminder_checker_loop(bot), name="reminder_checker_loop"))
+    _track_bg_task(asyncio.create_task(emergency_monitor_loop(bot), name="emergency_monitor_loop"))
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
@@ -209,11 +211,13 @@ async def on_shutdown(bot: Bot) -> None:
             logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
 
     from bot.services.api import close_http_client
+    from bot.services.emergency_monitor import stop_emergency_monitor
     from bot.services.power_monitor import stop_power_monitor
     from bot.services.scheduler import stop_scheduler
 
     stop_scheduler()
     stop_power_monitor()
+    stop_emergency_monitor()
 
     for task in _bg_tasks:
         task.cancel()
