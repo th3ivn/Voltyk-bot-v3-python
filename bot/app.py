@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -20,6 +21,22 @@ from bot.utils.logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 _bg_tasks: list[asyncio.Task] = []
+_health_runner = None
+
+
+def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
+    """Track background task and log unexpected crashes immediately."""
+
+    def _log_bg_task_result(done_task: asyncio.Task) -> None:
+        if done_task.cancelled():
+            return
+        exc = done_task.exception()
+        if exc is not None:
+            logger.exception("Background task %s crashed", done_task.get_name(), exc_info=exc)
+
+    task.add_done_callback(_log_bg_task_result)
+    _bg_tasks.append(task)
+    return task
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
@@ -36,6 +53,40 @@ async def _run_migrations() -> None:
     await loop.run_in_executor(None, _upgrade)
     logger.info("Alembic migrations applied")
 
+
+async def _start_health_server() -> None:
+    """Start lightweight health endpoint for polling deployments."""
+    global _health_runner
+    if _health_runner is not None:
+        return
+
+    from aiohttp import web
+
+    app = web.Application()
+
+    async def health_handler(_request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok"})
+
+    app.router.add_get("/health", health_handler)
+
+    port = int(os.getenv("PORT", settings.HEALTH_PORT))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    _health_runner = runner
+    logger.info("Health server listening on 0.0.0.0:%d", port)
+
+
+async def _stop_health_server() -> None:
+    global _health_runner
+    if _health_runner is None:
+        return
+    with suppress(Exception):
+        await _health_runner.cleanup()
+    _health_runner = None
+
 def create_bot() -> Bot:
     return Bot(
         token=settings.BOT_TOKEN,
@@ -45,12 +96,19 @@ def create_bot() -> Bot:
 def create_dispatcher() -> Dispatcher:
     redis_url = settings.REDIS_URL
     storage: RedisStorage | MemoryStorage
-    if redis_url and "localhost" not in redis_url:
-        storage = RedisStorage.from_url(redis_url)
-        logger.info("✅ Redis FSM storage (%s)", redis_url.split("@")[-1])
-    else:
+    if not redis_url:
         storage = MemoryStorage()
-        logger.warning("⚠️  MemoryStorage — FSM state буде втрачено при рестарті")
+        logger.warning("⚠️  REDIS_URL not set — MemoryStorage, FSM state буде втрачено при рестарті")
+    else:
+        try:
+            storage = RedisStorage.from_url(redis_url)
+            logger.info("✅ Redis FSM storage configured")
+        except Exception as e:
+            storage = MemoryStorage()
+            logger.warning(
+                "⚠️  Could not configure Redis FSM storage (%s); falling back to MemoryStorage",
+                e,
+            )
     dp = Dispatcher(storage=storage)
 
     dp.message.middleware(DbSessionMiddleware())
@@ -124,13 +182,11 @@ async def on_startup(bot: Bot) -> None:
     from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
     from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
 
-    _bg_tasks.extend([
-        asyncio.create_task(schedule_checker_loop(bot)),
-        asyncio.create_task(power_monitor_loop(bot)),
-        asyncio.create_task(daily_ping_error_loop(bot)),
-        asyncio.create_task(daily_flush_loop(bot)),
-        asyncio.create_task(reminder_checker_loop(bot)),
-    ])
+    _track_bg_task(asyncio.create_task(schedule_checker_loop(bot), name="schedule_checker_loop"))
+    _track_bg_task(asyncio.create_task(power_monitor_loop(bot), name="power_monitor_loop"))
+    _track_bg_task(asyncio.create_task(daily_ping_error_loop(bot), name="daily_ping_error_loop"))
+    _track_bg_task(asyncio.create_task(daily_flush_loop(bot), name="daily_flush_loop"))
+    _track_bg_task(asyncio.create_task(reminder_checker_loop(bot), name="reminder_checker_loop"))
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
@@ -159,6 +215,7 @@ async def on_shutdown(bot: Bot) -> None:
     _bg_tasks.clear()
 
     await close_http_client()
+    await _stop_health_server()
 
     from bot.services import chart_cache
     await chart_cache.close()
@@ -210,6 +267,7 @@ async def main() -> None:
 
             await asyncio.Event().wait()
         else:
+            await _start_health_server()
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await bot.session.close()

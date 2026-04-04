@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram.types import FSInputFile
@@ -61,7 +61,7 @@ async def apply_channel_branding(
         except Exception as e:
             logger.warning("Failed to set channel photo for %s: %s", cc.channel_id, e)
 
-    cc.channel_branding_updated_at = datetime.now(UTC)
+    cc.channel_branding_updated_at = datetime.now(timezone.utc)
 
     if send_welcome and queue:
         try:
