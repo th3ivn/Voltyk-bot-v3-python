@@ -34,20 +34,20 @@ from bot.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _user_with_relations():
-    """Standard eager-load options for User queries."""
-    return (
-        selectinload(User.notification_settings),
-        selectinload(User.channel_config),
-        selectinload(User.power_tracking),
-        selectinload(User.message_tracking),
-    )
+# Module-level constant so SQLAlchemy loader options are not re-created on
+# every query call (each selectinload() call allocates a new option object).
+_USER_WITH_RELATIONS = (
+    selectinload(User.notification_settings),
+    selectinload(User.channel_config),
+    selectinload(User.power_tracking),
+    selectinload(User.message_tracking),
+)
 
 
 async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int | str) -> User | None:
     tid = str(telegram_id)
     result = await session.execute(
-        select(User).options(*_user_with_relations()).where(User.telegram_id == tid)
+        select(User).options(*_USER_WITH_RELATIONS).where(User.telegram_id == tid)
     )
     return result.scalars().first()
 
@@ -139,7 +139,7 @@ async def get_active_users_by_region(
     if queue is not None:
         conditions.append(User.queue == queue)
     result = await session.execute(
-        select(User).options(*_user_with_relations()).where(*conditions)
+        select(User).options(*_USER_WITH_RELATIONS).where(*conditions)
     )
     return list(result.scalars().all())
 
@@ -200,7 +200,7 @@ async def get_active_user_ids_cursor(
 
 async def get_all_active_users(session: AsyncSession) -> list[User]:
     result = await session.execute(
-        select(User).options(*_user_with_relations()).where(User.is_active.is_(True)).order_by(User.id)
+        select(User).options(*_USER_WITH_RELATIONS).where(User.is_active.is_(True)).order_by(User.id)
     )
     return list(result.scalars().all())
 
@@ -208,7 +208,7 @@ async def get_all_active_users(session: AsyncSession) -> list[User]:
 async def get_active_users_paginated(session: AsyncSession, limit: int = 500, offset: int = 0) -> list[User]:
     result = await session.execute(
         select(User)
-        .options(*_user_with_relations())
+        .options(*_USER_WITH_RELATIONS)
         .where(User.is_active.is_(True))
         .order_by(User.id)
         .limit(limit)
@@ -219,7 +219,7 @@ async def get_active_users_paginated(session: AsyncSession, limit: int = 500, of
 
 async def get_users_with_ip(session: AsyncSession) -> list[User]:
     result = await session.execute(
-        select(User).options(*_user_with_relations()).where(
+        select(User).options(*_USER_WITH_RELATIONS).where(
             User.is_active.is_(True),
             User.router_ip.isnot(None),
             User.router_ip != "",
@@ -231,7 +231,7 @@ async def get_users_with_ip(session: AsyncSession) -> list[User]:
 async def get_users_with_channel(session: AsyncSession) -> list[User]:
     result = await session.execute(
         select(User)
-        .options(*_user_with_relations())
+        .options(*_USER_WITH_RELATIONS)
         .join(UserChannelConfig, User.id == UserChannelConfig.user_id)
         .where(
             User.is_active.is_(True),
@@ -245,7 +245,7 @@ async def get_users_with_channel(session: AsyncSession) -> list[User]:
 async def get_user_by_channel_id(session: AsyncSession, channel_id: str) -> User | None:
     result = await session.execute(
         select(User)
-        .options(*_user_with_relations())
+        .options(*_USER_WITH_RELATIONS)
         .join(UserChannelConfig, User.id == UserChannelConfig.user_id)
         .where(UserChannelConfig.channel_id == channel_id)
     )
@@ -264,7 +264,7 @@ async def count_total_users(session: AsyncSession) -> int:
 
 async def get_recent_users(session: AsyncSession, limit: int = 20) -> list[User]:
     result = await session.execute(
-        select(User).options(*_user_with_relations()).order_by(User.created_at.desc()).limit(limit)
+        select(User).options(*_USER_WITH_RELATIONS).order_by(User.created_at.desc()).limit(limit)
     )
     return list(result.scalars().all())
 
@@ -377,24 +377,34 @@ async def save_pending_channel(
     channel_username: str | None = None,
     channel_title: str | None = None,
 ) -> PendingChannel:
-    existing = await session.execute(
-        select(PendingChannel).where(PendingChannel.channel_id == channel_id)
-    )
-    pc = existing.scalars().first()
-    if pc:
-        pc.telegram_id = str(telegram_id)
-        pc.channel_username = channel_username
-        pc.channel_title = channel_title
-    else:
-        pc = PendingChannel(
+    """Upsert a pending-channel row atomically.
+
+    Uses ``INSERT … ON CONFLICT DO UPDATE`` to avoid the SELECT-then-INSERT
+    race condition where two concurrent calls could both observe "not found"
+    and both attempt an INSERT, causing a unique-constraint violation.
+    """
+    tid = str(telegram_id)
+    stmt = (
+        pg_insert(PendingChannel)
+        .values(
             channel_id=channel_id,
-            telegram_id=str(telegram_id),
+            telegram_id=tid,
             channel_username=channel_username,
             channel_title=channel_title,
         )
-        session.add(pc)
+        .on_conflict_do_update(
+            index_elements=["channel_id"],
+            set_={
+                "telegram_id": tid,
+                "channel_username": channel_username,
+                "channel_title": channel_title,
+            },
+        )
+        .returning(PendingChannel)
+    )
+    result = await session.execute(stmt)
     await session.flush()
-    return pc
+    return result.scalars().one()
 
 
 async def get_pending_channel_by_telegram_id(session: AsyncSession, telegram_id: int | str) -> PendingChannel | None:
@@ -452,16 +462,25 @@ async def get_admin_router(session: AsyncSession, admin_telegram_id: int | str) 
 async def upsert_admin_router(
     session: AsyncSession, admin_telegram_id: int | str, **kwargs
 ) -> AdminRouter:
+    """Upsert an AdminRouter row atomically.
+
+    Uses ``INSERT … ON CONFLICT DO UPDATE`` to avoid the SELECT-then-INSERT
+    race condition that could cause a unique-constraint violation when two
+    concurrent callers both observe "not found" and both attempt an INSERT.
+    """
     tid = str(admin_telegram_id)
-    router = await get_admin_router(session, tid)
-    if router:
-        for k, v in kwargs.items():
-            setattr(router, k, v)
-    else:
-        router = AdminRouter(admin_telegram_id=tid, **kwargs)
-        session.add(router)
+    stmt = (
+        pg_insert(AdminRouter)
+        .values(admin_telegram_id=tid, **kwargs)
+        .on_conflict_do_update(
+            index_elements=["admin_telegram_id"],
+            set_=kwargs,
+        )
+        .returning(AdminRouter)
+    )
+    result = await session.execute(stmt)
     await session.flush()
-    return router
+    return result.scalars().one()
 
 
 # ─── Schedule Checks ──────────────────────────────────────────────────────
@@ -487,22 +506,31 @@ async def get_schedule_check_time(session: AsyncSession, region: str, queue: str
 async def update_schedule_check_time(
     session: AsyncSession, region: str, queue: str, last_hash: str | None = None
 ) -> None:
-    """Upsert last_checked_at = now() (and optionally last_hash) for the given region/queue."""
-    result = await session.execute(
-        select(ScheduleCheck).where(ScheduleCheck.region == region, ScheduleCheck.queue == queue)
+    """Upsert last_checked_at = now() (and optionally last_hash) for the given region/queue.
+
+    Uses ``INSERT … ON CONFLICT DO UPDATE`` to avoid the SELECT-then-INSERT
+    race condition where two concurrent schedule-checker tasks for the same
+    region/queue could both observe "not found" and both try to INSERT,
+    causing a composite-primary-key violation.
+    """
+    now = datetime.now(timezone.utc)
+    values: dict = {"region": region, "queue": queue, "last_checked_at": now}
+    if last_hash is not None:
+        values["last_hash"] = last_hash
+
+    set_cols: dict = {"last_checked_at": now}
+    if last_hash is not None:
+        set_cols["last_hash"] = last_hash
+
+    stmt = (
+        pg_insert(ScheduleCheck)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["region", "queue"],
+            set_=set_cols,
+        )
     )
-    check = result.scalars().first()
-    if check:
-        check.last_checked_at = datetime.now(timezone.utc)
-        if last_hash is not None:
-            check.last_hash = last_hash
-    else:
-        session.add(ScheduleCheck(
-            region=region,
-            queue=queue,
-            last_checked_at=datetime.now(timezone.utc),
-            last_hash=last_hash,
-        ))
+    await session.execute(stmt)
     await session.flush()
 
 
@@ -582,8 +610,13 @@ async def get_user_power_state(
 async def get_recent_user_power_states(
     session: AsyncSession,
 ) -> list[UserPowerState]:
-    """Return UserPowerState rows updated within the last hour."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+    """Return UserPowerState rows updated within the last hour.
+
+    Uses a tz-aware cutoff because ``updated_at`` is TIMESTAMPTZ — comparing
+    with a naive datetime would let PostgreSQL interpret it as local time and
+    return incorrect results when the DB server TZ differs from UTC.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
     result = await session.execute(
         select(UserPowerState).where(UserPowerState.updated_at > cutoff)
     )

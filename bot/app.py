@@ -9,6 +9,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from aiohttp import web
 
 from bot.config import settings
 from bot.db.session import engine, init_db
@@ -60,20 +61,19 @@ async def _run_migrations() -> None:
     logger.info("Alembic migrations applied")
 
 
+async def _health_handler(_request: web.Request) -> web.Response:
+    """Shared /health handler used in both polling and webhook modes."""
+    return web.json_response({"status": "ok"})
+
+
 async def _start_health_server() -> None:
     """Start lightweight health endpoint for polling deployments."""
     global _health_runner
     if _health_runner is not None:
         return
 
-    from aiohttp import web
-
     app = web.Application()
-
-    async def health_handler(_request: web.Request) -> web.Response:
-        return web.json_response({"status": "ok"})
-
-    app.router.add_get("/health", health_handler)
+    app.router.add_get("/health", _health_handler)
 
     port = int(os.getenv("PORT", settings.HEALTH_PORT))
     runner = web.AppRunner(app)
@@ -241,7 +241,6 @@ async def main() -> None:
     try:
         if settings.USE_WEBHOOK:
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-            from aiohttp import web
 
             webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
             await bot.set_webhook(
@@ -252,11 +251,7 @@ async def main() -> None:
             logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application()
-
-            async def health_handler(_request: web.Request) -> web.Response:
-                return web.json_response({"status": "ok"})
-
-            app.router.add_get("/health", health_handler)
+            app.router.add_get("/health", _health_handler)
 
             handler = SimpleRequestHandler(
                 dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,

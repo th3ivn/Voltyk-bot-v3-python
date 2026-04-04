@@ -27,15 +27,25 @@ def _utf16_len(s: str) -> int:
 
 def html_to_entities(html: str) -> tuple[str, list[dict]]:
     entities: list[dict] = []
-    text = ""
+    # Accumulate plain-text fragments; join once at the end to avoid O(n²)
+    # string copies that occur with ``text += char`` in a per-character loop.
+    # We also maintain a running UTF-16 code-unit counter so that tag offsets
+    # can be recorded without re-scanning already-processed text.
+    text_parts: list[str] = []
+    utf16_pos: int = 0   # running count of UTF-16 code units emitted so far
     i = 0
     stack: list[dict] = []
+
+    def _append(fragment: str) -> None:
+        nonlocal utf16_pos
+        text_parts.append(fragment)
+        utf16_pos += _utf16_len(fragment)
 
     while i < len(html):
         if html[i] == "<":
             close_tag = html.find(">", i)
             if close_tag == -1:
-                text += html[i]
+                _append(html[i])
                 i += 1
                 continue
 
@@ -49,7 +59,7 @@ def html_to_entities(html: str) -> tuple[str, list[dict]]:
                         entity: dict = {
                             "type": entry["entity_type"],
                             "offset": entry["offset"],
-                            "length": _utf16_len(text) - entry["offset"],
+                            "length": utf16_pos - entry["offset"],
                         }
                         if entry.get("url"):
                             entity["url"] = entry["url"]
@@ -65,29 +75,29 @@ def html_to_entities(html: str) -> tuple[str, list[dict]]:
                 if tag_name == "a":
                     href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
                     url = href_match.group(1) if href_match else ""
-                    stack.append({"tag": "a", "entity_type": "text_link", "offset": _utf16_len(text), "url": url})
+                    stack.append({"tag": "a", "entity_type": "text_link", "offset": utf16_pos, "url": url})
                 elif tag_name == "tg-emoji":
                     emoji_match = re.search(r'emoji-id\s*=\s*["\']([^"\']*)["\']', tag_content, re.IGNORECASE)
                     eid = emoji_match.group(1) if emoji_match else ""
-                    stack.append({"tag": "tg-emoji", "entity_type": "custom_emoji", "offset": _utf16_len(text), "custom_emoji_id": eid})
+                    stack.append({"tag": "tg-emoji", "entity_type": "custom_emoji", "offset": utf16_pos, "custom_emoji_id": eid})
                 elif tag_name in TAG_MAP:
-                    stack.append({"tag": tag_name, "entity_type": TAG_MAP[tag_name], "offset": _utf16_len(text)})
+                    stack.append({"tag": tag_name, "entity_type": TAG_MAP[tag_name], "offset": utf16_pos})
 
             i = close_tag + 1
         elif html[i] == "&":
             semi_idx = html.find(";", i)
             if semi_idx != -1 and semi_idx - i < 8:
                 html_entity = html[i : semi_idx + 1]
-                text += unescape(html_entity)
+                _append(unescape(html_entity))
                 i = semi_idx + 1
             else:
-                text += html[i]
+                _append(html[i])
                 i += 1
         else:
-            text += html[i]
+            _append(html[i])
             i += 1
 
-    return text, entities
+    return "".join(text_parts), entities
 
 
 def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list[dict]]:
