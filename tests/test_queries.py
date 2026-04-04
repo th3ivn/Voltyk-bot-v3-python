@@ -149,10 +149,18 @@ class TestDeleteUserData:
     async def test_deletes_user_when_found(self):
         session = _make_mock_session()
         mock_user = MagicMock()
+        mock_user.id = 42
         session.execute.return_value = _make_scalars_result(mock_user)
 
         await delete_user_data(session, "123")
 
+        # 1 SELECT (get_user_by_telegram_id) + 3 explicit DELETEs
+        # (OutageHistory, PowerHistory, ScheduleHistory — no ON DELETE CASCADE)
+        assert session.execute.call_count == 4, (
+            "Expected 1 SELECT + 3 DELETE statements; got "
+            f"{session.execute.call_count} execute() calls"
+        )
+        # ORM delete is called exactly once for the user object itself
         session.delete.assert_called_once_with(mock_user)
 
     async def test_no_delete_when_user_not_found(self):
@@ -161,6 +169,8 @@ class TestDeleteUserData:
 
         await delete_user_data(session, "nonexistent")
 
+        # Only the initial SELECT — no history DELETEs if user doesn't exist
+        session.execute.assert_called_once()
         session.delete.assert_not_called()
 
 
