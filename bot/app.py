@@ -4,12 +4,12 @@ import asyncio
 import os
 from contextlib import suppress
 
-from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from aiohttp import web
 
 from bot.config import settings
 from bot.db.session import engine, init_db
