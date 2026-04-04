@@ -25,29 +25,35 @@ _health_runner = None
 
 
 def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
-    """Track background task and log unexpected crashes immediately."""
+    """Track background task, log unexpected crashes, and auto-remove on completion."""
 
-    def _log_bg_task_result(done_task: asyncio.Task) -> None:
+    def _on_done(done_task: asyncio.Task) -> None:
+        # Remove from tracking list so we don't hold a reference to finished tasks.
+        with suppress(ValueError):
+            _bg_tasks.remove(done_task)
         if done_task.cancelled():
             return
         exc = done_task.exception()
         if exc is not None:
             logger.exception("Background task %s crashed", done_task.get_name(), exc_info=exc)
 
-    task.add_done_callback(_log_bg_task_result)
+    task.add_done_callback(_on_done)
     _bg_tasks.append(task)
     return task
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
-    from alembic.config import Config
-
-    from alembic import command
+    import os  # noqa: PLC0415,I001
+    from alembic import command  # type: ignore[attr-defined]  # noqa: PLC0415
+    from alembic.config import Config  # noqa: PLC0415
 
     def _upgrade() -> None:
-        cfg = Config("alembic.ini")
+        # Resolve alembic.ini relative to this file so the bot can be started
+        # from any working directory (e.g. inside a Docker container).
+        ini_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
+        cfg = Config(ini_path)
         cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "head")  # type: ignore[attr-defined]
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _upgrade)

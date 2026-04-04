@@ -17,3 +17,13 @@ env/
 .mypy_cache/
 htmlcov/
 .coverage
+
+# HTTP Archive files — may contain auth tokens, cookies, or other secrets
+*.har
+
+# Image assets (binary, tracked separately if needed)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
