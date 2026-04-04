@@ -4,6 +4,7 @@ import asyncio
 import os
 from contextlib import suppress
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -60,9 +61,8 @@ async def _run_migrations() -> None:
     logger.info("Alembic migrations applied")
 
 
-async def _health_handler(_request: object) -> object:
+async def _health_handler(_request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
-    from aiohttp import web
     return web.json_response({"status": "ok"})
 
 
@@ -71,8 +71,6 @@ async def _start_health_server() -> None:
     global _health_runner
     if _health_runner is not None:
         return
-
-    from aiohttp import web
 
     app = web.Application()
     app.router.add_get("/health", _health_handler)
@@ -243,7 +241,6 @@ async def main() -> None:
     try:
         if settings.USE_WEBHOOK:
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-            from aiohttp import web
 
             webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
             await bot.set_webhook(
