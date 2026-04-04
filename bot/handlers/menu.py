@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC
+from datetime import timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -335,7 +335,7 @@ async def stats_device(callback: CallbackQuery, session: AsyncSession) -> None:
         if changed_at:
             kyiv = ZoneInfo("Europe/Kyiv")
             if changed_at.tzinfo is None:
-                changed_at = changed_at.replace(tzinfo=UTC)
+                changed_at = changed_at.replace(tzinfo=timezone.utc)
             since_text = f"\nЗ {changed_at.astimezone(kyiv).strftime('%d.%m %H:%M')}"
 
         text = (
