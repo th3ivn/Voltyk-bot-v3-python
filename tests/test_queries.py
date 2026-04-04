@@ -86,10 +86,9 @@ class TestCreateOrUpdateUser:
         # First call (get_user_by_telegram_id): user not found
         session.execute.return_value = _make_scalars_result(None)
 
-        # We call flush after adding the user, which sets user.id.
-        # Patch flush to set the id on any User object added to session.
+        # Capture objects added to the session.
+        # flush() is called after add(user) so simulate DB assigning an id.
         added_objects: list = []
-        original_add = session.add
 
         def capture_add(obj):
             added_objects.append(obj)
@@ -100,8 +99,17 @@ class TestCreateOrUpdateUser:
 
         result = await create_or_update_user(session, "999", "testuser", "kyiv", "1.1")
 
-        # A User object should have been added
-        assert any(hasattr(o, "telegram_id") for o in added_objects)
+        # The returned object must be the new User with the correct fields
+        assert result is not None
+        assert result.telegram_id == "999"
+        assert result.username == "testuser"
+        assert result.region == "kyiv"
+        assert result.queue == "1.1"
+        assert result.is_active is True
+
+        # session.add() must have been called at least once with the User object
+        user_adds = [o for o in added_objects if hasattr(o, "telegram_id")]
+        assert len(user_adds) == 1, "Expected exactly one User to be added"
 
     async def test_updates_existing_user(self):
         session = _make_mock_session()
@@ -125,6 +133,12 @@ class TestCreateOrUpdateUser:
         assert existing_user.queue == "2.1"
         assert existing_user.username == "new_name"
         assert existing_user.is_active is True
+
+        # Must return the existing user object (not a new one)
+        assert result is existing_user
+
+        # No new User must have been added to the session
+        session.add.assert_not_called()
 
 
 # ─── deactivate_user ─────────────────────────────────────────────────────

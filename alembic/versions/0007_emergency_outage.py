@@ -40,7 +40,7 @@ def upgrade() -> None:
             sa.Column("city", sa.String(128), nullable=True),
             sa.Column("street", sa.String(255), nullable=True),
             sa.Column("house", sa.String(32), nullable=True),
-            sa.Column("updated_at", sa.DateTime, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         )
     if _table_exists("users") and not _table_exists("user_emergency_state"):
         op.create_table(
