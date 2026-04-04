@@ -21,8 +21,8 @@ async def admin_clear_db(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "admin_restart")
 async def admin_restart(callback: CallbackQuery) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Тільки для власника")
         return
     await callback.answer()
     await callback.message.edit_text(
@@ -33,8 +33,8 @@ async def admin_restart(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "admin_restart_confirm")
 async def admin_restart_confirm(callback: CallbackQuery) -> None:
-    if not settings.is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ заборонено")
+    if not settings.is_owner(callback.from_user.id):
+        await callback.answer("❌ Тільки для власника")
         return
     await callback.answer("🔄 Перезапуск...")
     await callback.message.edit_text("🔄 Перезапуск бота...")
