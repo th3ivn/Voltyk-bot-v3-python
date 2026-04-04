@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -67,7 +67,7 @@ async def create_or_update_user(
         user.queue = queue
         user.username = username
         user.is_active = True
-        user.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         user = User(
             telegram_id=tid,
@@ -345,7 +345,7 @@ async def close_ticket(session: AsyncSession, ticket_id: int, closed_by: str) ->
     await session.execute(
         update(Ticket)
         .where(Ticket.id == ticket_id)
-        .values(status="closed", closed_at=datetime.now(UTC).replace(tzinfo=None), closed_by=closed_by)
+        .values(status="closed", closed_at=datetime.now(timezone.utc).replace(tzinfo=None), closed_by=closed_by)
     )
 
 
@@ -472,7 +472,7 @@ async def get_schedule_check_time(session: AsyncSession, region: str, queue: str
     if check and check.last_checked_at:
         dt = check.last_checked_at
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
+            dt = dt.replace(tzinfo=timezone.utc)
         return int(dt.timestamp())
     return int(time.time())
 
@@ -486,14 +486,14 @@ async def update_schedule_check_time(
     )
     check = result.scalars().first()
     if check:
-        check.last_checked_at = datetime.now(UTC)
+        check.last_checked_at = datetime.now(timezone.utc)
         if last_hash is not None:
             check.last_hash = last_hash
     else:
         session.add(ScheduleCheck(
             region=region,
             queue=queue,
-            last_checked_at=datetime.now(UTC),
+            last_checked_at=datetime.now(timezone.utc),
             last_hash=last_hash,
         ))
     await session.flush()
@@ -576,7 +576,7 @@ async def get_recent_user_power_states(
     session: AsyncSession,
 ) -> list[UserPowerState]:
     """Return UserPowerState rows updated within the last hour."""
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     result = await session.execute(
         select(UserPowerState).where(UserPowerState.updated_at > cutoff)
     )
@@ -632,7 +632,7 @@ async def upsert_daily_snapshot(
         snapshot.schedule_data = schedule_data
         snapshot.today_hash = today_hash
         snapshot.tomorrow_hash = tomorrow_hash
-        snapshot.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        snapshot.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         snapshot = ScheduleDailySnapshot(
             region=region,
@@ -717,7 +717,7 @@ async def delete_old_pending_notifications(session: AsyncSession, older_than_hou
 
     Returns number of deleted rows.
     """
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=older_than_hours)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=older_than_hours)
     result = await session.execute(
         delete(PendingNotification).where(PendingNotification.created_at < cutoff)
     )
@@ -767,13 +767,13 @@ async def update_ping_error_alert_time(
     await session.execute(
         update(PingErrorAlert)
         .where(PingErrorAlert.telegram_id == telegram_id)
-        .values(last_alert_at=datetime.now(UTC))
+        .values(last_alert_at=datetime.now(timezone.utc))
     )
 
 
 async def get_power_history_week(session: AsyncSession, user_id: int) -> list[PowerHistory]:
     """Return PowerHistory records for a user from the last 7 days."""
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
     result = await session.execute(
         select(PowerHistory)
         .where(PowerHistory.user_id == user_id, PowerHistory.timestamp >= int(cutoff.timestamp()))
@@ -802,7 +802,7 @@ async def get_pending_admin_reminders(
     session: AsyncSession,
 ) -> list[AdminTicketReminder]:
     """Return unresolved reminders where last_reminder_at is older than 24 hours."""
-    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     result = await session.execute(
         select(AdminTicketReminder).where(
             AdminTicketReminder.is_resolved.is_(False),
@@ -867,7 +867,7 @@ async def cleanup_old_reminders(session: AsyncSession, older_than_hours: int = 4
 
     Returns the number of deleted rows.
     """
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=older_than_hours)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=older_than_hours)
     result = await session.execute(
         delete(SentReminder).where(SentReminder.created_at < cutoff)
     )
@@ -885,7 +885,7 @@ async def get_active_reminder_anchors(
     state after a bot restart: callers should check whether each ``period_key``
     represents a past event and, if so, delete the reminder message from Telegram.
     """
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=within_hours)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=within_hours)
     result = await session.execute(
         select(SentReminder.telegram_id, SentReminder.period_key)
         .where(SentReminder.created_at > cutoff)

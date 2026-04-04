@@ -1,18 +1,19 @@
 """Shared pytest fixtures for the Voltyk Bot test suite."""
 from __future__ import annotations
 
+import asyncio
+import inspect
 import os
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 # Set required environment variables BEFORE any bot modules are imported,
 # so pydantic-settings can find BOT_TOKEN and not raise ValidationError.
 os.environ.setdefault("BOT_TOKEN", "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -83,3 +84,15 @@ def mock_bot():
     bot.send_message = AsyncMock()
     bot.get_me = AsyncMock(return_value=SimpleNamespace(username="voltyk_bot"))
     return bot
+
+
+def pytest_pyfunc_call(pyfuncitem):
+    """Run async tests even when pytest-asyncio plugin is unavailable."""
+    test_func = pyfuncitem.obj
+    if not inspect.iscoroutinefunction(test_func):
+        return None
+
+    signature = inspect.signature(test_func)
+    kwargs = {name: pyfuncitem.funcargs[name] for name in signature.parameters if name in pyfuncitem.funcargs}
+    asyncio.run(test_func(**kwargs))
+    return True
