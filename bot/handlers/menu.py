@@ -212,6 +212,11 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.answer(f"⏳ Зачекай ще {remaining} сек", show_alert=False)
         return
 
+    # Mark cooldown BEFORE first await so concurrent taps from the same user
+    # cannot both slip through the check above (asyncio cooperative scheduling
+    # means nothing preempts us between here and the next await point).
+    _user_last_check[callback.from_user.id] = now
+
     # --- Get old hash from cached data (before force refresh) ---
     old_data = await fetch_schedule_data(user.region)
     old_events = parse_schedule_for_queue(old_data, user.queue).get("events", []) if old_data else []
@@ -222,8 +227,6 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
     if new_data is None:
         await callback.answer("❌ Не вдалось отримати дані", show_alert=False)
         return
-
-    _user_last_check[callback.from_user.id] = time.monotonic()
 
     # --- Compare hashes ---
     new_events = parse_schedule_for_queue(new_data, user.queue).get("events", [])

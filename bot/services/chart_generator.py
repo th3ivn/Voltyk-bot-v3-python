@@ -576,11 +576,18 @@ async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) 
     """Render a PNG schedule chart via SVG + CairoSVG.
 
     Drawing is CPU-bound and runs in the default thread-pool executor so the
-    asyncio event loop is never blocked.
+    asyncio event loop is never blocked.  A hard 30-second timeout prevents a
+    stuck CairoSVG/Pillow call from permanently exhausting the thread pool.
     """
     try:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _generate_sync, region, queue, schedule_data)
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _generate_sync, region, queue, schedule_data),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Chart generation timed out for %s/%s", region, queue)
+        return None
     except Exception as e:
         logger.warning("Chart generation failed for %s/%s: %s", region, queue, e)
         return None
