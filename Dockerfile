@@ -8,7 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml .
+# Copy runtime package files before install; editable install needs package sources present.
+COPY pyproject.toml alembic.ini ./
+COPY bot ./bot
+COPY alembic ./alembic
+
 RUN pip install --no-cache-dir -e .
 
 COPY . .

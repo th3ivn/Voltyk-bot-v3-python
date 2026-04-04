@@ -6,6 +6,9 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bot.config import settings
+from bot.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _prepare_database_url(url: str) -> tuple[str, dict]:
@@ -37,8 +40,13 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
                 "require", "verify-ca", "verify-full", "prefer",
             ):
                 ssl_ctx = ssl_module.create_default_context()
-                ssl_ctx.check_hostname = False
-                ssl_ctx.verify_mode = ssl_module.CERT_NONE
+                if settings.DB_SSL_INSECURE_SKIP_VERIFY:
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl_module.CERT_NONE
+                    logger.warning(
+                        "DB_SSL_INSECURE_SKIP_VERIFY=true: TLS certificate verification is disabled "
+                        "for PostgreSQL connection"
+                    )
                 connect_args["ssl"] = ssl_ctx
 
         params.pop("channel_binding", None)
