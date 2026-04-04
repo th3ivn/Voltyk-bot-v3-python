@@ -1074,6 +1074,7 @@ async def update_power_notifications_on_schedule_change(
                         logger.warning(
                             "Could not clear stale bot message ID for user %s: %s",
                             telegram_id, clear_exc,
+                            exc_info=clear_exc,
                         )
                 else:
                     logger.debug(
@@ -1142,6 +1143,7 @@ async def update_power_notifications_on_schedule_change(
                         logger.warning(
                             "Could not clear stale channel message ID for user %s: %s",
                             telegram_id, clear_exc,
+                            exc_info=clear_exc,
                         )
                 else:
                     logger.debug(
