@@ -287,7 +287,8 @@ async def notif_target_set(callback: CallbackQuery, session: AsyncSession) -> No
     target_type, target_value = parts
     # Validate target_value against the fixed set of allowed destinations so a
     # crafted callback_data cannot write arbitrary strings into the DB column.
-    _ALLOWED_TARGETS = {"bot", "channel"}
+    # "both" is valid — the UI keyboard includes a "📱📺 Обидва" button.
+    _ALLOWED_TARGETS = {"bot", "channel", "both"}
     if target_value not in _ALLOWED_TARGETS:
         await callback.answer()
         return

@@ -215,6 +215,7 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
     # Mark cooldown BEFORE first await so concurrent taps from the same user
     # cannot both slip through the check above (asyncio cooperative scheduling
     # means nothing preempts us between here and the next await point).
+    # On API failure we clear it so the user can retry immediately.
     _user_last_check[callback.from_user.id] = now
 
     # --- Get old hash from cached data (before force refresh) ---
@@ -225,6 +226,8 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
     # --- Force refresh ---
     new_data = await fetch_schedule_data(user.region, force_refresh=True)
     if new_data is None:
+        # Transient API failure — clear cooldown so the user can retry immediately
+        _user_last_check.pop(callback.from_user.id, None)
         await callback.answer("❌ Не вдалось отримати дані", show_alert=False)
         return
 

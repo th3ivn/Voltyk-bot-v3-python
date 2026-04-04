@@ -29,7 +29,11 @@ class DbSessionMiddleware(BaseMiddleware):
                 try:
                     await session.rollback()
                 except Exception as rb_exc:
-                    # Log rollback failure but always re-raise the original exception
-                    # so callers (and Sentry) see the real error, not a rollback error.
-                    logger.error("Session rollback failed: %s (original error: %s)", rb_exc, exc)
+                    # Log rollback failure with full traceback but always re-raise the
+                    # original exception so callers (and Sentry) see the real error.
+                    logger.error(
+                        "Session rollback failed (original error: %s)",
+                        exc,
+                        exc_info=rb_exc,
+                    )
                 raise
