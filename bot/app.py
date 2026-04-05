@@ -13,11 +13,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
-from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
+from alembic import command as alembic_command
 from bot.config import settings
 from bot.db.queries import get_setting
 from bot.db.session import async_session, check_db_connectivity, engine

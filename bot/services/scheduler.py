@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import sentry_sdk
 from aiogram import Bot
