@@ -211,7 +211,7 @@ async def _handle_power_state_change(
                 )
                 await session.commit()
         except Exception as e:
-            logger.error("DB error processing power state change for user %s: %s", telegram_id, e)
+            logger.error("DB error processing power state change for user %s: %s", telegram_id, e, exc_info=True)
             if fresh_user is None:
                 return
 
@@ -327,7 +327,7 @@ async def _handle_power_state_change(
                         await session.commit()
                     user_deactivated = True
                 except Exception as e:
-                    logger.error("Error sending to user %s: %s", telegram_id, e)
+                    logger.error("Error sending to user %s: %s", telegram_id, e, exc_info=True)
 
             # Send to channel if configured and different from user's chat
             if not user_deactivated and cc and cc.channel_id and cc.channel_id != telegram_id:
@@ -352,7 +352,7 @@ async def _handle_power_state_change(
                     except TelegramForbiddenError:
                         logger.warning("Channel %s is not accessible", cc.channel_id)
                     except Exception as e:
-                        logger.error("Error sending to channel %s: %s", cc.channel_id, e)
+                        logger.error("Error sending to channel %s: %s", cc.channel_id, e, exc_info=True)
 
             user_state["last_notification_at"] = now.isoformat()
 
@@ -399,6 +399,7 @@ async def _handle_power_state_change(
             "Unexpected error in _handle_power_state_change for user %s: %s",
             getattr(user, "telegram_id", "?"),
             e,
+            exc_info=True,
         )
 
 
@@ -565,7 +566,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
-                logger.error("Error in debounce confirm for user %s: %s", telegram_id, exc)
+                logger.error("Error in debounce confirm for user %s: %s", telegram_id, exc, exc_info=True)
 
         user_state["debounce_task"] = asyncio.create_task(_confirm_state())
 
@@ -573,6 +574,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
         logger.error(
             "Error checking power for user %s: %s",
             getattr(user, "telegram_id", "?"), e,
+            exc_info=True,
         )
 
 
@@ -633,7 +635,7 @@ async def _check_all_ips(bot: Bot) -> None:
             ])
 
         except Exception as e:
-            logger.error("Error in _check_all_ips: %s", e)
+            logger.error("Error in _check_all_ips: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
 
@@ -666,7 +668,7 @@ async def _save_user_state_to_db(telegram_id: str, state: dict) -> None:
             )
             await session.commit()
     except Exception as e:
-        logger.error("Error saving state for user %s: %s", telegram_id, e)
+        logger.error("Error saving state for user %s: %s", telegram_id, e, exc_info=True)
 
 
 async def _save_all_user_states() -> None:
@@ -714,7 +716,7 @@ async def _restore_user_states() -> None:
 
         logger.info("🔄 Restored %d user power states", len(rows))
     except Exception as e:
-        logger.error("Error restoring user states: %s", e)
+        logger.error("Error restoring user states: %s", e, exc_info=True)
 
 
 # ─── Main loop ────────────────────────────────────────────────────────────
@@ -778,7 +780,7 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
                 except asyncio.CancelledError:
                     pass
                 except Exception as exc:
-                    logger.error("Error in restored debounce confirm for user %s: %s", tid, exc)
+                    logger.error("Error in restored debounce confirm for user %s: %s", tid, exc, exc_info=True)
 
             user_state["debounce_task"] = asyncio.create_task(_confirm_restored())
             count += 1
@@ -808,7 +810,7 @@ async def power_monitor_loop(bot: Bot) -> None:
     except asyncio.TimeoutError:
         logger.error("Initial power monitor check timed out after 300s")
     except Exception as e:
-        logger.error("Initial power monitor check error: %s", e)
+        logger.error("Initial power monitor check error: %s", e, exc_info=True)
 
     last_save_at = asyncio.get_running_loop().time()
     save_interval_s = 60  # 1 minute — minimize data loss on crash
@@ -832,7 +834,7 @@ async def power_monitor_loop(bot: Bot) -> None:
         except asyncio.TimeoutError:
             logger.error("Power monitor check timed out after 300s")
         except Exception as e:
-            logger.error("Power monitor check error: %s", e)
+            logger.error("Power monitor check error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
         # Periodic state save
@@ -855,6 +857,11 @@ def stop_power_monitor() -> None:
     logger.info("⚡ Power monitor stopped")
 
 
+async def save_states_on_shutdown() -> None:
+    """Persist all in-memory user states to DB on graceful shutdown."""
+    await _save_all_user_states()
+
+
 # ─── Daily ping-error alerts ──────────────────────────────────────────────
 
 
@@ -870,7 +877,7 @@ async def daily_ping_error_loop(bot: Bot) -> None:
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error("daily_ping_error_loop error: %s", e)
+            logger.error("daily_ping_error_loop error: %s", e, exc_info=True)
             await asyncio.sleep(60)
 
 
@@ -882,7 +889,7 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
         async with async_session() as session:
             alerts = await get_active_ping_error_alerts(session)
     except Exception as e:
-        logger.error("Could not fetch ping error alerts: %s", e)
+        logger.error("Could not fetch ping error alerts: %s", e, exc_info=True)
         return
 
     now = datetime.now(timezone.utc)
@@ -942,9 +949,9 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                     await deactivate_ping_error_alert(session, alert.telegram_id)
                     await session.commit()
             except Exception as e:
-                logger.error("Error sending ping error alert to user %s: %s", alert.telegram_id, e)
+                logger.error("Error sending ping error alert to user %s: %s", alert.telegram_id, e, exc_info=True)
         except Exception as e:
-            logger.error("Error processing ping error alert for user %s: %s", alert.telegram_id, e)
+            logger.error("Error processing ping error alert for user %s: %s", alert.telegram_id, e, exc_info=True)
 
 
 # ─── Schedule change notification update ─────────────────────────────────
@@ -985,7 +992,7 @@ async def update_power_notifications_on_schedule_change(
             )
             users = list(result.scalars().all())
     except Exception as e:
-        logger.error("Error fetching users for schedule update %s/%s: %s", region, queue, e)
+        logger.error("Error fetching users for schedule update %s/%s: %s", region, queue, e, exc_info=True)
         return
 
     for user in users:

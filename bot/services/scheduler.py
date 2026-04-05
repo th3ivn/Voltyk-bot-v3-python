@@ -155,7 +155,7 @@ async def schedule_checker_loop(bot: Bot) -> None:
         try:
             await _check_all_schedules(bot, interval)
         except Exception as e:
-            logger.error("Schedule check error: %s", e)
+            logger.error("Schedule check error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
         logger.debug("Next schedule check in %ds", interval)
@@ -206,7 +206,7 @@ async def _check_all_schedules(
                     prefetched_data=region_data.get(region),
                 )
             except Exception as e:
-                logger.error("Error checking schedule for %s/%s: %s", region, queue, e)
+                logger.error("Error checking schedule for %s/%s: %s", region, queue, e, exc_info=True)
                 sentry_sdk.capture_exception(e)
 
 
@@ -489,7 +489,7 @@ async def flush_pending_notifications(bot: Bot) -> None:
                     await session.commit()
 
             except Exception as e:
-                logger.error("Error flushing notifications for %s/%s: %s", region, queue, e)
+                logger.error("Error flushing notifications for %s/%s: %s", region, queue, e, exc_info=True)
 
     logger.info("06:00 flush complete")
 
@@ -621,7 +621,7 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
                         await session.commit()
 
         except Exception as e:
-            logger.error("Catch-up reminder error for %s/%s: %s", region, queue, e)
+            logger.error("Catch-up reminder error for %s/%s: %s", region, queue, e, exc_info=True)
 
     logger.info("Post-quiet-hours reminder catch-up complete")
 
@@ -650,7 +650,7 @@ async def daily_flush_loop(bot: Bot) -> None:
                 await flush_pending_notifications(bot)
                 break
             except Exception as e:
-                logger.error("Daily flush error (attempt %d/%d): %s", attempt + 1, MAX_DAILY_FLUSH_RETRIES, e)
+                logger.error("Daily flush error (attempt %d/%d): %s", attempt + 1, MAX_DAILY_FLUSH_RETRIES, e, exc_info=True)
                 sentry_sdk.capture_exception(e)
                 if attempt < MAX_DAILY_FLUSH_RETRIES - 1:
                     await asyncio.sleep(DAILY_FLUSH_RETRY_DELAY_S)
@@ -661,7 +661,7 @@ async def daily_flush_loop(bot: Bot) -> None:
         try:
             await catch_up_missed_reminders(bot)
         except Exception as e:
-            logger.error("Post-quiet-hours reminder catch-up error: %s", e)
+            logger.error("Post-quiet-hours reminder catch-up error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
 
@@ -703,9 +703,9 @@ async def _send_notifications_to_users(
                         bot, user, sched_data, update_type, changes, is_daily_planned
                     )
                 except Exception as exc:
-                    logger.error("Error sending notification to user %s after retry: %s", user.telegram_id, exc)
+                    logger.error("Error sending notification to user %s after retry: %s", user.telegram_id, exc, exc_info=True)
             except Exception as e:
-                logger.error("Error sending notification to user %s: %s", user.telegram_id, e)
+                logger.error("Error sending notification to user %s: %s", user.telegram_id, e, exc_info=True)
             finally:
                 queue.task_done()
             await asyncio.sleep(send_delay)
@@ -901,7 +901,8 @@ async def _send_schedule_notification(
 
     except Exception as e:
         logger.error(
-            "Error in _send_schedule_notification for user %s: %s", user.telegram_id, e
+            "Error in _send_schedule_notification for user %s: %s", user.telegram_id, e,
+            exc_info=True,
         )
 
 
@@ -927,7 +928,7 @@ async def reminder_checker_loop(bot: Bot) -> None:
         try:
             await _check_and_send_reminders(bot)
         except Exception as e:
-            logger.error("Reminder checker error: %s", e)
+            logger.error("Reminder checker error: %s", e, exc_info=True)
         await asyncio.sleep(60)
 
 
@@ -1027,7 +1028,7 @@ async def _check_and_send_reminders(bot: Bot) -> None:
                     await session.commit()
 
         except Exception as e:
-            logger.error("Reminder check error for %s/%s: %s", region, queue, e)
+            logger.error("Reminder check error for %s/%s: %s", region, queue, e, exc_info=True)
 
 
 def _event_anchor_passed(anchor_iso: str, now: datetime) -> bool:
