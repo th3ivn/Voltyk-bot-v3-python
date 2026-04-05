@@ -597,8 +597,10 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
                     batch_checks = [
                         (str(u.telegram_id), anchor_iso, reminder_type) for u in to_send
                     ]
-                    sent_pairs = await check_reminders_sent_batch(session, batch_checks)
-                    already_sent: set[str] = {tid for tid, _ in sent_pairs}
+                    # reminder_type is uniform for all entries; extract telegram_ids only
+                    already_sent: set[str] = {
+                        tid for tid, _ in await check_reminders_sent_batch(session, batch_checks)
+                    }
 
                 to_mark: list[tuple[str, str, str, str, str]] = []
                 for user in to_send:
