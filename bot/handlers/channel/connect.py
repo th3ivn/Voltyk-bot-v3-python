@@ -11,6 +11,7 @@ from bot.db.models import UserMessageTracking
 from bot.db.queries import (
     delete_pending_channel,
     delete_pending_channel_by_telegram_id,
+    get_pending_channel,
     get_pending_channel_by_telegram_id,
     get_user_by_telegram_id,
 )
@@ -109,8 +110,8 @@ async def connect_channel(callback: CallbackQuery, state: FSMContext, session: A
     if not user or not user.channel_config:
         return
 
-    pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
-    if not pending or pending.channel_id != channel_id:
+    pending = await get_pending_channel(session, callback.from_user.id, channel_id)
+    if not pending:
         await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
         return
 
@@ -137,8 +138,8 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
     if not user or not user.channel_config:
         return
 
-    pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
-    if not pending or pending.channel_id != channel_id:
+    pending = await get_pending_channel(session, callback.from_user.id, channel_id)
+    if not pending:
         await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
         return
 

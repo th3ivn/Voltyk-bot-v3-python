@@ -424,6 +424,25 @@ async def get_pending_channel_by_telegram_id(session: AsyncSession, telegram_id:
     return result.scalars().first()
 
 
+async def get_pending_channel(
+    session: AsyncSession,
+    telegram_id: int | str,
+    channel_id: str,
+) -> PendingChannel | None:
+    """Return the pending channel row matching both the user and the specific channel_id.
+
+    Prefer this over get_pending_channel_by_telegram_id() when the callback already
+    carries the channel_id — avoids ambiguity when a user has multiple pending rows.
+    """
+    result = await session.execute(
+        select(PendingChannel).where(
+            PendingChannel.telegram_id == str(telegram_id),
+            PendingChannel.channel_id == channel_id,
+        )
+    )
+    return result.scalars().first()
+
+
 async def delete_pending_channel(session: AsyncSession, channel_id: str) -> None:
     await session.execute(delete(PendingChannel).where(PendingChannel.channel_id == channel_id))
 
