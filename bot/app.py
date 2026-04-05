@@ -32,7 +32,7 @@ from bot.services.api import (
     load_last_commit_sha,
     set_chart_render_mode,
 )
-from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop, stop_power_monitor
+from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop, save_states_on_shutdown, stop_power_monitor
 from bot.services.scheduler import (
     daily_flush_loop,
     reminder_checker_loop,
@@ -82,7 +82,35 @@ async def _run_migrations() -> None:
 
 async def _health_handler(_request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
-    return web.json_response({"status": "ok"})
+    from sqlalchemy import text
+
+    db_status = "ok"
+    redis_status = "ok"
+    healthy = True
+
+    try:
+        async def _check_db() -> None:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+
+        await asyncio.wait_for(_check_db(), timeout=3)
+    except Exception:
+        db_status = "unreachable"
+        healthy = False
+
+    try:
+        async def _check_redis() -> None:
+            if chart_cache._redis is not None:
+                await chart_cache._redis.ping()
+
+        await asyncio.wait_for(_check_redis(), timeout=3)
+    except Exception:
+        redis_status = "unreachable"
+        healthy = False
+
+    payload = {"status": "ok" if healthy else "degraded", "db": db_status, "redis": redis_status}
+    status_code = 200 if healthy else 503
+    return web.json_response(payload, status=status_code)
 
 
 async def _start_health_server() -> None:
@@ -218,6 +246,8 @@ async def on_shutdown(bot: Bot) -> None:
         task.cancel()
     await asyncio.gather(*_bg_tasks, return_exceptions=True)
     _bg_tasks.clear()
+
+    await save_states_on_shutdown()
 
     await close_http_client()
     await _stop_health_server()
