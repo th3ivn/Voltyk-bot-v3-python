@@ -55,7 +55,7 @@ _running = False
 
 DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
+KYIV_TZ = settings.timezone
 
 # Mutex that prevents the 06:00 flush and the periodic checker from running
 # concurrently. Without it, both can read the same stale stored_hash on startup

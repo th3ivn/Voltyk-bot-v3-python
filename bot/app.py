@@ -3,20 +3,42 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import suppress
+from datetime import datetime
 
+import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
+from sentry_sdk.integrations.aiohttp import AioHttpIntegration
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
 from bot.config import settings
-from bot.db.session import check_db_connectivity, engine
+from bot.db.queries import get_setting
+from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware
 from bot.middlewares.throttle import ThrottleMiddleware
+from bot.services import chart_cache
+from bot.services.api import (
+    close_http_client,
+    init_http_client,
+    load_last_commit_sha,
+    set_chart_render_mode,
+)
+from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop, stop_power_monitor
+from bot.services.scheduler import (
+    daily_flush_loop,
+    reminder_checker_loop,
+    schedule_checker_loop,
+    stop_scheduler,
+)
 from bot.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -44,17 +66,14 @@ def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
-    import os  # noqa: PLC0415,I001
-    from alembic import command  # type: ignore[attr-defined]  # noqa: PLC0415
-    from alembic.config import Config  # noqa: PLC0415
 
     def _upgrade() -> None:
         # Resolve alembic.ini relative to this file so the bot can be started
         # from any working directory (e.g. inside a Docker container).
         ini_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
-        cfg = Config(ini_path)
-        cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-        command.upgrade(cfg, "head")  # type: ignore[attr-defined]
+        cfg = AlembicConfig(ini_path)
+        cfg.set_main_option("sqlalchemy.url", settings.sync_database_url)
+        alembic_command.upgrade(cfg, "head")
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _upgrade)
@@ -132,10 +151,6 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot) -> None:
-    import sentry_sdk
-    from sentry_sdk.integrations.aiohttp import AioHttpIntegration
-    from sentry_sdk.integrations.asyncio import AsyncioIntegration
-
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
@@ -152,11 +167,9 @@ async def on_startup(bot: Bot) -> None:
     await check_db_connectivity()
     logger.info("✅ База даних ініційована")
 
-    from bot.services.api import init_http_client, load_last_commit_sha
     await init_http_client()
     logger.info("✅ HTTP client ініційований")
 
-    from bot.services import chart_cache
     await chart_cache.init()
 
     await load_last_commit_sha()
@@ -166,27 +179,19 @@ async def on_startup(bot: Bot) -> None:
     logger.info("✨ Бот @%s успішно запущено!", me.username)
 
     # Load chart render mode from DB
-    from bot.db.queries import get_setting
-    from bot.db.session import async_session
-    from bot.services.api import set_chart_render_mode
     async with async_session() as _s:
         _mode = await get_setting(_s, "chart_render_mode") or "on_change"
         set_chart_render_mode(on_demand=(_mode == "on_demand"))
     logger.info("Chart render mode: %s", _mode)
 
     # Notify admins that bot started
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    _now = datetime.now(ZoneInfo("Europe/Kyiv"))
+    _now = datetime.now(settings.timezone)
     _startup_text = f"✅ <b>Бот запущено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
     for _admin_id in settings.all_admin_ids:
         try:
             await bot.send_message(_admin_id, _startup_text)
         except Exception as e:
             logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
-
-    from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop
-    from bot.services.scheduler import daily_flush_loop, reminder_checker_loop, schedule_checker_loop
 
     _track_bg_task(asyncio.create_task(schedule_checker_loop(bot), name="schedule_checker_loop"))
     _track_bg_task(asyncio.create_task(power_monitor_loop(bot), name="power_monitor_loop"))
@@ -198,19 +203,13 @@ async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
 
     # Notify admins that bot is stopping
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    _now = datetime.now(ZoneInfo("Europe/Kyiv"))
+    _now = datetime.now(settings.timezone)
     _shutdown_text = f"⛔ <b>Бот зупинено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
     for _admin_id in settings.all_admin_ids:
         try:
             await bot.send_message(_admin_id, _shutdown_text)
         except Exception as e:
             logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
-
-    from bot.services.api import close_http_client
-    from bot.services.power_monitor import stop_power_monitor
-    from bot.services.scheduler import stop_scheduler
 
     stop_scheduler()
     stop_power_monitor()
@@ -223,7 +222,6 @@ async def on_shutdown(bot: Bot) -> None:
     await close_http_client()
     await _stop_health_server()
 
-    from bot.services import chart_cache
     await chart_cache.close()
 
     await engine.dispose()
@@ -240,8 +238,6 @@ async def main() -> None:
 
     try:
         if settings.USE_WEBHOOK:
-            from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-
             webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
             await bot.set_webhook(
                 webhook_url,

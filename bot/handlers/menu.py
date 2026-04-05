@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from datetime import timezone
-from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -49,6 +48,7 @@ _MSG_NOT_MODIFIED = "message is not modified"
 _user_last_check: dict[int, float] = {}
 _DEFAULT_COOLDOWN_S = 30
 _LAST_CHECK_CLEANUP_INTERVAL = 300  # clean up stale entries every 5 minutes
+_USER_LAST_CHECK_MAX_SIZE = 10_000  # cap to prevent unbounded growth
 _last_check_cleanup_at: float = 0.0
 
 
@@ -216,6 +216,10 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
     # cannot both slip through the check above (asyncio cooperative scheduling
     # means nothing preempts us between here and the next await point).
     # On API failure we clear it so the user can retry immediately.
+    # Evict the oldest entry when the dict is at its size cap.
+    if callback.from_user.id not in _user_last_check and len(_user_last_check) >= _USER_LAST_CHECK_MAX_SIZE:
+        oldest_uid = next(iter(_user_last_check))
+        del _user_last_check[oldest_uid]
     _user_last_check[callback.from_user.id] = now
 
     # --- Get old hash from cached data (before force refresh) ---
@@ -339,7 +343,7 @@ async def stats_device(callback: CallbackQuery, session: AsyncSession) -> None:
 
         since_text = ""
         if changed_at:
-            kyiv = ZoneInfo("Europe/Kyiv")
+            kyiv = app_settings.timezone
             if changed_at.tzinfo is None:
                 changed_at = changed_at.replace(tzinfo=timezone.utc)
             since_text = f"\nЗ {changed_at.astimezone(kyiv).strftime('%d.%m %H:%M')}"
