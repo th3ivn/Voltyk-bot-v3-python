@@ -687,3 +687,8 @@ class TestApplyChannelBrandingWelcome:
             )
 
         bot.send_message.assert_called_once()
+        message_text = bot.send_message.call_args[0][1]
+        # Message should mention the queue
+        assert "1.1" in message_text
+        # has_ip=True adds a power notification line
+        assert "⚡" in message_text
