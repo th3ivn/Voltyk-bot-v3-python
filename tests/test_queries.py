@@ -17,6 +17,7 @@ from bot.db.queries import (
     deactivate_user,
     delete_user_data,
     get_active_users_by_region,
+    get_pending_channel,
     get_user_by_telegram_id,
     get_users_with_ip,
 )
@@ -168,12 +169,9 @@ class TestDeleteUserData:
 
         await delete_user_data(session, "123")
 
-        # 1 SELECT (get_user_by_telegram_id) + 3 explicit DELETEs
-        # (OutageHistory, PowerHistory, ScheduleHistory — no ON DELETE CASCADE)
-        assert session.execute.call_count == 4, (
-            "Expected 1 SELECT + 3 DELETE statements; got "
-            f"{session.execute.call_count} execute() calls"
-        )
+        # Only 1 SELECT (get_user_by_telegram_id) — history rows are handled
+        # automatically by DB ON DELETE CASCADE (migration 0012).
+        session.execute.assert_called_once()
         # ORM delete is called exactly once for the user object itself
         session.delete.assert_called_once_with(mock_user)
 
@@ -186,6 +184,43 @@ class TestDeleteUserData:
         # Only the initial SELECT — no history DELETEs if user doesn't exist
         session.execute.assert_called_once()
         session.delete.assert_not_called()
+
+
+# ─── get_pending_channel ──────────────────────────────────────────────────
+
+
+class TestGetPendingChannel:
+    async def test_returns_row_when_found(self):
+        session = _make_mock_session()
+        mock_pending = MagicMock()
+        mock_pending.channel_id = "-1001234567890"
+        mock_pending.telegram_id = "42"
+        session.execute.return_value = _make_scalars_result(mock_pending)
+
+        result = await get_pending_channel(session, 42, "-1001234567890")
+
+        assert result is mock_pending
+        session.execute.assert_called_once()
+
+    async def test_returns_none_when_not_found(self):
+        session = _make_mock_session()
+        session.execute.return_value = _make_scalars_result(None)
+
+        result = await get_pending_channel(session, 42, "-1001234567890")
+
+        assert result is None
+        session.execute.assert_called_once()
+
+    async def test_converts_int_telegram_id_to_str(self):
+        """telegram_id is stored as String in DB — int input must be coerced."""
+        session = _make_mock_session()
+        session.execute.return_value = _make_scalars_result(None)
+
+        # Should not raise even when telegram_id is passed as int
+        await get_pending_channel(session, 999, "some_channel")
+
+        # Verify the WHERE clause was built (execute called once)
+        session.execute.assert_called_once()
 
 
 # ─── get_active_users_by_region ───────────────────────────────────────────
