@@ -94,7 +94,8 @@ async def _health_handler(_request: web.Request) -> web.Response:
                 await conn.execute(text("SELECT 1"))
 
         await asyncio.wait_for(_check_db(), timeout=3)
-    except Exception:
+    except Exception as e:
+        logger.debug("Health check: DB unreachable: %s", e)
         db_status = "unreachable"
         healthy = False
 
@@ -104,7 +105,8 @@ async def _health_handler(_request: web.Request) -> web.Response:
                 await chart_cache._redis.ping()
 
         await asyncio.wait_for(_check_redis(), timeout=3)
-    except Exception:
+    except Exception as e:
+        logger.debug("Health check: Redis unreachable: %s", e)
         redis_status = "unreachable"
         healthy = False
 
