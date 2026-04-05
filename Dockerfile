@@ -23,6 +23,7 @@ RUN mkdir -p bot && touch bot/__init__.py \
 # ── Application sources ────────────────────────────────────────────────────
 COPY bot ./bot
 COPY alembic ./alembic
+COPY assets ./assets
 
 # Re-install so the installed package points at the final source layout.
 # This layer is only re-executed when pyproject.toml or sources change.
