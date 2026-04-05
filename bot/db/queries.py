@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -916,6 +916,30 @@ async def check_reminder_sent(
         ).limit(1)
     )
     return result.scalar() is not None
+
+
+async def check_reminders_sent_batch(
+    session: AsyncSession,
+    checks: list[tuple[str, str, str]],
+) -> set[tuple[str, str]]:
+    """Return the set of (telegram_id, reminder_type) pairs already recorded in
+    sent_reminders for the given (telegram_id, period_key, reminder_type) tuples.
+
+    Replaces N individual ``check_reminder_sent`` calls with a single row-value IN
+    query, eliminating the N+1 pattern in the reminder checker loop.
+    """
+    if not checks:
+        return set()
+    result = await session.execute(
+        select(SentReminder.telegram_id, SentReminder.reminder_type).where(
+            tuple_(
+                SentReminder.telegram_id,
+                SentReminder.period_key,
+                SentReminder.reminder_type,
+            ).in_(checks)
+        )
+    )
+    return {(row.telegram_id, row.reminder_type) for row in result}
 
 
 async def mark_reminder_sent(
