@@ -10,52 +10,21 @@ by explicitly deleting rows in delete_user_data(), but the DB schema had no
 defence-in-depth: a direct DELETE on users (manual admin query, future code)
 would raise a FK violation without this migration.
 
-Strategy: drop the old FK constraint, recreate with ON DELETE CASCADE using
-NOT VALID so the lock is minimal (no full table scan to re-check existing
-rows), then validate in a separate ALTER TABLE which takes a lighter
-SHARE UPDATE EXCLUSIVE lock instead of ACCESS EXCLUSIVE.
-
-Guards: each step is wrapped in a table/constraint existence check so the
-migration is safe to run against a fresh database (no tables yet) or any
-environment where the tables were created without these constraints.
+Strategy:
+- DROP CONSTRAINT IF EXISTS — idempotent, safe in offline SQL scripts and on
+  fresh databases where the constraint never existed.
+- ADD CONSTRAINT ... NOT VALID — creates the constraint without scanning the
+  full table, avoiding an ACCESS EXCLUSIVE lock that would block reads.
+- VALIDATE CONSTRAINT — validates existing rows under SHARE UPDATE EXCLUSIVE,
+  which does not block concurrent reads or writes.
+- ALTER TABLE IF EXISTS — entire statement is a no-op when the table is absent,
+  making the migration safe against fresh/empty databases in both online and
+  offline (SQL script generation) modes.
 """
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-
-from alembic import context, op
-
-
-def _table_exists(name: str) -> bool:
-    if context.is_offline_mode():
-        return True
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema='public' AND table_name=:t)"
-        ),
-        {"t": name},
-    )
-    return bool(result.scalar())
-
-
-def _constraint_exists(table: str, constraint: str) -> bool:
-    if context.is_offline_mode():
-        return True
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            "SELECT EXISTS ("
-            "  SELECT 1 FROM information_schema.table_constraints "
-            "  WHERE table_schema='public' AND table_name=:t AND constraint_name=:c"
-            ")"
-        ),
-        {"t": table, "c": constraint},
-    )
-    return bool(result.scalar())
-
+from alembic import op
 
 revision = "0012"
 down_revision = "0011"
@@ -72,40 +41,34 @@ _TABLES = [
 
 def upgrade() -> None:
     for table, constraint in _TABLES:
-        if not _table_exists(table):
-            continue
-
-        # Drop old FK (no ON DELETE CASCADE) — only if it actually exists.
-        if _constraint_exists(table, constraint):
-            op.drop_constraint(constraint, table, type_="foreignkey")
-
-        # Recreate with ON DELETE CASCADE using NOT VALID to avoid an
-        # ACCESS EXCLUSIVE lock that would block reads during the scan.
-        op.create_foreign_key(
-            constraint,
-            table,
-            "users",
-            ["user_id"],
-            ["id"],
-            ondelete="CASCADE",
-            postgresql_not_valid=True,
+        # Drop old FK (no ON DELETE CASCADE). IF EXISTS makes this a no-op on
+        # fresh DBs and on tables that were created via create_all() without it.
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} "
+            f"DROP CONSTRAINT IF EXISTS {constraint}"
         )
-
-        # Validate in a separate statement — takes SHARE UPDATE EXCLUSIVE,
-        # which does not block concurrent reads or writes.
-        op.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {constraint}")
+        # Recreate with ON DELETE CASCADE.  NOT VALID skips the full-table
+        # scan so no ACCESS EXCLUSIVE lock is held while rows are re-checked.
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} "
+            f"ADD CONSTRAINT {constraint} "
+            f"FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID"
+        )
+        # Validate existing rows under SHARE UPDATE EXCLUSIVE — does not block
+        # concurrent reads or writes.
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} VALIDATE CONSTRAINT {constraint}"
+        )
 
 
 def downgrade() -> None:
     for table, constraint in reversed(_TABLES):
-        if not _table_exists(table):
-            continue
-        if _constraint_exists(table, constraint):
-            op.drop_constraint(constraint, table, type_="foreignkey")
-        op.create_foreign_key(
-            constraint,
-            table,
-            "users",
-            ["user_id"],
-            ["id"],
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} "
+            f"DROP CONSTRAINT IF EXISTS {constraint}"
+        )
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} "
+            f"ADD CONSTRAINT {constraint} "
+            f"FOREIGN KEY (user_id) REFERENCES users(id)"
         )
