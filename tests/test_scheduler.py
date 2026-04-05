@@ -478,10 +478,10 @@ class TestSendNotificationsToUsers:
 
         call_count = 0
 
-        async def _blocked_then_ok(*args, **kwargs):
+        async def _blocked_then_ok(bot, user, *args, **kwargs):
             nonlocal call_count
             call_count += 1
-            if args[1].telegram_id == "blocked":
+            if user.telegram_id == "blocked":
                 raise forbidden_exc
 
         with patch("bot.services.scheduler._send_schedule_notification", side_effect=_blocked_then_ok):
@@ -616,9 +616,9 @@ class TestCheckSingleQueue:
         users = [_make_user()]
         notified_args = {}
 
-        async def _capture_notify(b, u, sched_d, update_t, changes, is_daily_planned=False):
+        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
-            notified_args["update_type"] = update_t
+            notified_args["update_type"] = update_type
 
         with patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
@@ -693,7 +693,7 @@ class TestFlushPendingNotifications:
 
         notified_args = {}
 
-        async def _capture_notify(b, u, sched_d, update_t, changes, is_daily_planned=False):
+        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[]), \
@@ -751,7 +751,7 @@ class TestFlushPendingNotifications:
         )
         notified_args = {}
 
-        async def _capture_notify(b, u, sched_d, update_t, changes, is_daily_planned=False):
+        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
