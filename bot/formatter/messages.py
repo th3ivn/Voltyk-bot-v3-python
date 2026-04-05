@@ -6,13 +6,13 @@ from bot.constants.regions import REGIONS
 def has_any_notification_enabled(ns) -> bool:
     if ns is None:
         return False
-    return any([
+    return any((
         ns.notify_schedule_changes,
         ns.notify_remind_off,
         ns.notify_fact_off,
         ns.notify_remind_on,
         ns.notify_fact_on,
-    ])
+    ))
 
 
 def format_live_status_message(user, region_name: str | None = None) -> str:

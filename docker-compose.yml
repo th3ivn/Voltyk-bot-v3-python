@@ -14,7 +14,9 @@ services:
     environment:
       POSTGRES_DB: voltyk
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # Override POSTGRES_PASSWORD in your .env or environment for production.
+      # This default is for local development only and must NOT be used in production.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
