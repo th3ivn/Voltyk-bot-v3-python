@@ -216,10 +216,25 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
     # cannot both slip through the check above (asyncio cooperative scheduling
     # means nothing preempts us between here and the next await point).
     # On API failure we clear it so the user can retry immediately.
-    # Evict oldest entry when the dict is at its size cap.
+    # When the dict is at its size cap, batch-evict stale entries first.
     if len(_user_last_check) >= _USER_LAST_CHECK_MAX_SIZE:
-        oldest_uid = next(iter(_user_last_check))
-        del _user_last_check[oldest_uid]
+        cutoff = now - cooldown_s
+        stale_uids = [uid for uid, t in _user_last_check.items() if t <= cutoff]
+        for uid in stale_uids:
+            del _user_last_check[uid]
+        if stale_uids:
+            logger.debug(
+                "_user_last_check: batch-evicted %d stale entries at cap", len(stale_uids)
+            )
+        # If still at cap after TTL eviction, evict 10% of the oldest entries
+        if len(_user_last_check) >= _USER_LAST_CHECK_MAX_SIZE:
+            evict_count = max(1, _USER_LAST_CHECK_MAX_SIZE // 10)
+            oldest_uids = sorted(_user_last_check, key=lambda uid: _user_last_check[uid])[:evict_count]
+            for uid in oldest_uids:
+                del _user_last_check[uid]
+            logger.debug(
+                "_user_last_check: force-evicted %d oldest entries (10%% of cap)", evict_count
+            )
     _user_last_check[callback.from_user.id] = now
 
     # --- Get old hash from cached data (before force refresh) ---

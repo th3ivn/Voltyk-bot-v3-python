@@ -598,6 +598,17 @@ async def _check_all_ips(bot: Bot) -> None:
             if not users:
                 return
 
+            # Evict _user_states entries for users no longer in the active set.
+            active_ids = {str(u.telegram_id) for u in users}
+            stale_ids = [tid for tid in _user_states if tid not in active_ids]
+            for tid in stale_ids:
+                state = _user_states.pop(tid)
+                task = state.get("debounce_task")
+                if task and not task.done():
+                    task.cancel()
+            if stale_ids:
+                logger.debug("Evicted %d stale _user_states entries", len(stale_ids))
+
             # Group users by router IP so each unique IP is pinged only once.
             ip_groups: dict[str, list] = {}
             for user in users:
