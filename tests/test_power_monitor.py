@@ -1297,9 +1297,10 @@ class TestSendDailyPingErrorAlerts:
         from bot.services.power_monitor import _send_daily_ping_error_alerts
 
         bot_mock = AsyncMock()
-        recent_time = datetime.now(timezone.utc).replace(microsecond=0)
-        # last_alert_at only 1 hour ago — should be skipped
-        alert = self._make_alert(last_alert_at=recent_time.replace(hour=(recent_time.hour - 1) % 24))
+        # last_alert_at only 1 hour ago — should be skipped (< 24h threshold)
+        from datetime import timedelta
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        alert = self._make_alert(last_alert_at=recent_time)
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
