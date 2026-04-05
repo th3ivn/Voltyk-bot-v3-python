@@ -250,8 +250,8 @@ async def _handle_power_state_change(
 
         # ── Duration text ─────────────────────────────────────────────
         duration_text = ""
-        if duration_s is not None:
-            total_min = duration_s / 60
+        if power_result and power_result["duration_minutes"] is not None:
+            total_min = float(power_result["duration_minutes"])
             duration_text = "менше хвилини" if total_min < 1 else _format_exact_duration(total_min)
 
         # ── Schedule look-ahead ───────────────────────────────────────
