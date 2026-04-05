@@ -12,7 +12,7 @@ from aiogram.types import BufferedInputFile
 from bot.config import settings
 from bot.constants.regions import REGIONS
 from bot.db.queries import (
-    check_reminder_sent,
+    check_reminders_sent_batch,
     cleanup_old_reminders,
     delete_old_pending_notifications,
     get_active_reminder_anchors,
@@ -594,12 +594,13 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
                     continue
 
                 async with async_session() as session:
-                    already_sent: set[str] = set()
-                    for user in to_send:
-                        if await check_reminder_sent(
-                            session, str(user.telegram_id), anchor_iso, reminder_type
-                        ):
-                            already_sent.add(str(user.telegram_id))
+                    batch_checks = [
+                        (str(u.telegram_id), anchor_iso, reminder_type) for u in to_send
+                    ]
+                    # reminder_type is uniform for all entries; extract telegram_ids only
+                    already_sent: set[str] = {
+                        tid for tid, _ in await check_reminders_sent_batch(session, batch_checks)
+                    }
 
                 to_mark: list[tuple[str, str, str, str, str]] = []
                 for user in to_send:
@@ -996,15 +997,13 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             if not to_send:
                 continue
 
-            # Single session: batch-check which reminders are already in DB
+            # Single query: batch-check which reminders are already in DB
             async with async_session() as session:
-                already_sent: set[tuple[str, str]] = set()
-                for user, remind_m in to_send:
-                    reminder_type = _REMIND_TYPE_MAP[remind_m]
-                    if await check_reminder_sent(
-                        session, str(user.telegram_id), anchor_iso, reminder_type
-                    ):
-                        already_sent.add((str(user.telegram_id), reminder_type))
+                batch_checks = [
+                    (str(user.telegram_id), anchor_iso, _REMIND_TYPE_MAP[remind_m])
+                    for user, remind_m in to_send
+                ]
+                already_sent: set[tuple[str, str]] = await check_reminders_sent_batch(session, batch_checks)
 
             # Send reminders for those not yet recorded; collect marks
             to_mark: list[tuple[str, str, str, str, str]] = []

@@ -189,13 +189,31 @@ async def _handle_power_state_change(
         now = datetime.now(KYIV_TZ)
         telegram_id = str(user.telegram_id)
 
-        # ── Reload fresh user from DB to avoid detached-instance issues ──
-        async with async_session() as session:
-            fresh_user = await get_user_by_telegram_id(session, telegram_id)
-
-        if not fresh_user:
-            logger.warning("User %s not found in DB, skipping notification", telegram_id)
-            return
+        # ── Session 1: Reload user + atomic state update + power history ──
+        fresh_user = None
+        power_result = None
+        duration_s: int | None = None
+        try:
+            async with async_session() as session:
+                fresh_user = await get_user_by_telegram_id(session, telegram_id)
+                if not fresh_user:
+                    logger.warning("User %s not found in DB, skipping notification", telegram_id)
+                    return
+                power_result = await change_power_state_and_get_duration(session, telegram_id, new_state)
+                if power_result and power_result["duration_minutes"] is not None:
+                    duration_s = int(float(power_result["duration_minutes"]) * 60)
+                await add_power_history(
+                    session,
+                    user_id=fresh_user.id,
+                    event_type=new_state,
+                    timestamp=int(now.timestamp()),
+                    duration_seconds=duration_s,
+                )
+                await session.commit()
+        except Exception as e:
+            logger.error("DB error processing power state change for user %s: %s", telegram_id, e)
+            if fresh_user is None:
+                return
 
         # ── Cooldown check ────────────────────────────────────────────
         should_notify = True
@@ -213,15 +231,6 @@ async def _handle_power_state_change(
                     )
             except Exception as e:
                 logger.debug("User %s: Cooldown calculation error: %s", telegram_id, e)
-
-        # ── Atomic DB update + duration calculation ───────────────────
-        power_result = None
-        try:
-            async with async_session() as session:
-                power_result = await change_power_state_and_get_duration(session, telegram_id, new_state)
-                await session.commit()
-        except Exception as e:
-            logger.error("DB error updating power state for user %s: %s", telegram_id, e)
 
         # Time for the notification header — always use the real detection time
         event_time = original_change_time or now
@@ -241,25 +250,9 @@ async def _handle_power_state_change(
 
         # ── Duration text ─────────────────────────────────────────────
         duration_text = ""
-        duration_s: int | None = None
         if power_result and power_result["duration_minutes"] is not None:
             total_min = float(power_result["duration_minutes"])
-            duration_s = int(total_min * 60)
             duration_text = "менше хвилини" if total_min < 1 else _format_exact_duration(total_min)
-
-        # ── Write to PowerHistory ─────────────────────────────────────
-        try:
-            async with async_session() as session:
-                await add_power_history(
-                    session,
-                    user_id=fresh_user.id,
-                    event_type=new_state,
-                    timestamp=int(now.timestamp()),
-                    duration_seconds=duration_s,
-                )
-                await session.commit()
-        except Exception as e:
-            logger.warning("Could not write PowerHistory for user %s: %s", telegram_id, e)
 
         # ── Schedule look-ahead ───────────────────────────────────────
         next_event = None
@@ -307,6 +300,9 @@ async def _handle_power_state_change(
             message += schedule_text
 
         # ── Send notifications ────────────────────────────────────────
+        bot_msg_id: int | None = None
+        ch_msg_id: int | None = None
+        user_deactivated = False
         if should_notify:
             ns = fresh_user.notification_settings
             cc = fresh_user.channel_config
@@ -322,33 +318,19 @@ async def _handle_power_state_change(
             if send_to_bot:
                 try:
                     sent = await retry_bot_call(lambda: bot.send_message(int(telegram_id), message, parse_mode="HTML"))
+                    bot_msg_id = sent.message_id
                     logger.info("📱 Power notification sent to user %s (%s)", telegram_id, new_state)
-                    try:
-                        async with async_session() as session:
-                            r = await session.execute(
-                                select(UserModel).where(UserModel.telegram_id == telegram_id)
-                            )
-                            db_user = r.scalars().first()
-                            if db_user and db_user.power_tracking:
-                                if new_state == "off":
-                                    db_user.power_tracking.alert_off_message_id = sent.message_id
-                                else:
-                                    db_user.power_tracking.alert_on_message_id = sent.message_id
-                                db_user.power_tracking.bot_power_message_id = sent.message_id
-                                db_user.power_tracking.power_message_type = power_msg_type
-                                await session.commit()
-                    except Exception as e:
-                        logger.warning("Could not save alert message_id for user %s: %s", telegram_id, e)
                 except TelegramForbiddenError:
                     logger.info("User %s blocked the bot — deactivating", telegram_id)
                     async with async_session() as session:
                         await deactivate_user(session, telegram_id)
                         await session.commit()
+                    user_deactivated = True
                 except Exception as e:
                     logger.error("Error sending to user %s: %s", telegram_id, e)
 
             # Send to channel if configured and different from user's chat
-            if cc and cc.channel_id and cc.channel_id != telegram_id:
+            if not user_deactivated and cc and cc.channel_id and cc.channel_id != telegram_id:
                 send_to_channel = True
                 if new_state == "off" and not cc.ch_notify_fact_off:
                     send_to_channel = False
@@ -365,23 +347,8 @@ async def _handle_power_state_change(
                         except (ValueError, TypeError):
                             ch_id = cc.channel_id
                         ch_sent = await retry_bot_call(lambda: bot.send_message(ch_id, message, parse_mode="HTML"))
+                        ch_msg_id = ch_sent.message_id
                         logger.info("📢 Power notification sent to channel %s", cc.channel_id)
-                        try:
-                            async with async_session() as session:
-                                r = await session.execute(
-                                    select(UserModel).where(UserModel.telegram_id == telegram_id)
-                                )
-                                db_user = r.scalars().first()
-                                if db_user and db_user.channel_config:
-                                    db_user.channel_config.last_power_message_id = ch_sent.message_id
-                                if db_user and db_user.power_tracking:
-                                    db_user.power_tracking.ch_power_message_id = ch_sent.message_id
-                                if db_user:
-                                    await session.commit()
-                        except Exception as e:
-                            logger.warning(
-                                "Could not save channel alert message_id for user %s: %s", telegram_id, e
-                            )
                     except TelegramForbiddenError:
                         logger.warning("Channel %s is not accessible", cc.channel_id)
                     except Exception as e:
@@ -389,14 +356,37 @@ async def _handle_power_state_change(
 
             user_state["last_notification_at"] = now.isoformat()
 
-        # ── Deactivate ping error alert when power is restored ────────
-        if new_state == "on":
+        # ── Session 2: Persist message IDs + deactivate ping alert ───
+        if not user_deactivated and (bot_msg_id or ch_msg_id or new_state == "on"):
             try:
                 async with async_session() as session:
-                    await deactivate_ping_error_alert(session, telegram_id)
+                    if bot_msg_id or ch_msg_id:
+                        r = await session.execute(
+                            select(UserModel)
+                            .options(
+                                selectinload(UserModel.power_tracking),
+                                selectinload(UserModel.channel_config),
+                            )
+                            .where(UserModel.telegram_id == telegram_id)
+                        )
+                        db_user = r.scalars().first()
+                        if db_user and db_user.power_tracking:
+                            if bot_msg_id:
+                                if new_state == "off":
+                                    db_user.power_tracking.alert_off_message_id = bot_msg_id
+                                else:
+                                    db_user.power_tracking.alert_on_message_id = bot_msg_id
+                                db_user.power_tracking.bot_power_message_id = bot_msg_id
+                                db_user.power_tracking.power_message_type = power_msg_type
+                            if ch_msg_id:
+                                db_user.power_tracking.ch_power_message_id = ch_msg_id
+                        if db_user and db_user.channel_config and ch_msg_id:
+                            db_user.channel_config.last_power_message_id = ch_msg_id
+                    if new_state == "on":
+                        await deactivate_ping_error_alert(session, telegram_id)
                     await session.commit()
             except Exception as e:
-                logger.debug("Could not deactivate ping error alert for user %s: %s", telegram_id, e)
+                logger.warning("Could not persist message IDs for user %s: %s", telegram_id, e)
 
         # ── Update stable state bookkeeping ──────────────────────────
         user_state["last_stable_at"] = changed_at
