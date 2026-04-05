@@ -32,7 +32,12 @@ from bot.services.api import (
     load_last_commit_sha,
     set_chart_render_mode,
 )
-from bot.services.power_monitor import daily_ping_error_loop, power_monitor_loop, save_states_on_shutdown, stop_power_monitor
+from bot.services.power_monitor import (
+    daily_ping_error_loop,
+    power_monitor_loop,
+    save_states_on_shutdown,
+    stop_power_monitor,
+)
 from bot.services.scheduler import (
     daily_flush_loop,
     reminder_checker_loop,
@@ -102,7 +107,7 @@ async def _health_handler(_request: web.Request) -> web.Response:
     try:
         async def _check_redis() -> None:
             if chart_cache._redis is not None:
-                await chart_cache._redis.ping()
+                await chart_cache._redis.ping()  # type: ignore[misc]
 
         await asyncio.wait_for(_check_redis(), timeout=3)
     except Exception as e:
