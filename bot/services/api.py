@@ -524,4 +524,4 @@ def find_next_event(schedule_data: dict) -> dict | None:
 
 def calculate_schedule_hash(events: list[dict]) -> str:
     data = json.dumps(events, sort_keys=True)
-    return hashlib.md5(data.encode()).hexdigest()
+    return hashlib.sha256(data.encode()).hexdigest()

@@ -23,14 +23,14 @@ from bot.db.models import (
     UserPowerTracking,
     UserState,
 )
-from bot.db.session import async_session, engine, get_session, init_db
+from bot.db.session import async_session, check_db_connectivity, engine, get_session
 
 __all__ = [
     "Base",
     "async_session",
     "engine",
     "get_session",
-    "init_db",
+    "check_db_connectivity",
     "User",
     "UserNotificationSettings",
     "UserChannelConfig",

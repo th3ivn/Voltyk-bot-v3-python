@@ -689,15 +689,16 @@ async def upsert_daily_snapshot(
     today_hash: str | None,
     tomorrow_hash: str | None,
 ) -> ScheduleDailySnapshot:
-    """Create or update the daily snapshot for a given region/queue/date."""
-    snapshot = await get_daily_snapshot(session, region, queue, date)
-    if snapshot:
-        snapshot.schedule_data = schedule_data
-        snapshot.today_hash = today_hash
-        snapshot.tomorrow_hash = tomorrow_hash
-        snapshot.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    else:
-        snapshot = ScheduleDailySnapshot(
+    """Atomically create or update the daily snapshot for a given region/queue/date.
+
+    Uses INSERT ... ON CONFLICT DO UPDATE to avoid the race condition where
+    two concurrent schedule-checker tasks could both observe 'not found' and
+    both attempt an INSERT, violating the uq_schedule_daily_snapshot constraint.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    stmt = (
+        pg_insert(ScheduleDailySnapshot)
+        .values(
             region=region,
             queue=queue,
             date=date,
@@ -705,9 +706,20 @@ async def upsert_daily_snapshot(
             today_hash=today_hash,
             tomorrow_hash=tomorrow_hash,
         )
-        session.add(snapshot)
+        .on_conflict_do_update(
+            constraint="uq_schedule_daily_snapshot",
+            set_={
+                "schedule_data": schedule_data,
+                "today_hash": today_hash,
+                "tomorrow_hash": tomorrow_hash,
+                "updated_at": now,
+            },
+        )
+        .returning(ScheduleDailySnapshot)
+    )
+    result = await session.execute(stmt)
     await session.flush()
-    return snapshot
+    return result.scalars().one()
 
 
 # ─── Pending Notifications ────────────────────────────────────────────────

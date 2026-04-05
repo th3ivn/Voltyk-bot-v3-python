@@ -75,8 +75,9 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def init_db() -> None:
-    from bot.db.base import Base  # noqa: F811
+async def check_db_connectivity() -> None:
+    """Verify database is reachable after migrations. Does NOT create tables."""
+    from sqlalchemy import text
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
