@@ -135,7 +135,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1")
+            result = await _check_router_http("8.8.8.8")
 
         assert result is True
 
@@ -195,7 +195,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1:8080")
+            result = await _check_router_http("8.8.8.8:8080")
 
         assert result is True
 
@@ -217,9 +217,28 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1")
+            result = await _check_router_http("8.8.8.8")
 
         assert result is True
+
+    @pytest.mark.parametrize("private_ip", [
+        "192.168.1.1",
+        "192.168.1.1:8080",
+        "10.0.0.1",
+        "172.16.0.1",
+        "127.0.0.1",
+        "169.254.169.254",
+    ])
+    async def test_blocks_private_ips(self, private_ip: str):
+        """_check_router_http must return False for private/internal IPs (SSRF protection)."""
+        from bot.services.power_monitor import _check_router_http
+
+        # aiohttp.ClientSession should never be called for private IPs
+        with patch("aiohttp.ClientSession") as MockSession:
+            result = await _check_router_http(private_ip)
+
+        assert result is False, f"Expected False for private IP {private_ip!r}, got {result!r}"
+        MockSession.assert_not_called()
 
 
 # ─── _get_http_connector ─────────────────────────────────────────────────

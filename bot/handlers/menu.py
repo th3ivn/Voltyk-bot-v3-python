@@ -643,7 +643,6 @@ async def reminder_dismiss(callback: CallbackQuery, session: AsyncSession) -> No
     kb = get_main_menu(channel_paused=channel_paused, has_channel=has_channel)
     msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     user.last_menu_message_id = msg.message_id
-    await session.commit()
 
 
 @router.callback_query(F.data == "reminder_show_schedule")

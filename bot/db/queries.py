@@ -622,6 +622,26 @@ async def upsert_user_power_state(
     await session.execute(stmt)
 
 
+async def batch_upsert_user_power_states(
+    session: AsyncSession,
+    states: list[dict],
+) -> None:
+    """Upsert multiple user_power_states rows in a single INSERT ... ON CONFLICT statement.
+
+    Each element of *states* must have a ``telegram_id`` key plus any subset of
+    the UserPowerState columns.  If *states* is empty the function returns
+    immediately without touching the database.
+    """
+    if not states:
+        return
+    stmt = pg_insert(UserPowerState).values(states)
+    # Build the SET clause from the union of all column names except the PK.
+    update_keys = {k for row in states for k in row if k != "telegram_id"}
+    update_cols = {k: stmt.excluded[k] for k in update_keys}
+    stmt = stmt.on_conflict_do_update(index_elements=["telegram_id"], set_=update_cols)
+    await session.execute(stmt)
+
+
 async def get_user_power_state(
     session: AsyncSession, telegram_id: int | str
 ) -> UserPowerState | None:

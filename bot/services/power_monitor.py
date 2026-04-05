@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from bot.config import settings
 from bot.db.models import User as UserModel
 from bot.db.queries import (
     add_power_history,
+    batch_upsert_user_power_states,
     change_power_state_and_get_duration,
     deactivate_ping_error_alert,
     deactivate_user,
@@ -86,6 +88,26 @@ def _get_user_state(telegram_id: str) -> dict:
 
 # ─── Router check ─────────────────────────────────────────────────────────
 
+_CLOUD_METADATA_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _is_private_ip(host: str) -> bool:
+    """Return True if *host* resolves to a private/internal address.
+
+    Blocks RFC 1918 private ranges, loopback, link-local, and the
+    well-known cloud instance-metadata endpoint (169.254.169.254) to
+    prevent SSRF attacks against internal infrastructure.
+    """
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        # Not a bare IP address (e.g. a hostname) — let it through;
+        # hostname-based SSRF is a separate concern handled at DNS level.
+        return False
+    if addr == _CLOUD_METADATA_IP:
+        return True
+    return addr.is_private or addr.is_loopback or addr.is_link_local
+
 
 async def _check_router_http(router_ip: str | None) -> bool | None:
     """Check if router is reachable via HTTP HEAD request (like the JS bot).
@@ -105,6 +127,10 @@ async def _check_router_http(router_ip: str | None) -> bool | None:
     if m:
         host = m.group(1)
         port = int(m.group(2))
+
+    if _is_private_ip(host):
+        logger.warning("SSRF blocked: router IP %s resolves to a private/internal address", host)
+        return False
 
     timeout_s = settings.POWER_PING_TIMEOUT_MS / 1000
     try:
@@ -672,13 +698,39 @@ async def _save_user_state_to_db(telegram_id: str, state: dict) -> None:
 
 
 async def _save_all_user_states() -> None:
-    """Save all in-memory user states to DB (called every save_interval_s)."""
-    count = 0
-    for tid, state in list(_user_states.items()):
-        await _save_user_state_to_db(tid, state)
-        count += 1
-    if count:
-        logger.debug("💾 Saved %d user power states", count)
+    """Save all in-memory user states to DB in a single batch upsert."""
+    snapshot = list(_user_states.items())
+    if not snapshot:
+        return
+
+    rows: list[dict] = []
+    for tid, state in snapshot:
+        last_notif = state.get("last_notification_at")
+        last_notif_dt = None
+        if last_notif:
+            try:
+                last_notif_dt = datetime.fromisoformat(last_notif)
+            except Exception:
+                pass
+        rows.append({
+            "telegram_id": tid,
+            "current_state": state.get("current_state"),
+            "pending_state": state.get("pending_state"),
+            "pending_state_time": state.get("pending_state_time"),
+            "last_stable_state": state.get("last_stable_state"),
+            "last_stable_at": state.get("last_stable_at"),
+            "instability_start": state.get("instability_start"),
+            "switch_count": state.get("switch_count") or 0,
+            "last_notification_at": last_notif_dt,
+        })
+
+    try:
+        async with async_session() as session:
+            await batch_upsert_user_power_states(session, rows)
+            await session.commit()
+        logger.debug("💾 Saved %d user power states", len(rows))
+    except Exception as e:
+        logger.error("Error batch-saving user power states: %s", e, exc_info=True)
 
 
 async def _restore_user_states() -> None:
