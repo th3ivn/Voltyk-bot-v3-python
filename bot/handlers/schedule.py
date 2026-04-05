@@ -19,6 +19,8 @@ router = Router(name="schedule")
 
 @router.message(Command("schedule"))
 async def cmd_schedule(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user:
         await message.answer("❌ Спочатку запустіть бота, натиснувши /start")
@@ -49,6 +51,8 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("next"))
 async def cmd_next(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user:
         await message.answer("❌ Спочатку запустіть бота, натиснувши /start")
@@ -67,6 +71,8 @@ async def cmd_next(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("timer"))
 async def cmd_timer(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user:
         await message.answer(

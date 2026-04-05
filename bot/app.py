@@ -12,7 +12,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiohttp import web
 
 from bot.config import settings
-from bot.db.session import engine, init_db
+from bot.db.session import check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware
@@ -149,7 +149,7 @@ async def on_startup(bot: Bot) -> None:
         logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
     logger.info("🚀 Запуск Вольтик v4...")
     await _run_migrations()
-    await init_db()
+    await check_db_connectivity()
     logger.info("✅ База даних ініційована")
 
     from bot.services.api import init_http_client, load_last_commit_sha

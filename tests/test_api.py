@@ -356,7 +356,7 @@ class TestCalculateScheduleHash:
     def test_empty_list(self):
         result = calculate_schedule_hash([])
         assert isinstance(result, str)
-        assert len(result) == 32  # md5 hex digest length
+        assert len(result) == 64  # sha256 hex digest length
 
     def test_order_matters(self):
         e1 = {"start": "2024-01-01T10:00:00", "end": "2024-01-01T12:00:00"}
