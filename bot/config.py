@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import Field, field_validator
+from zoneinfo import ZoneInfo
+
+from pydantic import Field, PrivateAttr, field_validator
 from pydantic_settings import BaseSettings
 
 from bot.utils.logger import get_logger
@@ -10,6 +12,9 @@ logger = get_logger(__name__)
 
 class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    # Private attribute: frozenset of all admin IDs (owner + ADMIN_IDS), computed once at init
+    _admin_ids_set: frozenset[int] = PrivateAttr(default_factory=frozenset)
 
     BOT_TOKEN: str
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
@@ -79,18 +84,25 @@ class Settings(BaseSettings):
             return []
         return [int(x.strip()) for x in str(v).split(",") if x.strip()]
 
+    def model_post_init(self, __context: object) -> None:
+        ids: set[int] = set(self.ADMIN_IDS)
+        if self.OWNER_ID:
+            ids.add(self.OWNER_ID)
+        self._admin_ids_set = frozenset(ids)
+
     @property
     def all_admin_ids(self) -> list[int]:
-        ids = list(self.ADMIN_IDS)
-        if self.OWNER_ID and self.OWNER_ID not in ids:
-            ids.append(self.OWNER_ID)
-        return ids
+        return list(self._admin_ids_set)
 
     def is_admin(self, user_id: int) -> bool:
-        return user_id in self.all_admin_ids
+        return user_id in self._admin_ids_set
 
     def is_owner(self, user_id: int) -> bool:
         return self.OWNER_ID is not None and user_id == self.OWNER_ID
+
+    @property
+    def timezone(self) -> ZoneInfo:
+        return ZoneInfo(self.TZ)
 
     @property
     def sync_database_url(self) -> str:
