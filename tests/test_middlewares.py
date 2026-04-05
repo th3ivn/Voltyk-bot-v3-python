@@ -115,6 +115,9 @@ class TestDbSessionMiddleware:
             with pytest.raises(RuntimeError):
                 await self.middleware(handler=handler, event=event, data={})
             mock_logger.error.assert_called_once()
+            call_args = mock_logger.error.call_args
+            assert "rollback" in call_args[0][0].lower()
+            assert call_args[1].get("exc_info") is rollback_exc
 
 
 # ===========================================================================
@@ -342,8 +345,9 @@ class TestThrottleMiddleware:
         with patch("bot.middlewares.throttle.time") as mock_time:
             mock_time.monotonic.return_value = 1000.0
             middleware = self.ThrottleMiddleware(rate_limit=0.5)
-            # Seed a stale entry
-            middleware._last_call[999] = 900.0  # 100s ago, older than _ENTRY_TTL (60s)
+            # Seed a stale entry older than _ENTRY_TTL
+            stale_time = mock_time.monotonic.return_value - throttle_mod._ENTRY_TTL - 40
+            middleware._last_call[999] = stale_time
             middleware._last_cleanup = 1000.0 - throttle_mod._CLEANUP_INTERVAL - 1  # trigger cleanup
 
             # Advance time past cleanup interval
@@ -372,7 +376,7 @@ class TestThrottleMiddleware:
             mock_time.monotonic.return_value = 5000.0 + throttle_mod._CLEANUP_INTERVAL + 1
             # Use a timestamp recent enough to survive TTL eviction
             for i in range(throttle_mod._MAX_ENTRIES + 10):
-                middleware._last_call[i] = 5000.0 + throttle_mod._CLEANUP_INTERVAL + 1 - 1  # within TTL
+                middleware._last_call[i] = 5000.0 + throttle_mod._CLEANUP_INTERVAL
 
             user = SimpleNamespace(id=99999999)
             handler = _make_handler("after cap eviction")
