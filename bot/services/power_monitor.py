@@ -632,7 +632,9 @@ async def _check_all_ips(bot: Bot) -> None:
             active_ids = {str(u.telegram_id) for u in users}
             async with _user_states_lock:
                 stale_ids = [tid for tid in _user_states if tid not in active_ids]
-                evicted_states = [_user_states.pop(tid) for tid in stale_ids]
+                evicted_states = []
+                for tid in stale_ids:
+                    evicted_states.append(_user_states.pop(tid))
             for state in evicted_states:
                 task = state.get("debounce_task")
                 if task and not task.done():
