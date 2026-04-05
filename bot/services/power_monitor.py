@@ -447,9 +447,10 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
             # No IP configured — skip this user silently
             return
 
-        user_state = _get_user_state(telegram_id)
-        user_state["last_ping_time"] = datetime.now(KYIV_TZ).isoformat()
-        user_state["last_ping_success"] = is_available
+        async with _user_states_lock:
+            user_state = _get_user_state(telegram_id)
+            user_state["last_ping_time"] = datetime.now(KYIV_TZ).isoformat()
+            user_state["last_ping_success"] = is_available
 
         new_state = "on" if is_available else "off"
 
@@ -580,21 +581,22 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
                 await asyncio.sleep(debounce_s)
                 logger.info("User %s: Debounce done — confirming %s", telegram_id, new_state)
 
-                orig_dt = user_state.get("original_change_time")
-
-                user_state["current_state"] = new_state
-                user_state["consecutive_checks"] = 0
-                user_state["debounce_task"] = None
-                user_state["pending_state"] = None
-                user_state["pending_state_time"] = None
-                user_state["original_change_time"] = None
+                async with _user_states_lock:
+                    orig_dt = user_state.get("original_change_time")
+                    user_state["current_state"] = new_state
+                    user_state["consecutive_checks"] = 0
+                    user_state["debounce_task"] = None
+                    user_state["pending_state"] = None
+                    user_state["pending_state_time"] = None
+                    user_state["original_change_time"] = None
                 await _handle_power_state_change(bot, user, new_state, old_state, user_state, orig_dt)
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
                 logger.error("Error in debounce confirm for user %s: %s", telegram_id, exc, exc_info=True)
 
-        user_state["debounce_task"] = asyncio.create_task(_confirm_state())
+        async with _user_states_lock:
+            user_state["debounce_task"] = asyncio.create_task(_confirm_state())
 
     except Exception as e:
         logger.error(
@@ -628,9 +630,10 @@ async def _check_all_ips(bot: Bot) -> None:
 
             # Evict _user_states entries for users no longer in the active set.
             active_ids = {str(u.telegram_id) for u in users}
-            stale_ids = [tid for tid in _user_states if tid not in active_ids]
-            for tid in stale_ids:
-                state = _user_states.pop(tid)
+            async with _user_states_lock:
+                stale_ids = [tid for tid in _user_states if tid not in active_ids]
+                evicted_states = [_user_states.pop(tid) for tid in stale_ids]
+            for state in evicted_states:
                 task = state.get("debounce_task")
                 if task and not task.done():
                     task.cancel()
@@ -699,7 +702,8 @@ async def _save_user_state_to_db(telegram_id: str, state: dict) -> None:
 
 async def _save_all_user_states() -> None:
     """Save all in-memory user states to DB in a single batch upsert."""
-    snapshot = list(_user_states.items())
+    async with _user_states_lock:
+        snapshot = list(_user_states.items())
     if not snapshot:
         return
 
@@ -739,32 +743,33 @@ async def _restore_user_states() -> None:
         async with async_session() as session:
             rows = await get_recent_user_power_states(session)
 
-        for row in rows:
-            tid = str(row.telegram_id)
-            last_notif_str = None
-            if row.last_notification_at:
-                if row.last_notification_at.tzinfo is None:
-                    last_notif_str = row.last_notification_at.replace(tzinfo=KYIV_TZ).isoformat()
-                else:
-                    last_notif_str = row.last_notification_at.isoformat()
+        async with _user_states_lock:
+            for row in rows:
+                tid = str(row.telegram_id)
+                last_notif_str = None
+                if row.last_notification_at:
+                    if row.last_notification_at.tzinfo is None:
+                        last_notif_str = row.last_notification_at.replace(tzinfo=KYIV_TZ).isoformat()
+                    else:
+                        last_notif_str = row.last_notification_at.isoformat()
 
-            _user_states[tid] = {
-                "current_state": row.current_state,
-                "last_change_at": None,
-                "consecutive_checks": 0,
-                "is_first_check": False,  # Already have state from DB
-                "pending_state": row.pending_state,
-                "pending_state_time": row.pending_state_time,
-                "original_change_time": row.pending_state_time,  # Restored from pending_state_time
-                "debounce_task": None,  # Timers cannot be restored
-                "instability_start": row.instability_start,
-                "switch_count": row.switch_count or 0,
-                "last_stable_state": row.last_stable_state,
-                "last_stable_at": row.last_stable_at,
-                "last_ping_time": None,
-                "last_ping_success": None,
-                "last_notification_at": last_notif_str,
-            }
+                _user_states[tid] = {
+                    "current_state": row.current_state,
+                    "last_change_at": None,
+                    "consecutive_checks": 0,
+                    "is_first_check": False,  # Already have state from DB
+                    "pending_state": row.pending_state,
+                    "pending_state_time": row.pending_state_time,
+                    "original_change_time": row.pending_state_time,  # Restored from pending_state_time
+                    "debounce_task": None,  # Timers cannot be restored
+                    "instability_start": row.instability_start,
+                    "switch_count": row.switch_count or 0,
+                    "last_stable_state": row.last_stable_state,
+                    "last_stable_at": row.last_stable_at,
+                    "last_ping_time": None,
+                    "last_ping_success": None,
+                    "last_notification_at": last_notif_str,
+                }
 
         logger.info("🔄 Restored %d user power states", len(rows))
     except Exception as e:
@@ -785,7 +790,10 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
         debounce_s = DEFAULT_DEBOUNCE_S
 
     count = 0
-    for telegram_id, user_state in list(_user_states.items()):
+    async with _user_states_lock:
+        states_snapshot = list(_user_states.items())
+
+    for telegram_id, user_state in states_snapshot:
         if user_state.get("pending_state") and user_state.get("debounce_task") is None:
             pending_state_time = user_state.get("pending_state_time")
             remaining_s: float = debounce_s
@@ -813,16 +821,17 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
             ) -> None:
                 try:
                     await asyncio.sleep(rs)
-                    us = _user_states.get(tid)
-                    if us is None or us.get("pending_state") != ns:
-                        return
-                    logger.info("User %s: Restored debounce done — confirming %s", tid, ns)
-                    us["current_state"] = ns
-                    us["consecutive_checks"] = 0
-                    us["debounce_task"] = None
-                    us["pending_state"] = None
-                    us["pending_state_time"] = None
-                    us["original_change_time"] = None
+                    async with _user_states_lock:
+                        us = _user_states.get(tid)
+                        if us is None or us.get("pending_state") != ns:
+                            return
+                        logger.info("User %s: Restored debounce done — confirming %s", tid, ns)
+                        us["current_state"] = ns
+                        us["consecutive_checks"] = 0
+                        us["debounce_task"] = None
+                        us["pending_state"] = None
+                        us["pending_state_time"] = None
+                        us["original_change_time"] = None
                     async with async_session() as session:
                         fresh_user = await get_user_by_telegram_id(session, tid)
                     if fresh_user:
@@ -902,7 +911,7 @@ def stop_power_monitor() -> None:
     """Stop the power monitor loop and cancel all pending debounce tasks."""
     global _running
     _running = False
-    for state in _user_states.values():
+    for state in list(_user_states.values()):
         task = state.get("debounce_task")
         if task and not task.done():
             task.cancel()
