@@ -135,7 +135,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1")
+            result = await _check_router_http("8.8.8.8")
 
         assert result is True
 
@@ -195,7 +195,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1:8080")
+            result = await _check_router_http("8.8.8.8:8080")
 
         assert result is True
 
@@ -217,7 +217,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("192.168.1.1")
+            result = await _check_router_http("8.8.8.8")
 
         assert result is True
 

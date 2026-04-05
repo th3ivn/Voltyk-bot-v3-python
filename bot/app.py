@@ -171,15 +171,15 @@ def create_dispatcher() -> Dispatcher:
             )
     dp = Dispatcher(storage=storage)
 
-    dp.message.middleware(DbSessionMiddleware())
-    dp.callback_query.middleware(DbSessionMiddleware())
-    dp.my_chat_member.middleware(DbSessionMiddleware())
-
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
 
     dp.message.middleware(ThrottleMiddleware(rate_limit=0.3))
     dp.callback_query.middleware(ThrottleMiddleware(rate_limit=0.2))
+
+    dp.message.middleware(DbSessionMiddleware())
+    dp.callback_query.middleware(DbSessionMiddleware())
+    dp.my_chat_member.middleware(DbSessionMiddleware())
 
     register_all_handlers(dp)
 
@@ -246,6 +246,8 @@ async def on_shutdown(bot: Bot) -> None:
         except Exception as e:
             logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
 
+    await save_states_on_shutdown()
+
     stop_scheduler()
     stop_power_monitor()
 
@@ -253,8 +255,6 @@ async def on_shutdown(bot: Bot) -> None:
         task.cancel()
     await asyncio.gather(*_bg_tasks, return_exceptions=True)
     _bg_tasks.clear()
-
-    await save_states_on_shutdown()
 
     await close_http_client()
     await _stop_health_server()
