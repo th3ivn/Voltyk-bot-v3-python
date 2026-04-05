@@ -169,12 +169,9 @@ class TestDeleteUserData:
 
         await delete_user_data(session, "123")
 
-        # 1 SELECT (get_user_by_telegram_id) + 3 explicit DELETEs
-        # (OutageHistory, PowerHistory, ScheduleHistory — no ON DELETE CASCADE)
-        assert session.execute.call_count == 4, (
-            "Expected 1 SELECT + 3 DELETE statements; got "
-            f"{session.execute.call_count} execute() calls"
-        )
+        # Only 1 SELECT (get_user_by_telegram_id) — history rows are handled
+        # automatically by DB ON DELETE CASCADE (migration 0012).
+        session.execute.assert_called_once()
         # ORM delete is called exactly once for the user object itself
         session.delete.assert_called_once_with(mock_user)
 

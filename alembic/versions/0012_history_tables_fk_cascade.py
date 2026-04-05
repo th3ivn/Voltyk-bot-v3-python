@@ -13,10 +13,12 @@ would raise a FK violation without this migration.
 Strategy:
 - DROP CONSTRAINT IF EXISTS — idempotent, safe in offline SQL scripts and on
   fresh databases where the constraint never existed.
-- ADD CONSTRAINT ... NOT VALID — creates the constraint without scanning the
-  full table, avoiding an ACCESS EXCLUSIVE lock that would block reads.
-- VALIDATE CONSTRAINT — validates existing rows under SHARE UPDATE EXCLUSIVE,
-  which does not block concurrent reads or writes.
+- ADD CONSTRAINT ... NOT VALID — ADD CONSTRAINT (like DROP CONSTRAINT) still
+  takes an ACCESS EXCLUSIVE lock briefly, but NOT VALID skips the full-table
+  scan so the lock is released much sooner. Without NOT VALID, Postgres holds
+  ACCESS EXCLUSIVE for the entire duration of the row validation scan.
+- VALIDATE CONSTRAINT — validates existing rows separately under
+  SHARE UPDATE EXCLUSIVE, which does not block concurrent reads or writes.
 - ALTER TABLE IF EXISTS — entire statement is a no-op when the table is absent,
   making the migration safe against fresh/empty databases in both online and
   offline (SQL script generation) modes.
@@ -47,8 +49,8 @@ def upgrade() -> None:
             f"ALTER TABLE IF EXISTS {table} "
             f"DROP CONSTRAINT IF EXISTS {constraint}"
         )
-        # Recreate with ON DELETE CASCADE.  NOT VALID skips the full-table
-        # scan so no ACCESS EXCLUSIVE lock is held while rows are re-checked.
+        # Recreate with ON DELETE CASCADE.  NOT VALID limits the ACCESS EXCLUSIVE
+        # lock to the DDL step only — no full-table scan while the lock is held.
         op.execute(
             f"ALTER TABLE IF EXISTS {table} "
             f"ADD CONSTRAINT {constraint} "
@@ -67,8 +69,13 @@ def downgrade() -> None:
             f"ALTER TABLE IF EXISTS {table} "
             f"DROP CONSTRAINT IF EXISTS {constraint}"
         )
+        # Use the same NOT VALID + VALIDATE pattern as upgrade() to keep the
+        # ACCESS EXCLUSIVE lock brief and avoid a full-table scan while locked.
         op.execute(
             f"ALTER TABLE IF EXISTS {table} "
             f"ADD CONSTRAINT {constraint} "
-            f"FOREIGN KEY (user_id) REFERENCES users(id)"
+            f"FOREIGN KEY (user_id) REFERENCES users(id) NOT VALID"
+        )
+        op.execute(
+            f"ALTER TABLE IF EXISTS {table} VALIDATE CONSTRAINT {constraint}"
         )

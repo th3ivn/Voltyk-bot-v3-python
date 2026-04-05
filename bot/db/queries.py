@@ -11,7 +11,6 @@ from sqlalchemy.orm import selectinload
 from bot.db.models import (
     AdminRouter,
     AdminTicketReminder,
-    OutageHistory,
     PauseLog,
     PendingChannel,
     PendingNotification,
@@ -19,7 +18,6 @@ from bot.db.models import (
     PowerHistory,
     ScheduleCheck,
     ScheduleDailySnapshot,
-    ScheduleHistory,
     SentReminder,
     Setting,
     Ticket,
@@ -131,14 +129,10 @@ async def delete_user_data(session: AsyncSession, telegram_id: int | str) -> Non
     tid = str(telegram_id)
     user = await get_user_by_telegram_id(session, tid)
     if user:
-        # Explicitly remove rows in tables whose FKs to users.id lack ON DELETE CASCADE
-        # so that the subsequent session.delete(user) does not raise a constraint error.
-        # (OutageHistory, PowerHistory, ScheduleHistory reference users.id without CASCADE.)
-        await session.execute(delete(OutageHistory).where(OutageHistory.user_id == user.id))
-        await session.execute(delete(PowerHistory).where(PowerHistory.user_id == user.id))
-        await session.execute(delete(ScheduleHistory).where(ScheduleHistory.user_id == user.id))
-        # ORM delete cascades to notification_settings, channel_config, power_tracking,
-        # message_tracking (all configured with cascade="all, delete-orphan").
+        # DB-level ON DELETE CASCADE (migration 0012) handles outage_history,
+        # power_history and schedule_history automatically.
+        # ORM cascade="all, delete-orphan" handles notification_settings,
+        # channel_config, power_tracking and message_tracking.
         await session.delete(user)
 
 
