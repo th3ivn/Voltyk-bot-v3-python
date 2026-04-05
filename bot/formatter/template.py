@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 from zoneinfo import ZoneInfo
 
 
 def format_template(template: str, variables: dict[str, str]) -> str:
     result = template
     for key, value in variables.items():
-        result = result.replace(f"{{{key}}}", str(value))
+        result = result.replace(f"{{{key}}}", escape(str(value)))
     result = result.replace("<br>", "\n")
     return result
 

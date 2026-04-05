@@ -42,6 +42,7 @@ async def init() -> None:
         decode_responses=False,   # we store raw bytes
         socket_connect_timeout=5,
         socket_timeout=5,
+        max_connections=50,
     )
     # Verify connectivity
     try:

@@ -18,10 +18,12 @@ env/
 htmlcov/
 .coverage
 
-# HTTP Archive files — may contain auth tokens, cookies, or other secrets
+# HTTP Archive files — may contain auth tokens, cookies, session IDs, or other
+# secrets captured from browser sessions.  Never commit these to the repository.
 *.har
 
-# Image assets (binary, tracked separately if needed)
+# Binary image assets — store in an external CDN, object storage, or Git LFS
+# instead of committing them to the source tree.
 *.jpg
 *.jpeg
 *.png
