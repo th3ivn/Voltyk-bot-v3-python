@@ -501,23 +501,13 @@ class TestSetupLogging:
         assert logging.getLogger("sqlalchemy.engine").level == logging.WARNING
 
     def test_setup_logging_production_uses_json_renderer(self):
-        captured_renderers: list = []
-
-        original_configure = structlog.configure
-
-        def _capture_configure(**kwargs):
-            # The last processor before wrap_for_formatter is not the renderer;
-            # we capture it through ProcessorFormatter instead
-            pass
-
         with patch("bot.config.settings", self._make_mock_settings("production")):
             with patch("structlog.stdlib.ProcessorFormatter") as mock_pf:
                 setup_logging()
                 call_kwargs = mock_pf.call_args[1]
                 renderer = call_kwargs.get("processor")
-                captured_renderers.append(renderer)
 
-        assert any(isinstance(r, structlog.processors.JSONRenderer) for r in captured_renderers)
+        assert isinstance(renderer, structlog.processors.JSONRenderer)
 
     def test_setup_logging_dev_uses_console_renderer(self):
         with patch("bot.config.settings", self._make_mock_settings("development")):
