@@ -15,7 +15,7 @@ from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_CHANNEL_PHOTO = Path(__file__).parents[2] / "photo_for_channels.PNG.jpg"
+_CHANNEL_PHOTO = Path(__file__).parents[2] / "assets" / "channel_photo.jpg"
 
 
 async def apply_channel_branding(

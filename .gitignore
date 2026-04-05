@@ -29,3 +29,6 @@ htmlcov/
 *.png
 *.gif
 *.webp
+
+# Branding assets (exempt from the blanket *.jpg rule)
+!assets/channel_photo.jpg
