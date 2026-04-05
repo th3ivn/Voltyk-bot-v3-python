@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         ids: set[int] = set(self.ADMIN_IDS)
         if self.OWNER_ID:
             ids.add(self.OWNER_ID)
-        object.__setattr__(self, "_admin_ids_set", frozenset(ids))
+        self._admin_ids_set = frozenset(ids)
 
     @property
     def all_admin_ids(self) -> list[int]:
