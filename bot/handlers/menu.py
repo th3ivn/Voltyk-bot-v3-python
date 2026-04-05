@@ -229,7 +229,7 @@ async def schedule_check(callback: CallbackQuery, session: AsyncSession) -> None
         # If still at cap after TTL eviction, evict 10% of the oldest entries
         if len(_user_last_check) >= _USER_LAST_CHECK_MAX_SIZE:
             evict_count = max(1, _USER_LAST_CHECK_MAX_SIZE // 10)
-            oldest_uids = list(_user_last_check.keys())[:evict_count]
+            oldest_uids = sorted(_user_last_check, key=lambda uid: _user_last_check[uid])[:evict_count]
             for uid in oldest_uids:
                 del _user_last_check[uid]
             logger.debug(
