@@ -1134,8 +1134,8 @@ def _build_reminder_text(
         dur_h, dur_m = divmod(total_min, 60)
         dur_str = f"{dur_h} год {dur_m} хв" if dur_m else f"{dur_h} год"
         schedule_line = f"📋 {start_dt.strftime('%H:%M')} – {end_dt.strftime('%H:%M')} ({dur_str})"
-    except Exception:
-        pass
+    except (KeyError, ValueError, TypeError) as e:
+        logger.debug("Could not parse reminder schedule block: %s", e)
 
     # Context line
     context_line = ""

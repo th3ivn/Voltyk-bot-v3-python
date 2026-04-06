@@ -106,8 +106,8 @@ async def _health_handler(_request: web.Request) -> web.Response:
 
     try:
         async def _check_redis() -> None:
-            if chart_cache._redis is not None:
-                await chart_cache._redis.ping()  # type: ignore[misc]
+            if chart_cache.is_usable():
+                await chart_cache.ping()
 
         await asyncio.wait_for(_check_redis(), timeout=3)
     except Exception as e:
@@ -224,7 +224,7 @@ async def on_startup(bot: Bot) -> None:
     _startup_text = f"✅ <b>Бот запущено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
     for _admin_id in settings.all_admin_ids:
         try:
-            await bot.send_message(_admin_id, _startup_text)
+            await asyncio.wait_for(bot.send_message(_admin_id, _startup_text), timeout=5)
         except Exception as e:
             logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
 
@@ -242,7 +242,7 @@ async def on_shutdown(bot: Bot) -> None:
     _shutdown_text = f"⛔ <b>Бот зупинено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
     for _admin_id in settings.all_admin_ids:
         try:
-            await bot.send_message(_admin_id, _shutdown_text)
+            await asyncio.wait_for(bot.send_message(_admin_id, _shutdown_text), timeout=5)
         except Exception as e:
             logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
 
@@ -303,7 +303,7 @@ async def main() -> None:
                 await asyncio.Event().wait()
             finally:
                 with suppress(asyncio.CancelledError):
-                    await asyncio.shield(runner.cleanup())
+                    await runner.cleanup()
         else:
             await _start_health_server()
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

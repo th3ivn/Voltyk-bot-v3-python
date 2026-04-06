@@ -208,8 +208,8 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                             admin_id,
                             f"📤 Прогрес розсилки: надіслано {sent}, помилок {failed}, заблокували {blocked}",
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Could not send broadcast progress to admin: %s", e)
 
             last_id = batch[-1][0] if batch else last_id
 

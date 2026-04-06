@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import FSInputFile
 
 from bot.db.models import UserChannelConfig
@@ -45,22 +46,28 @@ async def apply_channel_branding(
     try:
         await bot.set_chat_title(cc.channel_id, full_title)
         cc.channel_title = full_title
-    except Exception as e:
+    except TelegramAPIError as e:
         logger.warning("Failed to set channel title for %s: %s", cc.channel_id, e)
+    except Exception as e:
+        logger.warning("Unexpected error setting channel title for %s: %s", cc.channel_id, e, exc_info=True)
 
     full_desc = build_channel_description(cc.channel_user_description, me.username)
     if full_desc:
         try:
             await bot.set_chat_description(cc.channel_id, full_desc)
             cc.channel_description = full_desc
-        except Exception as e:
+        except TelegramAPIError as e:
             logger.warning("Failed to set channel description for %s: %s", cc.channel_id, e)
+        except Exception as e:
+            logger.warning("Unexpected error setting channel description for %s: %s", cc.channel_id, e, exc_info=True)
 
     if _CHANNEL_PHOTO.exists():
         try:
             await bot.set_chat_photo(cc.channel_id, FSInputFile(_CHANNEL_PHOTO))
-        except Exception as e:
+        except TelegramAPIError as e:
             logger.warning("Failed to set channel photo for %s: %s", cc.channel_id, e)
+        except Exception as e:
+            logger.warning("Unexpected error setting channel photo for %s: %s", cc.channel_id, e, exc_info=True)
 
     # channel_branding_updated_at is DateTime (timezone-naive); store naive UTC.
     cc.channel_branding_updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -72,5 +79,7 @@ async def apply_channel_branding(
                 get_channel_welcome_message(queue, me.username, region=region, has_ip=has_ip),
                 parse_mode="HTML",
             )
-        except Exception as e:
+        except TelegramAPIError as e:
             logger.warning("Failed to send welcome message to %s: %s", cc.channel_id, e)
+        except Exception as e:
+            logger.warning("Unexpected error sending welcome message to %s: %s", cc.channel_id, e, exc_info=True)

@@ -39,12 +39,6 @@ async def init() -> None:
     global _redis
     if not settings.REDIS_URL:
         _redis = None
-        if _redis is not None:
-            try:
-                await _redis.aclose()
-            except Exception:
-                pass
-            _redis = None
         logger.warning("REDIS_URL is empty — chart cache disabled")
         return
     _redis = aioredis.from_url(
@@ -84,6 +78,14 @@ def _key(region: str, queue: str) -> str:
 def is_usable() -> bool:
     """Return True when the Redis client has been initialised successfully."""
     return _redis is not None
+
+
+async def ping() -> bool:
+    """Ping the Redis server. Returns True on success, raises on failure."""
+    if _redis is None:
+        return False
+    await _redis.ping()  # type: ignore[misc]
+    return True
 
 
 async def get(region: str, queue: str) -> bytes | None:
