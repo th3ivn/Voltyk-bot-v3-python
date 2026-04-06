@@ -927,8 +927,12 @@ async def save_states_on_shutdown() -> None:
     connector = _http_connector
     _http_connector = None
     if connector is not None and not connector.closed:
+        close_task = asyncio.create_task(connector.close())
         try:
-            await connector.close()
+            await asyncio.shield(close_task)
+        except asyncio.CancelledError:
+            await close_task
+            raise
         except Exception as e:
             logger.debug("Error closing HTTP connector: %s", e)
 
