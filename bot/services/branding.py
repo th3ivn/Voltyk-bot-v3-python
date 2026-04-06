@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from aiogram import Bot
 from aiogram.types import FSInputFile
 
 from bot.db.models import UserChannelConfig
@@ -19,7 +20,7 @@ _CHANNEL_PHOTO = Path(__file__).parents[2] / "assets" / "channel_photo.jpg"
 
 
 async def apply_channel_branding(
-    bot,
+    bot: Bot | None,
     cc: UserChannelConfig,
     *,
     send_welcome: bool = False,
@@ -35,7 +36,7 @@ async def apply_channel_branding(
         send_welcome: Send the one-time welcome message (first-time setup only).
         queue: Required when send_welcome=True.
     """
-    if not cc or not cc.channel_id:
+    if not bot or not cc or not cc.channel_id:
         return
 
     me = await bot.get_me()

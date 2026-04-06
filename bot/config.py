@@ -106,6 +106,8 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
+        # Safe: DATABASE_URL always uses "+asyncpg" as the asyncpg driver suffix;
+        # removing it yields the standard psycopg2-compatible URL for sync usage.
         return self.DATABASE_URL.replace("+asyncpg", "")
 
 

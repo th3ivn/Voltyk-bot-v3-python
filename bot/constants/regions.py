@@ -17,14 +17,9 @@ REGIONS: dict[str, Region] = {
 }
 
 
-STANDARD_QUEUES: list[str] = []
-for group in range(1, 7):
-    STANDARD_QUEUES.append(f"{group}.1")
-    STANDARD_QUEUES.append(f"{group}.2")
+STANDARD_QUEUES: list[str] = [f"{g}.{s}" for g in range(1, 7) for s in (1, 2)]
 
-KYIV_EXTRA_QUEUES: list[str] = []
-for q in range(7, 61):
-    KYIV_EXTRA_QUEUES.append(f"{q}.1")
+KYIV_EXTRA_QUEUES: list[str] = [f"{q}.1" for q in range(7, 61)]
 
 KYIV_QUEUES: list[str] = STANDARD_QUEUES + KYIV_EXTRA_QUEUES
 
