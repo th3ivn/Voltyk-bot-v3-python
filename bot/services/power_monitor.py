@@ -1015,8 +1015,9 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                     await session.commit()
                 logger.info("📡 Ping error alert sent to user %s", alert.telegram_id)
             except TelegramForbiddenError:
-                logger.info("User %s blocked the bot — deactivating ping alert", alert.telegram_id)
+                logger.info("User %s blocked the bot — deactivating user & ping alert", alert.telegram_id)
                 async with async_session() as session:
+                    await deactivate_user(session, alert.telegram_id)
                     await deactivate_ping_error_alert(session, alert.telegram_id)
                     await session.commit()
             except Exception as e:

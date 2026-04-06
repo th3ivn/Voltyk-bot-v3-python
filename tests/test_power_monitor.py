@@ -1400,10 +1400,14 @@ class TestSendDailyPingErrorAlerts:
                     with patch(
                         "bot.services.power_monitor.deactivate_ping_error_alert",
                         new_callable=AsyncMock,
-                    ) as mock_deactivate:
+                    ) as mock_deactivate_alert, patch(
+                        "bot.services.power_monitor.deactivate_user",
+                        new_callable=AsyncMock,
+                    ) as mock_deactivate_user:
                         await _send_daily_ping_error_alerts(bot_mock)
 
-        mock_deactivate.assert_called_once()
+        mock_deactivate_alert.assert_called_once()
+        mock_deactivate_user.assert_called_once_with(mock_session, alert.telegram_id)
 
     async def test_handles_db_fetch_error_gracefully(self):
         from bot.services.power_monitor import _send_daily_ping_error_alerts

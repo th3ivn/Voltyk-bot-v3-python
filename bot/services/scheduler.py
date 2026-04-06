@@ -68,7 +68,8 @@ async def _deactivate_blocked_user(telegram_id: int | str) -> None:
             await deactivate_user(session, str(telegram_id))
             await session.commit()
     except Exception as e:
-        logger.warning("Could not deactivate blocked user %s: %s", telegram_id, e)
+        logger.warning("Could not deactivate blocked user %s: %s", telegram_id, e, exc_info=True)
+
 
 # Mutex that prevents the 06:00 flush and the periodic checker from running
 # concurrently. Without it, both can read the same stale stored_hash on startup
