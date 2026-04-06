@@ -30,7 +30,8 @@ def setup_logging() -> None:
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
-        structlog.processors.ExceptionPrettyPrinter(),
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.ExceptionRenderer(),
     ]
 
     final_renderer = (

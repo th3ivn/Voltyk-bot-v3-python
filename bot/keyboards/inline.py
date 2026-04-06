@@ -86,6 +86,21 @@ def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> Inl
     return InlineKeyboardButton(**params)
 
 
+def _nav_row(back_cb: str | None = None, *, menu: bool = True) -> list[InlineKeyboardButton]:
+    """Return a navigation button row with an optional Back button and/or Menu button.
+
+    Args:
+        back_cb: Callback data for the ``← Назад`` button. Omitted when *None*.
+        menu: Include the ``⤴ Меню`` button (default True).
+    """
+    row: list[InlineKeyboardButton] = []
+    if back_cb is not None:
+        row.append(_btn("← Назад", back_cb))
+    if menu:
+        row.append(_btn("⤴ Меню", "back_to_main"))
+    return row
+
+
 
 # ─── Main menu ─────────────────────────────────────────────────────────────
 
