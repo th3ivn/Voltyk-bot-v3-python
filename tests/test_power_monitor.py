@@ -329,23 +329,59 @@ class TestCheckRouterHttp:
         assert result is True
 
     @pytest.mark.parametrize("private_ip", [
-        "192.168.1.1",
-        "192.168.1.1:8080",
-        "10.0.0.1",
-        "172.16.0.1",
         "127.0.0.1",
         "169.254.169.254",
+        "0.0.0.1",
+        "255.255.255.255",
     ])
-    async def test_blocks_private_ips(self, private_ip: str):
-        """_check_router_http must return False for private/internal IPs (SSRF protection)."""
+    async def test_blocks_ssrf_ips(self, private_ip: str):
+        """_check_router_http must return False for loopback/link-local/broadcast IPs (SSRF protection)."""
         from bot.services.power_monitor import _check_router_http
 
-        # aiohttp.ClientSession should never be called for private IPs
+        # aiohttp.ClientSession should never be called for SSRF-blocked IPs
         with patch("aiohttp.ClientSession") as MockSession:
             result = await _check_router_http(private_ip)
 
-        assert result is False, f"Expected False for private IP {private_ip!r}, got {result!r}"
+        assert result is False, f"Expected False for blocked IP {private_ip!r}, got {result!r}"
         MockSession.assert_not_called()
+
+    @pytest.mark.parametrize("private_ip", [
+        "192.168.1.1",
+        "10.0.0.1",
+        "172.16.0.1",
+    ])
+    async def test_allows_rfc1918_private_ips(self, private_ip: str):
+        """_is_ssrf_blocked must return False for RFC-1918 private IPs (typical home routers)."""
+        from bot.services.power_monitor import _is_ssrf_blocked
+
+        assert _is_ssrf_blocked(private_ip) is False, (
+            f"RFC-1918 IP {private_ip!r} should NOT be blocked"
+        )
+
+
+# ─── _is_ssrf_blocked ────────────────────────────────────────────────────
+
+
+class TestIsSsrfBlocked:
+    @pytest.mark.parametrize("ip,expected", [
+        ("127.0.0.1", True),
+        ("127.255.255.255", True),
+        ("169.254.169.254", True),
+        ("169.254.0.1", True),
+        ("0.0.0.0", True),
+        ("255.255.255.255", True),
+        ("240.0.0.1", True),
+        ("192.168.1.1", False),
+        ("10.0.0.1", False),
+        ("172.16.0.1", False),
+        ("8.8.8.8", False),
+        ("1.1.1.1", False),
+        ("router.example.com", False),  # Hostnames pass through
+    ])
+    def test_ssrf_blocked_classification(self, ip: str, expected: bool):
+        from bot.services.power_monitor import _is_ssrf_blocked
+
+        assert _is_ssrf_blocked(ip) is expected, f"Expected {expected} for {ip!r}"
 
 
 # ─── _get_http_connector ─────────────────────────────────────────────────

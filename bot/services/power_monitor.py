@@ -87,25 +87,34 @@ def _get_user_state(telegram_id: str) -> dict:
 
 # ─── Router check ─────────────────────────────────────────────────────────
 
-_CLOUD_METADATA_IP = ipaddress.ip_address("169.254.169.254")
+# Ranges that must never be reachable via user-supplied router IPs.
+# Reuses the same policy as bot/utils/helpers.py:_SSRF_BLOCKED_NETWORKS.
+# RFC-1918 private ranges (192.168.x, 10.x, 172.16-31.x) are intentionally
+# ALLOWED — most home routers live on those subnets and users need to
+# point the bot at them.
+_SSRF_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
+    ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
+    ipaddress.IPv4Network("169.254.0.0/16"),      # link-local / cloud metadata
+    ipaddress.IPv4Network("0.0.0.0/8"),           # "this" network
+    ipaddress.IPv4Network("240.0.0.0/4"),         # reserved
+    ipaddress.IPv4Network("255.255.255.255/32"),  # broadcast
+)
 
 
-def _is_private_ip(host: str) -> bool:
-    """Return True if *host* resolves to a private/internal address.
+def _is_ssrf_blocked(host: str) -> bool:
+    """Return True if *host* is in a blocked SSRF range.
 
-    Blocks RFC 1918 private ranges, loopback, link-local, and the
-    well-known cloud instance-metadata endpoint (169.254.169.254) to
-    prevent SSRF attacks against internal infrastructure.
+    Only blocks loopback, link-local/cloud-metadata, broadcast, and reserved
+    ranges.  RFC-1918 private ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    are intentionally ALLOWED because most home routers use those addresses.
     """
     try:
-        addr = ipaddress.ip_address(host)
-    except ValueError:
-        # Not a bare IP address (e.g. a hostname) — let it through;
+        addr = ipaddress.IPv4Address(host)
+    except (ValueError, ipaddress.AddressValueError):
+        # Not a bare IPv4 address (e.g. a hostname) — let it through;
         # hostname-based SSRF is a separate concern handled at DNS level.
         return False
-    if addr == _CLOUD_METADATA_IP:
-        return True
-    return addr.is_private or addr.is_loopback or addr.is_link_local
+    return any(addr in net for net in _SSRF_BLOCKED_NETWORKS)
 
 
 async def _check_router_http(router_ip: str | None) -> bool | None:
@@ -127,8 +136,8 @@ async def _check_router_http(router_ip: str | None) -> bool | None:
         host = m.group(1)
         port = int(m.group(2))
 
-    if _is_private_ip(host):
-        logger.warning("SSRF blocked: router IP %s resolves to a private/internal address", host)
+    if _is_ssrf_blocked(host):
+        logger.warning("SSRF blocked: router IP %s is in a blocked network range", host)
         return False
 
     timeout_s = settings.POWER_PING_TIMEOUT_MS / 1000
