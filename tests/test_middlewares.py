@@ -129,15 +129,14 @@ class TestMaintenanceMiddleware:
     """Tests for bot/middlewares/maintenance.py — MaintenanceMiddleware."""
 
     def setup_method(self):
-        import bot.middlewares.maintenance as mod  # ensure module is loaded
-
-        # Reset module-level state before each test
-        mod._maintenance_mode = False
-        mod._maintenance_message = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
         from bot.middlewares.maintenance import MaintenanceMiddleware
 
+        # Reset class-level state before each test
+        MaintenanceMiddleware._enabled = False
+        MaintenanceMiddleware._message = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
+
         self.middleware = MaintenanceMiddleware()
-        self.mod = mod
+        self.cls = MaintenanceMiddleware
 
     async def test_passthrough_when_not_in_maintenance(self):
         """Handler is called normally when maintenance mode is off."""
@@ -151,7 +150,7 @@ class TestMaintenanceMiddleware:
         """Non-admin Message in maintenance → reply with message, handler NOT called."""
         from aiogram.types import Message
 
-        self.mod._maintenance_mode = True
+        self.cls._enabled = True
         user = SimpleNamespace(id=999)
         event = MagicMock(spec=Message)
         event.from_user = user
@@ -160,7 +159,7 @@ class TestMaintenanceMiddleware:
         with patch("bot.middlewares.maintenance.settings") as mock_settings:
             mock_settings.is_admin.return_value = False
             result = await self.middleware(handler=handler, event=event, data={})
-        event.reply.assert_awaited_once_with(self.mod._maintenance_message)
+        event.reply.assert_awaited_once_with(self.cls._message)
         handler.assert_not_awaited()
         assert result is None
 
@@ -168,7 +167,7 @@ class TestMaintenanceMiddleware:
         """Non-admin CallbackQuery in maintenance → answer with alert, handler NOT called."""
         from aiogram.types import CallbackQuery
 
-        self.mod._maintenance_mode = True
+        self.cls._enabled = True
         user = SimpleNamespace(id=999)
         event = MagicMock(spec=CallbackQuery)
         event.from_user = user
@@ -177,7 +176,7 @@ class TestMaintenanceMiddleware:
         with patch("bot.middlewares.maintenance.settings") as mock_settings:
             mock_settings.is_admin.return_value = False
             result = await self.middleware(handler=handler, event=event, data={})
-        event.answer.assert_awaited_once_with(self.mod._maintenance_message, show_alert=True)
+        event.answer.assert_awaited_once_with(self.cls._message, show_alert=True)
         handler.assert_not_awaited()
         assert result is None
 
@@ -185,7 +184,7 @@ class TestMaintenanceMiddleware:
         """Admin Message in maintenance mode → handler IS called."""
         from aiogram.types import Message
 
-        self.mod._maintenance_mode = True
+        self.cls._enabled = True
         user = SimpleNamespace(id=1)
         event = MagicMock(spec=Message)
         event.from_user = user
@@ -200,7 +199,7 @@ class TestMaintenanceMiddleware:
         """Admin CallbackQuery in maintenance mode → handler IS called."""
         from aiogram.types import CallbackQuery
 
-        self.mod._maintenance_mode = True
+        self.cls._enabled = True
         user = SimpleNamespace(id=1)
         event = MagicMock(spec=CallbackQuery)
         event.from_user = user
@@ -229,7 +228,7 @@ class TestMaintenanceMiddleware:
 
     async def test_returns_none_for_unknown_event_type(self):
         """Non-Message, non-CallbackQuery event in maintenance → returns None."""
-        self.mod._maintenance_mode = True
+        self.cls._enabled = True
         event = MagicMock()  # not a Message or CallbackQuery instance
         # Ensure isinstance checks fail
         event.__class__ = object

@@ -7,37 +7,21 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import settings
-from bot.utils.logger import get_logger
 
-logger = get_logger(__name__)
-
-_maintenance_mode = False
-_maintenance_message = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
-
-
-def is_maintenance_mode() -> bool:
-    return _maintenance_mode
-
-
-def set_maintenance_mode(enabled: bool, message: str | None = None) -> None:
-    global _maintenance_mode, _maintenance_message
-    _maintenance_mode = enabled
-    if message is not None:
-        _maintenance_message = message
-
-
-def get_maintenance_message() -> str:
-    return _maintenance_message
+_DEFAULT_MAINTENANCE_MESSAGE = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
 
 
 class MaintenanceMiddleware(BaseMiddleware):
+    _enabled: bool = False
+    _message: str = _DEFAULT_MAINTENANCE_MESSAGE
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if not _maintenance_mode:
+        if not type(self)._enabled:
             return await handler(event, data)
 
         user_id = None
@@ -50,11 +34,27 @@ class MaintenanceMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):
-            await event.answer(_maintenance_message, show_alert=True)
+            await event.answer(type(self)._message, show_alert=True)
             return None
 
         if isinstance(event, Message):
-            await event.reply(_maintenance_message)
+            await event.reply(type(self)._message)
             return None
 
         return None
+
+
+def is_maintenance_mode() -> bool:
+    return MaintenanceMiddleware._enabled
+
+
+def set_maintenance_mode(enabled: bool, message: str | None = None) -> None:
+    MaintenanceMiddleware._enabled = enabled
+    if message is not None:
+        MaintenanceMiddleware._message = message
+
+
+def get_maintenance_message() -> str:
+    return MaintenanceMiddleware._message
+
+

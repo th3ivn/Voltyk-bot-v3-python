@@ -9,7 +9,7 @@ from bot.db.models import User
 from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_next_event_message, format_timer_message
-from bot.keyboards.inline import get_main_menu, get_schedule_view_keyboard
+from bot.keyboards.inline import get_schedule_view_keyboard
 from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
@@ -81,20 +81,10 @@ async def cmd_next(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("timer"))
 async def cmd_timer(message: Message, session: AsyncSession) -> None:
-    if not message.from_user:
+    result = await _get_user_and_data(message, session)
+    if result is None:
         return
-    user = await get_user_by_telegram_id(session, message.from_user.id)
-    if not user:
-        await message.answer(
-            "❌ Спочатку запустіть бота, натиснувши /start\n\nОберіть наступну дію:",
-            reply_markup=get_main_menu(has_channel=False),
-        )
-        return
-
-    data = await fetch_schedule_data(user.region)
-    if data is None:
-        await message.answer("🔄 Не вдалося завантажити. Спробуйте пізніше.")
-        return
+    user, data = result
 
     schedule_data = parse_schedule_for_queue(data, user.queue)
     next_event = find_next_event(schedule_data)
