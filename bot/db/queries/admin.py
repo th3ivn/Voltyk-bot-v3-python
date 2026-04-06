@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +27,7 @@ async def get_admin_router(session: AsyncSession, admin_telegram_id: int | str) 
 
 
 async def upsert_admin_router(
-    session: AsyncSession, admin_telegram_id: int | str, **kwargs: object
+    session: AsyncSession, admin_telegram_id: int | str, **kwargs: Any
 ) -> AdminRouter:
     """Upsert an AdminRouter row atomically.
 

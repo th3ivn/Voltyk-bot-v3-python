@@ -114,9 +114,8 @@ class Settings(BaseSettings):
 
     @property
     def timezone(self) -> ZoneInfo:
-        if self._tz_info is None:
-            self._tz_info = ZoneInfo(self.TZ)
-        return self._tz_info
+        # _tz_info is guaranteed to be set by model_post_init
+        return self._tz_info  # type: ignore[return-value]
 
     @property
     def sync_database_url(self) -> str:
