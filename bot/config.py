@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     # Private attribute: frozenset of all admin IDs (owner + ADMIN_IDS), computed once at init
     _admin_ids_set: frozenset[int] = PrivateAttr(default_factory=frozenset)
+    # Cached ZoneInfo to avoid re-creating on every property access
+    _tz_info: ZoneInfo | None = PrivateAttr(default=None)
 
     BOT_TOKEN: str
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
@@ -82,13 +84,23 @@ class Settings(BaseSettings):
             return v
         if not v:
             return []
-        return [int(x.strip()) for x in str(v).split(",") if x.strip()]
+        result: list[int] = []
+        for x in str(v).split(","):
+            x = x.strip()
+            if not x:
+                continue
+            try:
+                result.append(int(x))
+            except ValueError:
+                logger.warning("Skipping invalid ADMIN_ID value: %r", x)
+        return result
 
     def model_post_init(self, __context: object) -> None:
         ids: set[int] = set(self.ADMIN_IDS)
         if self.OWNER_ID:
             ids.add(self.OWNER_ID)
         self._admin_ids_set = frozenset(ids)
+        self._tz_info = ZoneInfo(self.TZ)
 
     @property
     def all_admin_ids(self) -> list[int]:
@@ -102,7 +114,9 @@ class Settings(BaseSettings):
 
     @property
     def timezone(self) -> ZoneInfo:
-        return ZoneInfo(self.TZ)
+        if self._tz_info is None:
+            self._tz_info = ZoneInfo(self.TZ)
+        return self._tz_info
 
     @property
     def sync_database_url(self) -> str:

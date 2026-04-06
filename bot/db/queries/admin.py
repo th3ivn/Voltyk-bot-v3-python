@@ -25,7 +25,7 @@ async def get_admin_router(session: AsyncSession, admin_telegram_id: int | str) 
 
 
 async def upsert_admin_router(
-    session: AsyncSession, admin_telegram_id: int | str, **kwargs
+    session: AsyncSession, admin_telegram_id: int | str, **kwargs: object
 ) -> AdminRouter:
     """Upsert an AdminRouter row atomically.
 
@@ -34,12 +34,14 @@ async def upsert_admin_router(
     concurrent callers both observe "not found" and both attempt an INSERT.
     """
     tid = str(admin_telegram_id)
+    # Exclude the PK from the update clause to prevent accidental PK mutation.
+    update_cols = {k: v for k, v in kwargs.items() if k != "admin_telegram_id"}
     stmt = (
         pg_insert(AdminRouter)
         .values(admin_telegram_id=tid, **kwargs)
         .on_conflict_do_update(
             index_elements=["admin_telegram_id"],
-            set_=kwargs,
+            set_=update_cols,
         )
         .returning(AdminRouter)
     )
