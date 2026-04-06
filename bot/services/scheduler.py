@@ -57,6 +57,19 @@ DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = settings.timezone
 
+
+async def _deactivate_blocked_user(telegram_id: int | str) -> None:
+    """Deactivate a user who has blocked the bot.
+
+    Called from schedule/reminder senders when TelegramForbiddenError is raised.
+    """
+    try:
+        async with async_session() as session:
+            await deactivate_user(session, str(telegram_id))
+            await session.commit()
+    except Exception as e:
+        logger.warning("Could not deactivate blocked user %s: %s", telegram_id, e)
+
 # Mutex that prevents the 06:00 flush and the periodic checker from running
 # concurrently. Without it, both can read the same stale stored_hash on startup
 # and send duplicate notifications to every user.
@@ -844,9 +857,7 @@ async def _send_schedule_notification(
                     "User %s blocked the bot — deactivating",
                     fresh_user.telegram_id,
                 )
-                async with async_session() as deact_session:
-                    await deactivate_user(deact_session, str(fresh_user.telegram_id))
-                    await deact_session.commit()
+                await _deactivate_blocked_user(fresh_user.telegram_id)
             except Exception as e:
                 logger.warning(
                     "Failed to send schedule notification to user %s: %s",
@@ -1215,9 +1226,7 @@ async def _send_reminder(
             logger.debug("Reminder -%dm sent to user %s", remind_m, user.telegram_id)
         except TelegramForbiddenError:
             logger.info("User %s blocked bot — deactivating", user.telegram_id)
-            async with async_session() as deact_session:
-                await deactivate_user(deact_session, str(user.telegram_id))
-                await deact_session.commit()
+            await _deactivate_blocked_user(user.telegram_id)
         except Exception as e:
             logger.warning("Failed to send reminder to user %s: %s", user.telegram_id, e)
 
