@@ -21,7 +21,7 @@ router = Router(name="schedule")
 async def _get_user_and_data(
     message: Message,
     session: AsyncSession,
-) -> tuple[User, list] | None:
+) -> tuple[User, dict] | None:
     """Fetch the registered user and their schedule data.
 
     Sends an appropriate error reply and returns None if either lookup fails.
