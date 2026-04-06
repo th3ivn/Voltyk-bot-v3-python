@@ -656,6 +656,14 @@ class TestStopPowerMonitor:
 
 
 class TestSaveStatesOnShutdown:
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._http_connector = None
+
+    def teardown_method(self):
+        import bot.services.power_monitor as pm
+        pm._http_connector = None
+
     async def test_delegates_to_save_all_user_states(self):
         from bot.services.power_monitor import save_states_on_shutdown
 
@@ -663,6 +671,21 @@ class TestSaveStatesOnShutdown:
             await save_states_on_shutdown()
 
         mock_save.assert_called_once()
+
+    async def test_closes_http_connector_on_shutdown(self):
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = MagicMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        with patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock):
+            await save_states_on_shutdown()
+
+        mock_connector.close.assert_called_once()
+        assert pm._http_connector is None
 
 
 # ─── _save_all_user_states ────────────────────────────────────────────────
