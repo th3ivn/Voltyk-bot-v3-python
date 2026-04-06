@@ -216,7 +216,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
     except asyncio.CancelledError:
         logger.info("Broadcast task cancelled")
     except Exception as e:
-        logger.error("Broadcast error: %s", e)
+        logger.error("Broadcast error: %s", e, exc_info=True)
         failed += 1
 
     # Send final summary
@@ -228,4 +228,4 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
     try:
         await bot.send_message(admin_id, "\n".join(summary_parts))
     except Exception as e:
-        logger.error("Could not send broadcast summary to admin: %s", e)
+        logger.error("Could not send broadcast summary to admin: %s", e, exc_info=True)
