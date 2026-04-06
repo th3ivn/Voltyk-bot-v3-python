@@ -2,7 +2,7 @@
 
 These tests focus on the pure/isolated parts of the power monitor service:
 - _get_user_state: in-memory state management
-- _check_router_http: router reachability logic (mocked HTTP)
+- check_router_http: router reachability logic (mocked HTTP)
 - _get_http_connector: lazy connector creation
 - State machine invariants
 - _format_exact_duration / _format_time: pure helpers
@@ -207,26 +207,26 @@ class TestGetUserState:
         assert "user_5" not in pm._user_states
 
 
-# ─── _check_router_http ──────────────────────────────────────────────────
+# ─── check_router_http ──────────────────────────────────────────────────
 
 
 class TestCheckRouterHttp:
     async def test_returns_none_for_no_ip(self):
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
-        result = await _check_router_http(None)
+        result = await check_router_http(None)
 
         assert result is None
 
     async def test_returns_none_for_empty_ip(self):
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
-        result = await _check_router_http("")
+        result = await check_router_http("")
 
         assert result is None
 
     async def test_returns_true_on_http_success(self):
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -242,13 +242,13 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("8.8.8.8")
+            result = await check_router_http("8.8.8.8")
 
         assert result is True
 
     async def test_returns_false_on_connection_error(self):
         import aiohttp
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         mock_connector = MagicMock()
 
@@ -262,13 +262,13 @@ class TestCheckRouterHttp:
             mock_session_instance.__aexit__ = AsyncMock(return_value=False)
             MockSession.return_value = mock_session_instance
 
-            result = await _check_router_http("192.168.1.1")
+            result = await check_router_http("192.168.1.1")
 
         assert result is False
 
     async def test_returns_false_on_timeout(self):
         import asyncio
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         mock_connector = MagicMock()
 
@@ -280,13 +280,13 @@ class TestCheckRouterHttp:
             mock_session_instance.__aexit__ = AsyncMock(return_value=False)
             MockSession.return_value = mock_session_instance
 
-            result = await _check_router_http("192.168.1.1")
+            result = await check_router_http("192.168.1.1")
 
         assert result is False
 
     async def test_parses_ip_with_port(self):
         """Router addresses with port (e.g. 192.168.1.1:8080) should use the specified port."""
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -302,13 +302,13 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("8.8.8.8:8080")
+            result = await check_router_http("8.8.8.8:8080")
 
         assert result is True
 
     async def test_returns_true_for_non_200_status(self):
         """Non-200 HTTP responses still mean the host is reachable (power is on)."""
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         mock_response = AsyncMock()
         mock_response.status = 403  # Forbidden, but host responded
@@ -324,7 +324,7 @@ class TestCheckRouterHttp:
 
         with patch("bot.services.power_monitor._get_http_connector", return_value=mock_connector), \
              patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await _check_router_http("8.8.8.8")
+            result = await check_router_http("8.8.8.8")
 
         assert result is True
 
@@ -336,11 +336,11 @@ class TestCheckRouterHttp:
     ])
     async def test_blocks_ssrf_ips(self, private_ip: str):
         """_check_router_http must return False for loopback/link-local/broadcast IPs (SSRF protection)."""
-        from bot.services.power_monitor import _check_router_http
+        from bot.services.power_monitor import check_router_http
 
         # aiohttp.ClientSession should never be called for SSRF-blocked IPs
         with patch("aiohttp.ClientSession") as MockSession:
-            result = await _check_router_http(private_ip)
+            result = await check_router_http(private_ip)
 
         assert result is False, f"Expected False for blocked IP {private_ip!r}, got {result!r}"
         MockSession.assert_not_called()
@@ -927,7 +927,7 @@ class TestCheckUserPower:
         pm._user_states.clear()
 
     async def test_returns_early_when_no_router_ip(self):
-        """No router IP → _check_router_http returns None → user skipped silently."""
+        """No router IP → check_router_http returns None → user skipped silently."""
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import _check_user_power
 
@@ -1137,7 +1137,7 @@ class TestCheckAllIps:
                 AsyncMock(return_value=[user1, user2, user3]),
             ):
                 with patch(
-                    "bot.services.power_monitor._check_router_http",
+                    "bot.services.power_monitor.check_router_http",
                     AsyncMock(return_value=True),
                 ) as mock_ping:
                     with patch("bot.services.power_monitor._check_user_power", new_callable=AsyncMock):
@@ -1160,7 +1160,7 @@ class TestCheckAllIps:
                 "bot.services.power_monitor.get_users_with_ip",
                 AsyncMock(return_value=[user1]),
             ):
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=True)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)):
                     with patch("bot.services.power_monitor._check_user_power", new_callable=AsyncMock):
                         await _check_all_ips(bot_mock)
 
@@ -1183,7 +1183,7 @@ class TestCheckAllIps:
                 "bot.services.power_monitor.get_users_with_ip",
                 AsyncMock(return_value=[user1]),
             ):
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=True)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)):
                     with patch("bot.services.power_monitor._check_user_power", new_callable=AsyncMock):
                         await _check_all_ips(bot_mock)
 
@@ -1387,7 +1387,7 @@ class TestSendDailyPingErrorAlerts:
                 AsyncMock(return_value=[alert]),
             ):
                 # Router is now alive → deactivate and skip
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=True)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)):
                     with patch(
                         "bot.services.power_monitor.deactivate_ping_error_alert",
                         new_callable=AsyncMock,
@@ -1413,7 +1413,7 @@ class TestSendDailyPingErrorAlerts:
                 "bot.services.power_monitor.get_active_ping_error_alerts",
                 AsyncMock(return_value=[alert]),
             ):
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=False)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
                     with patch("bot.services.power_monitor.update_ping_error_alert_time", new_callable=AsyncMock):
                         await _send_daily_ping_error_alerts(bot_mock)
 
@@ -1434,7 +1434,7 @@ class TestSendDailyPingErrorAlerts:
                 "bot.services.power_monitor.get_active_ping_error_alerts",
                 AsyncMock(return_value=[alert]),
             ):
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=False)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
                     with patch("bot.services.power_monitor.update_ping_error_alert_time", new_callable=AsyncMock):
                         await _send_daily_ping_error_alerts(bot_mock)
 
@@ -1455,7 +1455,7 @@ class TestSendDailyPingErrorAlerts:
                 "bot.services.power_monitor.get_active_ping_error_alerts",
                 AsyncMock(return_value=[alert]),
             ):
-                with patch("bot.services.power_monitor._check_router_http", AsyncMock(return_value=False)):
+                with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
                     with patch(
                         "bot.services.power_monitor.deactivate_ping_error_alert",
                         new_callable=AsyncMock,

@@ -13,7 +13,7 @@ from bot.keyboards.inline import (
     get_pause_message_keyboard,
     get_pause_type_keyboard,
 )
-from bot.states.fsm import ChannelConversationSG
+from bot.states.fsm import PauseMessageSG
 
 router = Router(name="admin_pause")
 
@@ -99,11 +99,11 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await state.set_state(ChannelConversationSG.waiting_for_pause_message)
+    await state.set_state(PauseMessageSG.waiting_for_message)
     await callback.message.edit_text("✏️ Введіть текст повідомлення паузи:")
 
 
-@router.message(ChannelConversationSG.waiting_for_pause_message)
+@router.message(PauseMessageSG.waiting_for_message)
 async def pause_custom_message_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not settings.is_admin(message.from_user.id):
         await state.clear()
