@@ -32,7 +32,7 @@ from bot.db.queries import (
 from bot.db.session import async_session
 from bot.keyboards.inline import get_ip_ping_error_keyboard
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
-from bot.utils.helpers import retry_bot_call
+from bot.utils.helpers import SSRF_BLOCKED_NETWORKS, retry_bot_call
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -87,18 +87,9 @@ def _get_user_state(telegram_id: str) -> dict:
 
 # ─── Router check ─────────────────────────────────────────────────────────
 
-# Ranges that must never be reachable via user-supplied router IPs.
-# Reuses the same policy as bot/utils/helpers.py:_SSRF_BLOCKED_NETWORKS.
-# RFC-1918 private ranges (192.168.x, 10.x, 172.16-31.x) are intentionally
-# ALLOWED — most home routers live on those subnets and users need to
-# point the bot at them.
-_SSRF_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
-    ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
-    ipaddress.IPv4Network("169.254.0.0/16"),      # link-local / cloud metadata
-    ipaddress.IPv4Network("0.0.0.0/8"),           # "this" network
-    ipaddress.IPv4Network("240.0.0.0/4"),         # reserved
-    ipaddress.IPv4Network("255.255.255.255/32"),  # broadcast
-)
+# SSRF_BLOCKED_NETWORKS imported from bot.utils.helpers at the top of the file.
+# RFC-1918 private ranges are intentionally ALLOWED — most home routers
+# live on those subnets.
 
 
 def _is_ssrf_blocked(host: str) -> bool:
@@ -114,7 +105,7 @@ def _is_ssrf_blocked(host: str) -> bool:
         # Not a bare IPv4 address (e.g. a hostname) — let it through;
         # hostname-based SSRF is a separate concern handled at DNS level.
         return False
-    return any(addr in net for net in _SSRF_BLOCKED_NETWORKS)
+    return any(addr in net for net in SSRF_BLOCKED_NETWORKS)
 
 
 async def _check_router_http(router_ip: str | None) -> bool | None:
