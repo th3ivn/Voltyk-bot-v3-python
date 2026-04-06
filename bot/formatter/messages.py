@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from bot.constants.regions import REGIONS
 
+if TYPE_CHECKING:
+    from bot.db.models import User, UserChannelConfig, UserNotificationSettings
 
-def has_any_notification_enabled(ns) -> bool:
+
+def has_any_notification_enabled(ns: UserNotificationSettings | None) -> bool:
     if ns is None:
         return False
     return any((
@@ -15,7 +20,7 @@ def has_any_notification_enabled(ns) -> bool:
     ))
 
 
-def format_live_status_message(user, region_name: str | None = None) -> str:
+def format_live_status_message(user: User, region_name: str | None = None) -> str:
     if region_name is None:
         r = REGIONS.get(user.region)
         region_name = r.name if r else user.region
@@ -39,7 +44,7 @@ def format_live_status_message(user, region_name: str | None = None) -> str:
     return msg
 
 
-def format_main_menu_message(user) -> str:
+def format_main_menu_message(user: User) -> str:
     r = REGIONS.get(user.region)
     region_name = r.name if r else user.region
     has_channel = bool(user.channel_config and user.channel_config.channel_id)
@@ -57,7 +62,7 @@ def format_main_menu_message(user) -> str:
     )
 
 
-def build_notification_settings_message(ns) -> str:
+def build_notification_settings_message(ns: UserNotificationSettings) -> str:
     def _c(v: bool) -> str:
         return "✅" if v else "❌"
 
@@ -73,7 +78,7 @@ def build_notification_settings_message(ns) -> str:
     )
 
 
-def build_channel_notification_message(cc) -> str:
+def build_channel_notification_message(cc: UserChannelConfig) -> str:
     def _c(v: bool) -> str:
         return "✅" if v else "❌"
 

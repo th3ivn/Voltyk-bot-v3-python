@@ -437,21 +437,15 @@ class TestCmdTimer:
         await cmd_timer(message, session)
         message.answer.assert_not_awaited()
 
-    async def test_user_not_found_sends_start_with_main_menu(self):
+    async def test_user_not_found_sends_start_message(self):
         from bot.handlers.schedule import cmd_timer
 
         message = _make_message()
         session = _make_session()
-        mock_kb = MagicMock()
-        with (
-            patch(f"{_SCHEDULE_MODULE}.get_user_by_telegram_id", new_callable=AsyncMock, return_value=None),
-            patch(f"{_SCHEDULE_MODULE}.get_main_menu", return_value=mock_kb) as mock_get_main_menu,
-        ):
+        with patch(f"{_SCHEDULE_MODULE}.get_user_by_telegram_id", new_callable=AsyncMock, return_value=None):
             await cmd_timer(message, session)
-        mock_get_main_menu.assert_called_once_with(has_channel=False)
         message.answer.assert_awaited_once()
-        call_kwargs = message.answer.call_args.kwargs
-        assert call_kwargs.get("reply_markup") is mock_kb
+        assert "Спочатку" in message.answer.call_args.args[0]
 
     async def test_fetch_data_none_sends_retry_message(self):
         from bot.handlers.schedule import cmd_timer

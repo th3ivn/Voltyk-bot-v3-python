@@ -4,7 +4,6 @@ import asyncio
 import ipaddress
 import re
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 import aiohttp
 import sentry_sdk
@@ -38,7 +37,7 @@ from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
+KYIV_TZ = settings.timezone
 
 # ─── In-memory state ──────────────────────────────────────────────────────
 

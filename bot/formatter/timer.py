@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
+from bot.formatter.utils import KYIV_TZ, _parse_event_dt
 
 
 def _format_time(dt: datetime | str) -> str:
@@ -67,14 +66,10 @@ def format_timer_popup(next_event: dict | None, schedule_data: dict | None = Non
             tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
             tomorrow_end = tomorrow_start + timedelta(days=1)
 
-            def _parse_ev_dt(v) -> datetime:
-                dt = datetime.fromisoformat(v) if isinstance(v, str) else v
-                return dt if dt.tzinfo is not None else dt.replace(tzinfo=KYIV_TZ)
-
             tomorrow_events = [
                 ev
                 for ev in schedule_data["events"]
-                if tomorrow_start <= _parse_ev_dt(ev["start"]) < tomorrow_end
+                if tomorrow_start <= _parse_event_dt(ev["start"]) < tomorrow_end
             ]
             if tomorrow_events:
                 lines.append("📅 Завтра:")
@@ -102,3 +97,4 @@ def format_timer_popup(next_event: dict | None, schedule_data: dict | None = Non
         lines.append(f"📅 Поточне - {start}–{end}")
 
     return "\n".join(lines)
+

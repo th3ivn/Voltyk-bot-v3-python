@@ -38,11 +38,10 @@ from bot.services.api import (
 from bot.states.fsm import WizardSG
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
+from bot.utils.telegram import MSG_NOT_MODIFIED, safe_delete, safe_edit_or_resend, safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="menu")
-
-_MSG_NOT_MODIFIED = "message is not modified"
 
 # Per-user cooldown: user_id → timestamp of last "Перевірити" press
 _user_last_check: dict[int, float] = {}
@@ -52,47 +51,12 @@ _USER_LAST_CHECK_MAX_SIZE = 10_000  # cap to prevent unbounded growth
 _last_check_cleanup_at: float = 0.0
 
 
-async def _safe_edit_text(message, text: str, reply_markup=None, parse_mode="HTML") -> bool:
-    try:
-        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        return True
-    except Exception as e:
-        if _MSG_NOT_MODIFIED in str(e):
-            return True
-        logger.warning("_safe_edit_text failed: %s", e)
-        return False
-
-
-async def _safe_delete(message) -> None:
-    try:
-        await message.delete()
-    except Exception as e:
-        logger.debug("Could not delete message: %s", e)
-
-
-async def _safe_edit_or_resend(message, text: str, reply_markup=None, parse_mode: str = "HTML"):
-    """Edit a text message in-place, or delete-and-resend when the current message contains a photo.
-    Returns the new/original message object on success, or None on unexpected error.
-    """
-    try:
-        if message.photo:
-            await _safe_delete(message)
-            return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        else:
-            if not await _safe_edit_text(message, text, reply_markup=reply_markup, parse_mode=parse_mode):
-                return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-            return message
-    except Exception as e:
-        logger.error("_safe_edit_or_resend failed: %s", e)
-        return None
-
-
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
-        await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
 
     # Delete previous menu message if it exists and differs from the current one
@@ -108,10 +72,10 @@ async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
     kb = get_main_menu(channel_paused=channel_paused, has_channel=has_channel)
 
     if callback.message.photo:
-        await _safe_delete(callback.message)
+        await safe_delete(callback.message)
         msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
-        if await _safe_edit_text(callback.message, text, reply_markup=kb):
+        if await safe_edit_text(callback.message, text, reply_markup=kb):
             msg = callback.message
         else:
             msg = await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -150,11 +114,11 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
                 await callback.message.edit_media(media=media, reply_markup=kb)
                 return
             except Exception as e:
-                if _MSG_NOT_MODIFIED in str(e):
+                if MSG_NOT_MODIFIED in str(e):
                     return
                 logger.warning("edit_media failed, falling back to delete+send: %s", e)
         # Fallback: delete + send new
-        await _safe_delete(callback.message)
+        await safe_delete(callback.message)
         await callback.message.answer_photo(
             photo=photo, caption=plain_text, caption_entities=entities, reply_markup=kb, parse_mode=None
         )
@@ -165,10 +129,10 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
                 await callback.message.edit_text(plain_text, entities=entities, reply_markup=kb, parse_mode=None)
                 return
             except Exception as e:
-                if _MSG_NOT_MODIFIED in str(e):
+                if MSG_NOT_MODIFIED in str(e):
                     return
                 logger.warning("edit_text failed, falling back to delete+send: %s", e)
-        await _safe_delete(callback.message)
+        await safe_delete(callback.message)
         await callback.message.answer(plain_text, entities=entities, reply_markup=kb, parse_mode=None)
 
 
@@ -177,7 +141,7 @@ async def menu_schedule(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
-        await _safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
     await _send_schedule_photo(callback, user, session, edit_photo=True)
 
@@ -273,10 +237,10 @@ async def change_queue(callback: CallbackQuery, state: FSMContext, session: Asyn
     await state.update_data(mode="edit_from_schedule")
 
     if callback.message.photo:
-        await _safe_delete(callback.message)
+        await safe_delete(callback.message)
         await callback.message.answer("Оберіть свій регіон:", reply_markup=get_region_keyboard(current_region=user.region))
     else:
-        await _safe_edit_text(callback.message, "Оберіть свій регіон:", reply_markup=get_region_keyboard(current_region=user.region))
+        await safe_edit_text(callback.message, "Оберіть свій регіон:", reply_markup=get_region_keyboard(current_region=user.region))
 
 
 @router.callback_query(F.data == "menu_timer")
@@ -303,7 +267,7 @@ async def menu_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         return
-    await _safe_edit_or_resend(callback.message, "📊 Статистика", reply_markup=get_statistics_keyboard())
+    await safe_edit_or_resend(callback.message, "📊 Статистика", reply_markup=get_statistics_keyboard())
 
 
 @router.callback_query(F.data == "stats_week")
@@ -328,7 +292,7 @@ async def stats_week(callback: CallbackQuery, session: AsyncSession) -> None:
             f"📊 Кількість відключень: {total_outages}\n"
             f"⏱ Загальний час без світла: {total_hours}г {total_minutes}хв"
         )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_statistics_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_statistics_keyboard())
 
 
 @router.callback_query(F.data == "stats_device")
@@ -369,7 +333,7 @@ async def stats_device(callback: CallbackQuery, session: AsyncSession) -> None:
             f"{state_text}{since_text}"
         )
 
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_statistics_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_statistics_keyboard())
 
 
 @router.callback_query(F.data == "menu_help")
@@ -378,7 +342,7 @@ async def menu_help(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     faq_url = app_settings.FAQ_CHANNEL_URL or None
     support_url = app_settings.SUPPORT_CHANNEL_URL or None
-    msg = await _safe_edit_or_resend(
+    msg = await safe_edit_or_resend(
         callback.message,
         "❓ Допомога\n\nТут ви можете дізнатися як користуватися\nботом або звернутися за підтримкою.",
         reply_markup=get_help_keyboard(faq_url=faq_url, support_url=support_url),
@@ -390,7 +354,7 @@ async def menu_help(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "help_instructions")
 async def help_instructions(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _safe_edit_or_resend(
+    await safe_edit_or_resend(
         callback.message,
         "📖 Інструкція\n\nОберіть розділ який вас цікавить:",
         reply_markup=get_instructions_keyboard(),
@@ -406,7 +370,7 @@ async def help_faq(callback: CallbackQuery) -> None:
         "Тут ви знайдете відповіді на найпоширеніші\n"
         "питання про роботу бота."
     )
-    await _safe_edit_or_resend(
+    await safe_edit_or_resend(
         callback.message,
         text,
         reply_markup=get_faq_keyboard(faq_url=faq_url),
@@ -423,7 +387,7 @@ async def help_support(callback: CallbackQuery) -> None:
         "адміністратору напряму в Telegram.\n"
         "Відповідь надійде найближчим часом."
     )
-    await _safe_edit_or_resend(
+    await safe_edit_or_resend(
         callback.message,
         text,
         reply_markup=get_support_keyboard(support_url=support_url),
@@ -448,7 +412,7 @@ async def instr_region(callback: CallbackQuery) -> None:
         "2. Оберіть свою область\n"
         "3. Оберіть свою чергу (наприклад 3.1)"
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "instr_notif")
@@ -472,7 +436,7 @@ async def instr_notif(callback: CallbackQuery) -> None:
         "1. Перейдіть в Налаштування → Сповіщення\n"
         "2. Налаштуйте окремо для бота і каналу"
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "instr_channel")
@@ -497,7 +461,7 @@ async def instr_channel(callback: CallbackQuery) -> None:
         "Канал має окремі налаштування сповіщень —\n"
         "незалежно від особистого чату з ботом."
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "instr_ip")
@@ -528,7 +492,7 @@ async def instr_ip(callback: CallbackQuery) -> None:
         "• 89.267.32.1:80\n"
         "• myhome.ddns.net"
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "instr_schedule")
@@ -555,7 +519,7 @@ async def instr_schedule(callback: CallbackQuery) -> None:
         "та сьогодні — бот зберігає історію\n"
         "по кожному календарному дню."
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "instr_bot_settings")
@@ -582,7 +546,7 @@ async def instr_bot_settings(callback: CallbackQuery) -> None:
         "Натисніть кнопку Налаштування\n"
         "в головному меню."
     )
-    await _safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
+    await safe_edit_or_resend(callback.message, text, reply_markup=get_instruction_section_keyboard())
 
 
 @router.callback_query(F.data == "menu_settings")
@@ -595,10 +559,10 @@ async def menu_settings(callback: CallbackQuery, session: AsyncSession) -> None:
     text = format_live_status_message(user)
 
     if callback.message.photo:
-        await _safe_delete(callback.message)
+        await safe_delete(callback.message)
         await callback.message.answer(text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML")
     else:
-        if not await _safe_edit_text(callback.message, text, reply_markup=get_settings_keyboard(is_admin=is_admin)):
+        if not await safe_edit_text(callback.message, text, reply_markup=get_settings_keyboard(is_admin=is_admin)):
             await callback.message.answer(text, reply_markup=get_settings_keyboard(is_admin=is_admin), parse_mode="HTML")
 
 

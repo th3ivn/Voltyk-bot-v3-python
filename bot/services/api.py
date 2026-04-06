@@ -6,7 +6,6 @@ import json
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import aiohttp
 
@@ -15,7 +14,7 @@ from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
+KYIV_TZ = settings.timezone
 
 _schedule_cache: OrderedDict[str, tuple[datetime, Any]] = OrderedDict()
 _image_cache: OrderedDict[str, tuple[datetime, bytes]] = OrderedDict()

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "voltyk-bot"
 version = "4.0.0"
 description = "Voltyk Bot v4 — Power outage monitoring Telegram bot"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.26,<4",
     "aiohttp>=3.9,<4",
