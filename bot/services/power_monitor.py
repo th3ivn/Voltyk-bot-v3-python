@@ -611,62 +611,65 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
 async def _check_all_ips(bot: Bot) -> None:
     """Check all users with a router IP configured, with concurrency limiting.
 
-    Uses an asyncio.Lock to prevent concurrent invocations.  The lock check and
-    acquire happen in a single uninterrupted sequence (no await between them),
-    which is safe under asyncio's cooperative multitasking — no TOCTOU race.
+    Uses a non-blocking ``Lock.acquire()`` to skip the check when another
+    invocation is already running — avoids the TOCTOU pattern of checking
+    ``locked()`` then ``async with``.
     """
     if _check_all_ips_lock.locked():
         logger.debug("_check_all_ips already running, skipping")
         return
 
-    async with _check_all_ips_lock:
-        try:
-            async with async_session() as session:
-                users = await get_users_with_ip(session)
+    await _check_all_ips_lock.acquire()
 
-            if not users:
-                return
+    try:
+        async with async_session() as session:
+            users = await get_users_with_ip(session)
 
-            # Evict _user_states entries for users no longer in the active set.
-            active_ids = {str(u.telegram_id) for u in users}
-            async with _user_states_lock:
-                stale_ids = [tid for tid in _user_states if tid not in active_ids]
-                evicted_states = []
-                for tid in stale_ids:
-                    evicted_states.append(_user_states.pop(tid))
-            for state in evicted_states:
-                task = state.get("debounce_task")
-                if task and not task.done():
-                    task.cancel()
-            if stale_ids:
-                logger.debug("Evicted %d stale _user_states entries", len(stale_ids))
+        if not users:
+            return
 
-            # Group users by router IP so each unique IP is pinged only once.
-            ip_groups: dict[str, list] = {}
-            for user in users:
-                ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
+        # Evict _user_states entries for users no longer in the active set.
+        active_ids = {str(u.telegram_id) for u in users}
+        async with _user_states_lock:
+            stale_ids = [tid for tid in _user_states if tid not in active_ids]
+            evicted_states = []
+            for tid in stale_ids:
+                evicted_states.append(_user_states.pop(tid))
+        for state in evicted_states:
+            task = state.get("debounce_task")
+            if task and not task.done():
+                task.cancel()
+        if stale_ids:
+            logger.debug("Evicted %d stale _user_states entries", len(stale_ids))
 
-            logger.debug(
-                "Checking %d unique IPs (%d users, max %d concurrent)",
-                len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
-            )
+        # Group users by router IP so each unique IP is pinged only once.
+        ip_groups: dict[str, list] = {}
+        for user in users:
+            ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
 
-            semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
+        logger.debug(
+            "Checking %d unique IPs (%d users, max %d concurrent)",
+            len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
+        )
 
-            async def _check_ip_group(ip: str, group_users: list) -> None:
-                async with semaphore:
-                    ping_result = await _check_router_http(ip)
-                for u in group_users:
-                    await _check_user_power(bot, u, is_available=ping_result)
+        semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
 
-            await asyncio.gather(*[
-                _check_ip_group(ip, group_users)
-                for ip, group_users in ip_groups.items()
-            ])
+        async def _check_ip_group(ip: str, group_users: list) -> None:
+            async with semaphore:
+                ping_result = await _check_router_http(ip)
+            for u in group_users:
+                await _check_user_power(bot, u, is_available=ping_result)
 
-        except Exception as e:
-            logger.error("Error in _check_all_ips: %s", e, exc_info=True)
-            sentry_sdk.capture_exception(e)
+        await asyncio.gather(*[
+            _check_ip_group(ip, group_users)
+            for ip, group_users in ip_groups.items()
+        ])
+
+    except Exception as e:
+        logger.error("Error in _check_all_ips: %s", e, exc_info=True)
+        sentry_sdk.capture_exception(e)
+    finally:
+        _check_all_ips_lock.release()
 
 
 # ─── State persistence ────────────────────────────────────────────────────
@@ -921,7 +924,16 @@ def stop_power_monitor() -> None:
 
 async def save_states_on_shutdown() -> None:
     """Persist all in-memory user states to DB on graceful shutdown."""
+    global _http_connector
     await _save_all_user_states()
+    # Close the shared TCP connector to release file descriptors.
+    connector = _http_connector
+    _http_connector = None
+    if connector is not None and not connector.closed:
+        try:
+            await connector.close()
+        except Exception:
+            pass
 
 
 # ─── Daily ping-error alerts ──────────────────────────────────────────────

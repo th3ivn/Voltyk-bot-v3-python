@@ -14,6 +14,7 @@ from bot.constants.regions import REGIONS
 from bot.db.queries import (
     check_reminders_sent_batch,
     cleanup_old_reminders,
+    deactivate_user,
     delete_old_pending_notifications,
     get_active_reminder_anchors,
     get_active_users_by_region,
@@ -839,10 +840,13 @@ async def _send_schedule_notification(
                     ))
 
             except TelegramForbiddenError:
-                logger.warning(
-                    "User %s blocked the bot, skipping schedule notification",
+                logger.info(
+                    "User %s blocked the bot — deactivating",
                     fresh_user.telegram_id,
                 )
+                async with async_session() as deact_session:
+                    await deactivate_user(deact_session, str(fresh_user.telegram_id))
+                    await deact_session.commit()
             except Exception as e:
                 logger.warning(
                     "Failed to send schedule notification to user %s: %s",
@@ -1210,7 +1214,10 @@ async def _send_reminder(
             bot_msg_id = msg.message_id
             logger.debug("Reminder -%dm sent to user %s", remind_m, user.telegram_id)
         except TelegramForbiddenError:
-            logger.debug("User %s blocked bot, skipping reminder", user.telegram_id)
+            logger.info("User %s blocked bot — deactivating", user.telegram_id)
+            async with async_session() as deact_session:
+                await deactivate_user(deact_session, str(user.telegram_id))
+                await deact_session.commit()
         except Exception as e:
             logger.warning("Failed to send reminder to user %s: %s", user.telegram_id, e)
 

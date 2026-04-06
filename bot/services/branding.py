@@ -62,7 +62,8 @@ async def apply_channel_branding(
         except Exception as e:
             logger.warning("Failed to set channel photo for %s: %s", cc.channel_id, e)
 
-    cc.channel_branding_updated_at = datetime.now(timezone.utc)
+    # channel_branding_updated_at is DateTime (timezone-naive); store naive UTC.
+    cc.channel_branding_updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if send_welcome and queue:
         try:

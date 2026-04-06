@@ -37,6 +37,9 @@ _redis: aioredis.Redis | None = None
 async def init() -> None:
     """Create the Redis client. Call once at bot startup."""
     global _redis
+    if not settings.REDIS_URL:
+        logger.warning("REDIS_URL is empty — chart cache disabled")
+        return
     _redis = aioredis.from_url(
         settings.REDIS_URL,
         decode_responses=False,   # we store raw bytes
