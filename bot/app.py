@@ -302,7 +302,8 @@ async def main() -> None:
             try:
                 await asyncio.Event().wait()
             finally:
-                await runner.cleanup()
+                with suppress(asyncio.CancelledError):
+                    await asyncio.shield(runner.cleanup())
         else:
             await _start_health_server()
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
