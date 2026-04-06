@@ -22,7 +22,6 @@ class ChannelConversationSG(StatesGroup):
     waiting_for_power_off_text = State()
     waiting_for_power_on_text = State()
     waiting_for_custom_test = State()
-    waiting_for_pause_message = State()
 
 
 class IpSetupSG(StatesGroup):
@@ -47,4 +46,7 @@ class MaintenanceSG(StatesGroup):
 class AdminRouterIpSG(StatesGroup):
     waiting_for_ip = State()
 
+
+class PauseMessageSG(StatesGroup):
+    waiting_for_message = State()
 

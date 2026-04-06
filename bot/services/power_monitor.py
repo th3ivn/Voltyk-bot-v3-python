@@ -108,7 +108,7 @@ def _is_ssrf_blocked(host: str) -> bool:
     return any(addr in net for net in SSRF_BLOCKED_NETWORKS)
 
 
-async def _check_router_http(router_ip: str | None) -> bool | None:
+async def check_router_http(router_ip: str | None) -> bool | None:
     """Check if router is reachable via HTTP HEAD request (like the JS bot).
 
     Returns:
@@ -440,7 +440,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
     try:
         telegram_id = str(user.telegram_id)
         if is_available is None:
-            is_available = await _check_router_http(user.router_ip)
+            is_available = await check_router_http(user.router_ip)
 
         if is_available is None:
             # No IP configured — skip this user silently
@@ -655,7 +655,7 @@ async def _check_all_ips(bot: Bot) -> None:
 
             async def _check_ip_group(ip: str, group_users: list) -> None:
                 async with semaphore:
-                    ping_result = await _check_router_http(ip)
+                    ping_result = await check_router_http(ip)
                 for u in group_users:
                     await _check_user_power(bot, u, is_available=ping_result)
 
@@ -977,7 +977,7 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                 if (now - last_at).total_seconds() < 86400:
                     continue
 
-            is_alive = await _check_router_http(alert.router_ip)
+            is_alive = await check_router_http(alert.router_ip)
             if is_alive:
                 async with async_session() as session:
                     await deactivate_ping_error_alert(session, alert.telegram_id)

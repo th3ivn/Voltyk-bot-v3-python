@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -26,10 +24,11 @@ from bot.keyboards.inline import (
     get_ip_saved_success_keyboard,
     get_settings_keyboard,
 )
-from bot.services.power_monitor import _check_router_http
+from bot.services.power_monitor import check_router_http
 from bot.states.fsm import IpSetupSG
 from bot.utils.helpers import is_valid_ip_or_domain
 from bot.utils.logger import get_logger
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="settings_ip")
 logger = get_logger(__name__)
@@ -60,29 +59,6 @@ _INSTRUCTION_TEXT = (
     "Введіть вашу IP-адресу або DDNS:"
 )
 
-
-async def _safe_edit(message, text: str, **kwargs) -> None:
-    """Edit message with tg-emoji fallback and keyboard fallback."""
-    try:
-        await message.edit_text(text, parse_mode="HTML", **kwargs)
-    except Exception as first_err:
-        logger.warning("_safe_edit first attempt failed: %s", first_err)
-        clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', text)
-        try:
-            await message.edit_text(clean, parse_mode="HTML", **kwargs)
-        except Exception as second_err:
-            logger.warning("_safe_edit second attempt failed: %s", second_err)
-            # Third fallback: strip reply_markup in case keyboard is causing the error
-            try:
-                await message.edit_text(clean, parse_mode="HTML")
-            except Exception as third_err:
-                logger.error("_safe_edit all attempts failed: %s", third_err)
-                try:
-                    await message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
-                except Exception as final_err:
-                    logger.error("_safe_edit could not notify user: %s", final_err)
-
-
 async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None:
     """Helper: show main settings screen (replicates back_to_settings logic)."""
     user = await get_user_by_telegram_id(session, callback.from_user.id)
@@ -91,7 +67,7 @@ async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None
         return
     is_admin = app_settings.is_admin(callback.from_user.id)
     text = format_live_status_message(user)
-    await _safe_edit(
+    await safe_edit_text(
         callback.message, text, reply_markup=get_settings_keyboard(is_admin=is_admin)
     )
 
@@ -118,10 +94,10 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         f'<tg-emoji emoji-id="5312283536177273995">📡</tg-emoji> IP: {router_ip}'
         f'\nСтатус: Перевіряю <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>'
     )
-    await _safe_edit(callback.message, loading_text, reply_markup=get_ip_management_keyboard())
+    await safe_edit_text(callback.message, loading_text, reply_markup=get_ip_management_keyboard())
 
     # Step 2: Perform a fresh ping
-    is_alive = await _check_router_http(router_ip)
+    is_alive = await check_router_http(router_ip)
 
     # Step 3: Update only the text, preserving the existing keyboard
     if is_alive:
@@ -135,21 +111,12 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
         f'{status_line}'
     )
     # Step 3: Update text AND keep the keyboard
-    keyboard = get_ip_management_keyboard()
-    try:
-        await callback.message.edit_text(result_text, parse_mode="HTML", reply_markup=keyboard)
-    except Exception as e:
-        logger.warning("_show_management_screen: could not update status text: %s", e)
-        clean = re.sub(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>', r'\1', result_text)
-        try:
-            await callback.message.edit_text(clean, parse_mode="HTML", reply_markup=keyboard)
-        except Exception as e2:
-            logger.warning("_show_management_screen: fallback also failed: %s", e2)
+    await safe_edit_text(callback.message, result_text, reply_markup=get_ip_management_keyboard())
 
 
 async def _show_input_screen(callback: CallbackQuery, state: FSMContext) -> None:
     """Helper: show instruction + IP input screen (Екран 1А)."""
-    await _safe_edit(
+    await safe_edit_text(
         callback.message,
         _INSTRUCTION_TEXT,
         reply_markup=get_ip_monitoring_keyboard_no_ip(),
@@ -257,7 +224,7 @@ async def ip_delete_execute(callback: CallbackQuery, session: AsyncSession) -> N
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено."
     )
-    await _safe_edit(callback.message, text, reply_markup=get_ip_deleted_keyboard())
+    await safe_edit_text(callback.message, text, reply_markup=get_ip_deleted_keyboard())
 
 
 # ─── Legacy aliases (backward compat) ────────────────────────────────────
@@ -321,8 +288,8 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
         f"{router_ip}\n"
         'Перевіряю <tg-emoji emoji-id="5890925363067886150">⏳</tg-emoji>'
     )
-    await _safe_edit(callback.message, loading_text)
-    is_alive = await _check_router_http(router_ip)
+    await safe_edit_text(callback.message, loading_text)
+    is_alive = await check_router_http(router_ip)
 
     if is_alive:
         result_text = '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> Пінг пройшов успішно'
@@ -330,7 +297,7 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     else:
         result_text = '<tg-emoji emoji-id="5264933407229517572">❌</tg-emoji> Пінг не пройшов'
         keyboard = get_ip_ping_fail_keyboard(support_url=app_settings.SUPPORT_CHANNEL_URL or None)
-    await _safe_edit(callback.message, result_text, reply_markup=keyboard)
+    await safe_edit_text(callback.message, result_text, reply_markup=keyboard)
 
 
 # ─── IP input handler (Screen 5) ──────────────────────────────────────────
@@ -357,7 +324,7 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
         parse_mode="HTML",
     )
 
-    is_alive = await _check_router_http(result["address"])
+    is_alive = await check_router_http(result["address"])
 
     if is_alive:
         result_text = (
