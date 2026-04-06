@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from bot.formatter.utils import KYIV_TZ, _parse_event_dt
+from bot.formatter.utils import KYIV_TZ, parse_event_dt
 
 
 def _format_time(dt: datetime | str) -> str:
@@ -69,7 +69,7 @@ def format_timer_popup(next_event: dict | None, schedule_data: dict | None = Non
             tomorrow_events = [
                 ev
                 for ev in schedule_data["events"]
-                if tomorrow_start <= _parse_event_dt(ev["start"]) < tomorrow_end
+                if tomorrow_start <= parse_event_dt(ev["start"]) < tomorrow_end
             ]
             if tomorrow_events:
                 lines.append("📅 Завтра:")

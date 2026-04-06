@@ -7,7 +7,7 @@ from bot.config import settings
 KYIV_TZ = settings.timezone
 
 
-def _parse_event_dt(dt: datetime | str) -> datetime:
+def parse_event_dt(dt: datetime | str) -> datetime:
     """Parse an event datetime string to a timezone-aware Kyiv datetime.
 
     Handles both offset-aware ISO strings (new format, from api.py) and

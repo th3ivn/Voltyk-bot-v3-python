@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from bot.formatter.utils import KYIV_TZ, _parse_event_dt
+from bot.formatter.utils import KYIV_TZ, parse_event_dt
 
 DAY_NAMES = ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота", "Неділя"]
 
@@ -82,18 +82,18 @@ def format_schedule_message(
     today_events = []
     tomorrow_events = []
     for ev in events:
-        start = _parse_event_dt(ev["start"])
+        start = parse_event_dt(ev["start"])
         if today_start <= start < tomorrow_start:
             today_events.append(ev)
         elif tomorrow_start <= start < day_after_tomorrow:
             tomorrow_events.append(ev)
 
     today_total = sum(
-        (_parse_event_dt(e["end"]) - _parse_event_dt(e["start"])).total_seconds() / 60
+        (parse_event_dt(e["end"]) - parse_event_dt(e["start"])).total_seconds() / 60
         for e in today_events
     )
     tomorrow_total = sum(
-        (_parse_event_dt(e["end"]) - _parse_event_dt(e["start"])).total_seconds() / 60
+        (parse_event_dt(e["end"]) - parse_event_dt(e["start"])).total_seconds() / 60
         for e in tomorrow_events
     )
 
@@ -114,7 +114,7 @@ def format_schedule_message(
         for ev in tomorrow_events:
             s = _format_time(ev["start"])
             e = _format_time(ev["end"])
-            dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+            dur = (parse_event_dt(ev["end"]) - parse_event_dt(ev["start"])).total_seconds() * 1000
             dur_str = _format_duration_from_ms(dur)
             key = f"{ev['start']}_{ev['end']}"
             is_new = key in new_event_keys
@@ -125,7 +125,7 @@ def format_schedule_message(
             for ev in removed_tomorrow:
                 s = _format_time(ev["start"])
                 e = _format_time(ev["end"])
-                dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+                dur = (parse_event_dt(ev["end"]) - parse_event_dt(ev["start"])).total_seconds() * 1000
                 dur_str = _format_duration_from_ms(dur)
                 lines.append(f"❌ <s>{s} - {e} (~{dur_str})</s> <i>скасовано</i>")
         if tomorrow_events:
@@ -152,7 +152,7 @@ def format_schedule_message(
         for ev in today_events:
             s = _format_time(ev["start"])
             e = _format_time(ev["end"])
-            dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+            dur = (parse_event_dt(ev["end"]) - parse_event_dt(ev["start"])).total_seconds() * 1000
             dur_str = _format_duration_from_ms(dur)
             key = f"{ev['start']}_{ev['end']}"
             is_new = key in new_event_keys
@@ -163,7 +163,7 @@ def format_schedule_message(
             for ev in removed_today:
                 s = _format_time(ev["start"])
                 e = _format_time(ev["end"])
-                dur = (_parse_event_dt(ev["end"]) - _parse_event_dt(ev["start"])).total_seconds() * 1000
+                dur = (parse_event_dt(ev["end"]) - parse_event_dt(ev["start"])).total_seconds() * 1000
                 dur_str = _format_duration_from_ms(dur)
                 lines.append(f"❌ <s>{s} - {e} (~{dur_str})</s> <i>скасовано</i>")
         if today_events:

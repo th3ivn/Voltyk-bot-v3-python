@@ -7,9 +7,6 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import settings
-from bot.utils.logger import get_logger
-
-logger = get_logger(__name__)
 
 _DEFAULT_MAINTENANCE_MESSAGE = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
 
@@ -24,7 +21,7 @@ class MaintenanceMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if not MaintenanceMiddleware._enabled:
+        if not type(self)._enabled:
             return await handler(event, data)
 
         user_id = None
@@ -37,11 +34,11 @@ class MaintenanceMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):
-            await event.answer(MaintenanceMiddleware._message, show_alert=True)
+            await event.answer(type(self)._message, show_alert=True)
             return None
 
         if isinstance(event, Message):
-            await event.reply(MaintenanceMiddleware._message)
+            await event.reply(type(self)._message)
             return None
 
         return None
@@ -59,4 +56,5 @@ def set_maintenance_mode(enabled: bool, message: str | None = None) -> None:
 
 def get_maintenance_message() -> str:
     return MaintenanceMiddleware._message
+
 
