@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from bot.db.queries.admin import *
-from bot.db.queries.channels import *
-from bot.db.queries.power import *
-from bot.db.queries.reminders import *
-from bot.db.queries.schedule import *
-from bot.db.queries.settings import *
-from bot.db.queries.tickets import *
-from bot.db.queries.users import *
+from bot.db.queries.admin import *  # noqa: F403
+from bot.db.queries.channels import *  # noqa: F403
+from bot.db.queries.power import *  # noqa: F403
+from bot.db.queries.reminders import *  # noqa: F403
+from bot.db.queries.schedule import *  # noqa: F403
+from bot.db.queries.settings import *  # noqa: F403
+from bot.db.queries.tickets import *  # noqa: F403
+from bot.db.queries.users import *  # noqa: F403
