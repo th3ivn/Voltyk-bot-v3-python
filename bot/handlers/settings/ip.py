@@ -175,7 +175,7 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
         else:
             await _show_input_screen(callback, state)
     except Exception as e:
-        logger.error("settings_ip error for user %s: %s", callback.from_user.id, e)
+        logger.error("settings_ip error for user %s: %s", callback.from_user.id, e, exc_info=True)
         await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
 
 
@@ -199,7 +199,7 @@ async def ip_change(callback: CallbackQuery, session: AsyncSession) -> None:
             text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
         )
     except Exception as e:
-        logger.error("ip_change error for user %s: %s", callback.from_user.id, e)
+        logger.error("ip_change error for user %s: %s", callback.from_user.id, e, exc_info=True)
         try:
             await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
         except Exception as notify_err:
@@ -232,7 +232,7 @@ async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> N
             text, reply_markup=get_ip_delete_confirm_keyboard(), parse_mode="HTML"
         )
     except Exception as e:
-        logger.error("ip_delete_confirm error for user %s: %s", callback.from_user.id, e)
+        logger.error("ip_delete_confirm error for user %s: %s", callback.from_user.id, e, exc_info=True)
         try:
             await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
         except Exception as notify_err:

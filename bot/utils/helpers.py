@@ -20,7 +20,7 @@ _DOMAIN_RE = re.compile(
 # RFC-1918 private ranges (192.168.x, 10.x, 172.16-31.x) are intentionally
 # NOT listed here — most home routers live on those subnets and users need to
 # point the bot at them.  See is_valid_ip_or_domain() for the full policy.
-_SSRF_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
+SSRF_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
     ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
     ipaddress.IPv4Network("169.254.0.0/16"),     # link-local / cloud metadata
     ipaddress.IPv4Network("0.0.0.0/8"),          # "this" network
@@ -86,7 +86,7 @@ def is_valid_ip_or_domain(address: str) -> dict:
             # Private RFC-1918 ranges are allowed — typical home router IPs.
             try:
                 ip = ipaddress.IPv4Address(host)
-                if any(ip in net for net in _SSRF_BLOCKED_NETWORKS):
+                if any(ip in net for net in SSRF_BLOCKED_NETWORKS):
                     return {"valid": False, "error": "Недопустима адреса"}
             except ValueError:
                 pass

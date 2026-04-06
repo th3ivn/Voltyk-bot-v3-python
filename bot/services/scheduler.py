@@ -14,6 +14,7 @@ from bot.constants.regions import REGIONS
 from bot.db.queries import (
     check_reminders_sent_batch,
     cleanup_old_reminders,
+    deactivate_user,
     delete_old_pending_notifications,
     get_active_reminder_anchors,
     get_active_users_by_region,
@@ -55,6 +56,20 @@ _running = False
 DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = settings.timezone
+
+
+async def _deactivate_blocked_user(telegram_id: int | str) -> None:
+    """Deactivate a user who has blocked the bot.
+
+    Called from schedule/reminder senders when TelegramForbiddenError is raised.
+    """
+    try:
+        async with async_session() as session:
+            await deactivate_user(session, str(telegram_id))
+            await session.commit()
+    except Exception as e:
+        logger.warning("Could not deactivate blocked user %s: %s", telegram_id, e, exc_info=True)
+
 
 # Mutex that prevents the 06:00 flush and the periodic checker from running
 # concurrently. Without it, both can read the same stale stored_hash on startup
@@ -839,10 +854,11 @@ async def _send_schedule_notification(
                     ))
 
             except TelegramForbiddenError:
-                logger.warning(
-                    "User %s blocked the bot, skipping schedule notification",
+                logger.info(
+                    "User %s blocked the bot — deactivating",
                     fresh_user.telegram_id,
                 )
+                await _deactivate_blocked_user(fresh_user.telegram_id)
             except Exception as e:
                 logger.warning(
                     "Failed to send schedule notification to user %s: %s",
@@ -1210,7 +1226,8 @@ async def _send_reminder(
             bot_msg_id = msg.message_id
             logger.debug("Reminder -%dm sent to user %s", remind_m, user.telegram_id)
         except TelegramForbiddenError:
-            logger.debug("User %s blocked bot, skipping reminder", user.telegram_id)
+            logger.info("User %s blocked bot — deactivating", user.telegram_id)
+            await _deactivate_blocked_user(user.telegram_id)
         except Exception as e:
             logger.warning("Failed to send reminder to user %s: %s", user.telegram_id, e)
 

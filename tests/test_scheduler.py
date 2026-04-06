@@ -927,3 +927,49 @@ class TestCheckAndSendReminders:
             await _check_and_send_reminders(bot_mock)
 
         mock_send.assert_not_called()
+
+
+# ─── _deactivate_blocked_user ────────────────────────────────────────────
+
+
+class TestDeactivateBlockedUser:
+    async def test_deactivates_user_and_commits(self):
+        """Verify that deactivate_user is called with the telegram_id and session is committed."""
+        from bot.services.scheduler import _deactivate_blocked_user
+
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.deactivate_user", new_callable=AsyncMock) as mock_deactivate:
+            await _deactivate_blocked_user(12345)
+
+        mock_deactivate.assert_called_once_with(mock_session, "12345")
+        mock_session.commit.assert_called_once()
+
+    async def test_accepts_string_telegram_id(self):
+        """Verify that string telegram_id is passed through correctly."""
+        from bot.services.scheduler import _deactivate_blocked_user
+
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.deactivate_user", new_callable=AsyncMock) as mock_deactivate:
+            await _deactivate_blocked_user("67890")
+
+        mock_deactivate.assert_called_once_with(mock_session, "67890")
+
+    async def test_swallows_exception_and_logs_warning(self):
+        """If deactivate_user raises, the exception is caught and logged, not propagated."""
+        from bot.services.scheduler import _deactivate_blocked_user
+
+        mock_session = _make_mock_session()
+        mock_session.commit.side_effect = RuntimeError("db error")
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.deactivate_user", new_callable=AsyncMock), \
+             patch("bot.services.scheduler.logger") as mock_logger:
+            # Should NOT raise
+            await _deactivate_blocked_user(999)
+
+        mock_logger.warning.assert_called_once()
+        assert "999" in str(mock_logger.warning.call_args)

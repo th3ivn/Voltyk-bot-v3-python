@@ -299,7 +299,11 @@ async def main() -> None:
             await site.start()
             logger.info("Webhook server listening on 0.0.0.0:%d", port)
 
-            await asyncio.Event().wait()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                with suppress(asyncio.CancelledError):
+                    await asyncio.shield(runner.cleanup())
         else:
             await _start_health_server()
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

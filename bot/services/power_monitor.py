@@ -32,7 +32,7 @@ from bot.db.queries import (
 from bot.db.session import async_session
 from bot.keyboards.inline import get_ip_ping_error_keyboard
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
-from bot.utils.helpers import retry_bot_call
+from bot.utils.helpers import SSRF_BLOCKED_NETWORKS, retry_bot_call
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -87,25 +87,25 @@ def _get_user_state(telegram_id: str) -> dict:
 
 # ─── Router check ─────────────────────────────────────────────────────────
 
-_CLOUD_METADATA_IP = ipaddress.ip_address("169.254.169.254")
+# SSRF_BLOCKED_NETWORKS imported from bot.utils.helpers at the top of the file.
+# RFC-1918 private ranges are intentionally ALLOWED — most home routers
+# live on those subnets.
 
 
-def _is_private_ip(host: str) -> bool:
-    """Return True if *host* resolves to a private/internal address.
+def _is_ssrf_blocked(host: str) -> bool:
+    """Return True if *host* is in a blocked SSRF range.
 
-    Blocks RFC 1918 private ranges, loopback, link-local, and the
-    well-known cloud instance-metadata endpoint (169.254.169.254) to
-    prevent SSRF attacks against internal infrastructure.
+    Only blocks loopback, link-local/cloud-metadata, broadcast, and reserved
+    ranges.  RFC-1918 private ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    are intentionally ALLOWED because most home routers use those addresses.
     """
     try:
-        addr = ipaddress.ip_address(host)
-    except ValueError:
-        # Not a bare IP address (e.g. a hostname) — let it through;
+        addr = ipaddress.IPv4Address(host)
+    except (ValueError, ipaddress.AddressValueError):
+        # Not a bare IPv4 address (e.g. a hostname) — let it through;
         # hostname-based SSRF is a separate concern handled at DNS level.
         return False
-    if addr == _CLOUD_METADATA_IP:
-        return True
-    return addr.is_private or addr.is_loopback or addr.is_link_local
+    return any(addr in net for net in SSRF_BLOCKED_NETWORKS)
 
 
 async def _check_router_http(router_ip: str | None) -> bool | None:
@@ -127,8 +127,8 @@ async def _check_router_http(router_ip: str | None) -> bool | None:
         host = m.group(1)
         port = int(m.group(2))
 
-    if _is_private_ip(host):
-        logger.warning("SSRF blocked: router IP %s resolves to a private/internal address", host)
+    if _is_ssrf_blocked(host):
+        logger.warning("SSRF blocked: router IP %s is in a blocked network range", host)
         return False
 
     timeout_s = settings.POWER_PING_TIMEOUT_MS / 1000
@@ -611,9 +611,9 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
 async def _check_all_ips(bot: Bot) -> None:
     """Check all users with a router IP configured, with concurrency limiting.
 
-    Uses an asyncio.Lock to prevent concurrent invocations.  The lock check and
-    acquire happen in a single uninterrupted sequence (no await between them),
-    which is safe under asyncio's cooperative multitasking — no TOCTOU race.
+    Uses an asyncio.Lock to prevent concurrent invocations.  The ``locked()``
+    check and ``async with`` happen without an intermediate ``await``, which is
+    safe under asyncio's cooperative multitasking — no TOCTOU race possible.
     """
     if _check_all_ips_lock.locked():
         logger.debug("_check_all_ips already running, skipping")
@@ -921,7 +921,20 @@ def stop_power_monitor() -> None:
 
 async def save_states_on_shutdown() -> None:
     """Persist all in-memory user states to DB on graceful shutdown."""
+    global _http_connector
     await _save_all_user_states()
+    # Close the shared TCP connector to release file descriptors.
+    connector = _http_connector
+    _http_connector = None
+    if connector is not None and not connector.closed:
+        close_task = asyncio.create_task(connector.close())
+        try:
+            await asyncio.shield(close_task)
+        except asyncio.CancelledError:
+            await close_task
+            raise
+        except Exception as e:
+            logger.debug("Error closing HTTP connector: %s", e)
 
 
 # ─── Daily ping-error alerts ──────────────────────────────────────────────
@@ -1006,8 +1019,9 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                     await session.commit()
                 logger.info("📡 Ping error alert sent to user %s", alert.telegram_id)
             except TelegramForbiddenError:
-                logger.info("User %s blocked the bot — deactivating ping alert", alert.telegram_id)
+                logger.info("User %s blocked the bot — deactivating user & ping alert", alert.telegram_id)
                 async with async_session() as session:
+                    await deactivate_user(session, alert.telegram_id)
                     await deactivate_ping_error_alert(session, alert.telegram_id)
                     await session.commit()
             except Exception as e:
