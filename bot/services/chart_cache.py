@@ -38,6 +38,7 @@ async def init() -> None:
     """Create the Redis client. Call once at bot startup."""
     global _redis
     if not settings.REDIS_URL:
+        _redis = None
         if _redis is not None:
             try:
                 await _redis.aclose()
