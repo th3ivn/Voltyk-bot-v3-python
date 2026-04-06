@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 MSG_NOT_MODIFIED = "message is not modified"
 
 # Telegram exceptions that indicate the message is already gone / immutable
-_TELEGRAM_EXPECTED = (TelegramBadRequest, TelegramForbiddenError)
+_EXPECTED_TELEGRAM_ERRORS = (TelegramBadRequest, TelegramForbiddenError)
 
 
 async def safe_edit_text(
@@ -29,7 +29,7 @@ async def safe_edit_text(
     try:
         await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         return True
-    except _TELEGRAM_EXPECTED as e:
+    except _EXPECTED_TELEGRAM_ERRORS as e:
         if MSG_NOT_MODIFIED in str(e):
             return True
         logger.warning("safe_edit_text failed: %s", e)
@@ -42,7 +42,7 @@ async def safe_delete(message: MaybeInaccessibleMessage | None) -> None:
         return
     try:
         await message.delete()
-    except _TELEGRAM_EXPECTED as e:
+    except _EXPECTED_TELEGRAM_ERRORS as e:
         logger.debug("Could not delete message: %s", e)
 
 
@@ -66,7 +66,7 @@ async def safe_edit_or_resend(
             if not await safe_edit_text(message, text, reply_markup=reply_markup, parse_mode=parse_mode):
                 return await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
             return message
-    except _TELEGRAM_EXPECTED as e:
+    except _EXPECTED_TELEGRAM_ERRORS as e:
         logger.warning("safe_edit_or_resend failed: %s", e)
         return None
 
