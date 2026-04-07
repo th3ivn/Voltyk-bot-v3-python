@@ -55,7 +55,11 @@ def _make_mock_session() -> AsyncMock:
     session = AsyncMock()
     session.add = MagicMock()
     session.commit = AsyncMock()
-    session.execute = AsyncMock()
+    # return_value must be a plain MagicMock: session.execute IS async (awaited),
+    # but the Result it returns exposes synchronous .scalars()/.first() methods.
+    # Using AsyncMock() as return_value would cause RuntimeWarning because calling
+    # r.scalars() on an AsyncMock creates a never-awaited coroutine.
+    session.execute = AsyncMock(return_value=MagicMock())
     return session
 
 
