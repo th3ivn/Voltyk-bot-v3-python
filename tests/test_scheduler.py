@@ -12,13 +12,13 @@ These tests cover the isolated, unit-testable parts of the scheduler service:
 from __future__ import annotations
 
 import json
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
@@ -972,4 +972,566 @@ class TestDeactivateBlockedUser:
             await _deactivate_blocked_user(999)
 
         mock_logger.warning.assert_called_once()
-        assert "999" in str(mock_logger.warning.call_args)
+        warning_args, _ = mock_logger.warning.call_args
+        assert any("999" in str(arg) for arg in warning_args)
+
+
+# ─── _get_schedule_interval ───────────────────────────────────────────────
+
+
+class TestGetScheduleInterval:
+    async def test_returns_db_value(self):
+        from bot.services.scheduler import _get_schedule_interval
+
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_setting", AsyncMock(return_value="120")), \
+             patch("bot.services.scheduler.settings") as mock_cfg:
+            mock_cfg.SCHEDULE_CHECK_INTERVAL_S = 60
+            result = await _get_schedule_interval()
+
+        assert result == 120
+
+    async def test_falls_back_when_none(self):
+        from bot.services.scheduler import _get_schedule_interval
+
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_setting", AsyncMock(return_value=None)), \
+             patch("bot.services.scheduler.settings") as mock_cfg:
+            mock_cfg.SCHEDULE_CHECK_INTERVAL_S = 60
+            result = await _get_schedule_interval()
+
+        assert result == 60
+
+    async def test_falls_back_on_exception(self):
+        from bot.services.scheduler import _get_schedule_interval
+
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_setting", AsyncMock(side_effect=RuntimeError("db dead"))), \
+             patch("bot.services.scheduler.settings") as mock_cfg:
+            mock_cfg.SCHEDULE_CHECK_INTERVAL_S = 45
+            result = await _get_schedule_interval()
+
+        assert result == 45
+
+
+# ─── _safe_delete_message ─────────────────────────────────────────────────
+
+
+class TestSafeDeleteMessage:
+    async def test_success(self):
+        from bot.services.scheduler import _safe_delete_message
+
+        bot = AsyncMock()
+        await _safe_delete_message(bot, 111, 999)
+        bot.delete_message.assert_awaited_once_with(111, 999)
+
+    async def test_bad_request_suppressed(self):
+        from bot.services.scheduler import _safe_delete_message
+
+        bot = AsyncMock()
+        bot.delete_message.side_effect = TelegramBadRequest(
+            method=_make_method_mock(), message="message to delete not found"
+        )
+        await _safe_delete_message(bot, 111, 999)  # no raise
+
+    async def test_forbidden_suppressed(self):
+        from bot.services.scheduler import _safe_delete_message
+
+        bot = AsyncMock()
+        bot.delete_message.side_effect = _make_telegram_forbidden()
+        await _safe_delete_message(bot, 111, 999)  # no raise
+
+    async def test_generic_exception_suppressed(self):
+        from bot.services.scheduler import _safe_delete_message
+
+        bot = AsyncMock()
+        bot.delete_message.side_effect = RuntimeError("network")
+        await _safe_delete_message(bot, 111, 999)  # no raise
+
+
+# ─── _delete_reminder_messages ────────────────────────────────────────────
+
+
+class TestDeleteReminderMessages:
+    async def test_no_user_is_noop(self):
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=None)):
+            await _delete_reminder_messages(bot, "111")
+
+        bot.delete_message.assert_not_awaited()
+
+    async def test_deletes_bot_and_channel_messages(self):
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        mt = SimpleNamespace(
+            last_reminder_message_id=42,
+            last_channel_reminder_message_id=77,
+        )
+        cc = SimpleNamespace(channel_id="-100555")
+        user = SimpleNamespace(message_tracking=mt, channel_config=cc)
+
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await _delete_reminder_messages(bot, "111")
+
+        assert bot.delete_message.await_count == 2
+        assert mt.last_reminder_message_id is None
+        assert mt.last_channel_reminder_message_id is None
+
+    async def test_no_channel_config_skips_channel(self):
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        mt = SimpleNamespace(last_reminder_message_id=42, last_channel_reminder_message_id=None)
+        user = SimpleNamespace(message_tracking=mt, channel_config=None)
+
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await _delete_reminder_messages(bot, "111")
+
+        assert bot.delete_message.await_count == 1
+
+    async def test_outer_exception_suppressed(self):
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch(
+                 "bot.services.scheduler.get_user_by_telegram_id",
+                 AsyncMock(side_effect=RuntimeError("db gone")),
+             ):
+            await _delete_reminder_messages(bot, "111")  # no raise
+
+
+# ─── _prerender_chart ─────────────────────────────────────────────────────
+
+
+class TestPrerenderChart:
+    async def test_redis_unavailable_skips(self):
+        from bot.services.scheduler import _prerender_chart
+
+        with patch("bot.services.chart_cache.is_usable", return_value=False), \
+             patch("bot.services.chart_cache.delete", AsyncMock()) as mock_del:
+            await _prerender_chart("kyiv", "1.1", _make_sched())
+
+        mock_del.assert_not_awaited()
+
+    async def test_success_stores_chart(self):
+        from bot.services.scheduler import _prerender_chart
+
+        with patch("bot.services.chart_cache.is_usable", return_value=True), \
+             patch("bot.services.chart_cache.delete", AsyncMock()), \
+             patch("bot.services.chart_cache.store", AsyncMock()) as mock_store, \
+             patch(
+                 "bot.services.chart_generator.generate_schedule_chart",
+                 AsyncMock(return_value=b"PNG"),
+             ):
+            await _prerender_chart("kyiv", "1.1", _make_sched())
+
+        mock_store.assert_awaited_once()
+
+    async def test_chart_none_no_store(self):
+        from bot.services.scheduler import _prerender_chart
+
+        with patch("bot.services.chart_cache.is_usable", return_value=True), \
+             patch("bot.services.chart_cache.delete", AsyncMock()), \
+             patch("bot.services.chart_cache.store", AsyncMock()) as mock_store, \
+             patch(
+                 "bot.services.chart_generator.generate_schedule_chart",
+                 AsyncMock(return_value=None),
+             ):
+            await _prerender_chart("kyiv", "1.1", _make_sched())
+
+        mock_store.assert_not_awaited()
+
+    async def test_exception_suppressed(self):
+        from bot.services.scheduler import _prerender_chart
+
+        with patch("bot.services.chart_cache.is_usable", return_value=True), \
+             patch("bot.services.chart_cache.delete", AsyncMock(side_effect=RuntimeError("redis down"))):
+            await _prerender_chart("kyiv", "1.1", _make_sched())  # no raise
+
+
+# ─── _build_reminder_text ─────────────────────────────────────────────────
+
+
+class TestBuildReminderText:
+    def _next_event(self, event_type="power_off", anchor="2026-04-07T10:00:00",
+                    end_time="2026-04-07T12:00:00", start_time="2026-04-07T10:00:00") -> dict:
+        return {
+            "type": event_type,
+            "time": anchor,
+            "endTime": end_time,
+            "startTime": start_time,
+            "minutes": 15,
+        }
+
+    def test_power_off_includes_outage_header(self):
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = self._next_event("power_off")
+        text = _build_reminder_text(ev, 15, _make_sched(), "kyiv", "1.1", is_possible=False)
+
+        assert "Відключення через 15 хвилин" in text
+        assert "Київ" in text
+        assert "10:00" in text
+        assert "Увімкнення о 12:00" in text
+
+    def test_power_on_no_next_outage(self):
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = self._next_event("power_on", anchor="2026-04-07T12:00:00",
+                              start_time="2026-04-07T10:00:00", end_time="2026-04-07T12:00:00")
+        text = _build_reminder_text(ev, 15, _make_sched(events=[]), "kyiv", "1.1", is_possible=False)
+
+        assert "Увімкнення через 15 хвилин" in text
+        assert "Більше відключень" in text
+
+    def test_power_on_with_next_outage(self):
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = self._next_event("power_on", anchor="2026-04-07T12:00:00",
+                              start_time="2026-04-07T10:00:00", end_time="2026-04-07T12:00:00")
+        events = [{"start": "2026-04-07T16:00:00", "end": "2026-04-07T18:00:00", "isPossible": False}]
+        text = _build_reminder_text(ev, 30, _make_sched(events=events), "kyiv", "1.1", is_possible=False)
+
+        assert "Наступне відключення о 16:00" in text
+
+    def test_is_possible_flag(self):
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = self._next_event("power_off")
+        text = _build_reminder_text(ev, 15, _make_sched(), "kyiv", "1.1", is_possible=True)
+
+        assert "Можливе відключення" in text
+
+    def test_bad_event_data_no_schedule_line(self):
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = {"type": "power_off", "time": "NOT_A_DATE", "minutes": 15}
+        text = _build_reminder_text(ev, 15, _make_sched(), "kyiv", "1.1", is_possible=False)
+
+        # Header still present, schedule block silently skipped
+        assert "Відключення" in text
+
+
+# ─── _find_next_outage_after ──────────────────────────────────────────────
+
+
+class TestFindNextOutageAfter:
+    def _dt(self, iso: str) -> datetime:
+        dt = datetime.fromisoformat(iso)
+        return dt.replace(tzinfo=KYIV_TZ) if dt.tzinfo is None else dt
+
+    def test_returns_first_outage_after_dt(self):
+        from bot.services.scheduler import _find_next_outage_after
+
+        after = self._dt("2026-04-07T13:00:00")
+        sched = _make_sched(events=[
+            {"start": "2026-04-07T10:00:00", "end": "2026-04-07T12:00:00", "isPossible": False},
+            {"start": "2026-04-07T16:00:00", "end": "2026-04-07T18:00:00", "isPossible": False},
+        ])
+        result = _find_next_outage_after(sched, after)
+        assert result is not None
+        assert "16:00" in result["start"]
+
+    def test_returns_none_when_no_future_outage(self):
+        from bot.services.scheduler import _find_next_outage_after
+
+        after = self._dt("2026-04-07T23:00:00")
+        result = _find_next_outage_after(_make_sched(), after)
+        assert result is None
+
+    def test_skips_possible_events(self):
+        from bot.services.scheduler import _find_next_outage_after
+
+        after = self._dt("2026-04-07T08:00:00")
+        sched = _make_sched(events=[
+            {"start": "2026-04-07T10:00:00", "end": "2026-04-07T12:00:00", "isPossible": True},
+            {"start": "2026-04-07T16:00:00", "end": "2026-04-07T18:00:00", "isPossible": False},
+        ])
+        result = _find_next_outage_after(sched, after)
+        assert result is not None
+        assert "16:00" in result["start"]
+
+    def test_bad_iso_event_skipped(self):
+        from bot.services.scheduler import _find_next_outage_after
+
+        after = self._dt("2026-04-07T08:00:00")
+        sched = _make_sched(events=[{"start": "NOT_A_DATE", "end": "NOT_A_DATE", "isPossible": False}])
+        result = _find_next_outage_after(sched, after)
+        assert result is None
+
+
+# ─── _check_all_schedules ────────────────────────────────────────────────
+
+
+class TestCheckAllSchedules:
+    async def test_no_update_returns_early(self):
+        from bot.services.scheduler import _check_all_schedules
+
+        with patch("bot.services.scheduler.check_source_repo_updated", AsyncMock(return_value=(False, None))), \
+             patch("bot.services.scheduler._check_single_queue", AsyncMock()) as mock_single:
+            await _check_all_schedules(AsyncMock())
+
+        mock_single.assert_not_awaited()
+
+    async def test_fetches_and_checks_all_pairs(self):
+        from bot.services.scheduler import _check_all_schedules
+
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with patch("bot.services.scheduler.check_source_repo_updated", AsyncMock(return_value=(True, "abc"))), \
+             _patch_async_session(mock_session), \
+             patch(
+                 "bot.services.scheduler.get_distinct_region_queue_pairs",
+                 AsyncMock(return_value=[("kyiv", "1.1"), ("kyiv", "2.1")]),
+             ), \
+             patch("bot.services.scheduler.fetch_schedule_data", AsyncMock(return_value={"fact": {}})), \
+             patch("bot.services.scheduler._check_single_queue", AsyncMock()) as mock_single:
+            await _check_all_schedules(bot)
+
+        assert mock_single.await_count == 2
+
+    async def test_fetch_exception_continues_to_check(self):
+        from bot.services.scheduler import _check_all_schedules
+
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with patch("bot.services.scheduler.check_source_repo_updated", AsyncMock(return_value=(True, "abc"))), \
+             _patch_async_session(mock_session), \
+             patch(
+                 "bot.services.scheduler.get_distinct_region_queue_pairs",
+                 AsyncMock(return_value=[("kyiv", "1.1")]),
+             ), \
+             patch("bot.services.scheduler.fetch_schedule_data", AsyncMock(side_effect=RuntimeError("net"))), \
+             patch("bot.services.scheduler._check_single_queue", AsyncMock()) as mock_single:
+            await _check_all_schedules(bot)
+
+        # Fetch exception caught by asyncio.gather → single check called with None
+        mock_single.assert_awaited_once()
+
+
+# ─── _send_schedule_notification ─────────────────────────────────────────
+
+
+async def _fake_retry_bot_call(fn, **kw):
+    return await fn()
+
+
+class TestSendScheduleNotification:
+    def _common_patches(self, user):
+        return [
+            patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.services.scheduler.get_schedule_check_time", AsyncMock(return_value=None)),
+            patch("bot.services.scheduler.format_schedule_message", return_value="<b>Розклад</b>"),
+            patch("bot.services.scheduler.get_schedule_view_keyboard", return_value=MagicMock()),
+            patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=None)),
+            patch("bot.services.scheduler.append_timestamp", return_value=("plain", [])),
+            patch("bot.services.scheduler.html_to_entities", return_value=("plain", [])),
+            patch("bot.services.scheduler.to_aiogram_entities", return_value=[]),
+            patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call),
+        ]
+
+    async def test_user_not_found_returns_early(self):
+        from bot.services.scheduler import _send_schedule_notification
+
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=None)), \
+             patch("bot.services.scheduler.get_schedule_check_time", AsyncMock(return_value=None)):
+            await _send_schedule_notification(bot, SimpleNamespace(telegram_id="111"), {}, {}, {})
+
+        bot.send_message.assert_not_awaited()
+
+    async def test_notify_disabled_returns_early(self):
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user(notification_settings=_make_ns(notify_schedule_changes=False))
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)), \
+             patch("bot.services.scheduler.get_schedule_check_time", AsyncMock(return_value=None)):
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        bot.send_message.assert_not_awaited()
+
+    async def test_sends_text_message_when_no_image(self):
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user()
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_message.return_value = mock_msg
+
+        mock_session = _make_mock_session()
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        bot.send_message.assert_awaited_once()
+
+    async def test_sends_photo_when_image_available(self):
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user()
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_photo.return_value = mock_msg
+
+        mock_session = _make_mock_session()
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            # Override: image is available
+            stack.enter_context(
+                patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=b"PNG"))
+            )
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        bot.send_photo.assert_awaited_once()
+
+    async def test_forbidden_error_deactivates_user(self):
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user()
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+        mock_deact = AsyncMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("bot.services.scheduler.retry_bot_call",
+                      AsyncMock(side_effect=_make_telegram_forbidden()))
+            )
+            stack.enter_context(
+                patch("bot.services.scheduler._deactivate_blocked_user", mock_deact)
+            )
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        mock_deact.assert_awaited_once()
+
+
+# ─── _send_reminder ───────────────────────────────────────────────────────
+
+
+class TestSendReminder:
+    async def test_ns_none_returns_false(self):
+        from bot.services.scheduler import _send_reminder
+
+        result = await _send_reminder(
+            AsyncMock(), _make_user(), {"type": "power_off", "time": "2026-04-07T10:00:00",
+                                        "endTime": "2026-04-07T12:00:00", "minutes": 15},
+            15, _make_sched(), "kyiv", "1.1", False, None, None,
+        )
+        assert result is False
+
+    async def test_sends_to_bot_returns_true(self):
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 42
+        bot.send_message.return_value = mock_msg
+
+        user = _make_user()
+        mock_session = _make_mock_session()
+        db_user = _make_user()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="Нагадування"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=db_user)):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False,
+                user.notification_settings, None,
+            )
+
+        assert result is True
+        bot.send_message.assert_awaited_once()
+
+    async def test_forbidden_deactivates_user(self):
+        from bot.services.scheduler import _send_reminder
+
+        user = _make_user()
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", AsyncMock(side_effect=_make_telegram_forbidden())), \
+             patch("bot.services.scheduler._deactivate_blocked_user", AsyncMock()) as mock_deact:
+            result = await _send_reminder(
+                AsyncMock(), user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False,
+                user.notification_settings, None,
+            )
+
+        mock_deact.assert_awaited_once()
+        assert result is False
+
+    async def test_send_to_channel_when_configured(self):
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        bot_msg = MagicMock()
+        bot_msg.message_id = 11
+        ch_msg = MagicMock()
+        ch_msg.message_id = 22
+        bot.send_message.side_effect = [bot_msg, ch_msg]
+
+        user = _make_user()
+        cc = SimpleNamespace(
+            channel_id="-100555",
+            channel_status="active",
+            channel_paused=False,
+            ch_notify_remind_off=True,
+            ch_notify_remind_on=True,
+            ch_remind_15m=True,
+            ch_remind_30m=False,
+            ch_remind_1h=False,
+        )
+        mock_session = _make_mock_session()
+        db_user = _make_user()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=db_user)):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False,
+                user.notification_settings, cc,
+            )
+
+        assert result is True
+        assert bot.send_message.await_count == 2
