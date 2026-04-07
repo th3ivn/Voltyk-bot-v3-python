@@ -1,6 +1,6 @@
 """Tests for bot/utils/telegram.py.
 
-Coverage targets (current: 21%):
+Coverage:
 - safe_edit_text: not-Message, success, not-modified, error+no-emoji,
   error+emoji retry success, error+emoji retry not-modified, error+emoji retry fail,
   ForbiddenError
