@@ -9,13 +9,10 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
-import json
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-import pytest
 from aioresponses import aioresponses
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -115,7 +112,6 @@ class TestFetchScheduleData:
 
     async def test_cache_hit_returns_cached_data(self):
         """Second call within TTL should not make an HTTP request."""
-        import bot.services.api as api
         from bot.services.api import fetch_schedule_data
 
         payload = _make_raw_schedule()
