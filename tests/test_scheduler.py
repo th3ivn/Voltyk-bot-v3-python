@@ -1602,25 +1602,33 @@ class TestCheckSingleQueueBranches:
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
+        # yesterday had no events for "today" (tomorrow_hash=None) — consistent with
+        # schedule_data={"events": []}. Now there ARE new events (new_today_hash="new_today_h")
+        # → todayUpdated should be set.
         yesterday_mock = SimpleNamespace(
             schedule_data=json.dumps({"events": []}),
-            tomorrow_hash="different_hash",
+            tomorrow_hash=None,
         )
         sched, patches = self._base_patches(
             stored_hash=None,  # initial load
             snapshot=None,
             yesterday_snapshot=yesterday_mock,
-            quiet=True,  # save as pending so we can test without full send pipeline
+            quiet=True,  # save as pending so we can verify update_type
         )
-        notify_mock = AsyncMock()
 
         with ExitStack() as stack:
             stack.enter_context(_patch_async_session(mock_session))
             for p in patches:
                 stack.enter_context(p)
+            # today: new hash appears (was None, now "new_today_h") → todayUpdated
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=["new_today_h", None]))
+            save_mock = stack.enter_context(patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
             result = await _check_single_queue(bot_mock, "kyiv", "1.1")
 
         assert result is True
+        save_mock.assert_awaited_once()
+        update_type_json = save_mock.await_args[0][4]
+        assert json.loads(update_type_json).get("todayUpdated") is True
 
     async def test_snapshot_none_tomorrow_appeared(self):
         """No today snapshot, new tomorrow hash exists → tomorrowAppeared in update_type."""
@@ -1639,7 +1647,8 @@ class TestCheckSingleQueueBranches:
             stack.enter_context(patch("bot.services.scheduler.calculate_schedule_hash", return_value="new_hash"))
             stack.enter_context(patch("bot.services.scheduler.get_schedule_hash", new_callable=AsyncMock, return_value=None))
             stack.enter_context(patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None))
-            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=["today_h", "tomorrow_h"]))
+            # today=None (no events today), tomorrow="new_tomorrow_h" → tomorrowAppeared
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=[None, "new_tomorrow_h"]))
             stack.enter_context(patch("bot.services.scheduler._is_quiet_hours", return_value=True))
             stack.enter_context(patch("bot.services.scheduler.invalidate_image_cache", new_callable=AsyncMock))
             stack.enter_context(patch("bot.services.scheduler._prerender_chart", new_callable=AsyncMock))
@@ -1650,6 +1659,8 @@ class TestCheckSingleQueueBranches:
 
         assert result is True
         save_mock.assert_awaited_once()
+        update_type_json = save_mock.await_args[0][4]
+        assert json.loads(update_type_json).get("tomorrowAppeared") is True
 
     async def test_snapshot_exists_today_updated(self):
         """Snapshot exists with different today_hash → todayUpdated computed from old/new events."""
@@ -1659,8 +1670,11 @@ class TestCheckSingleQueueBranches:
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
+        # today_hash=None is consistent with schedule_data={"events": []}:
+        # no events on today's date → _compute_date_hash would return None.
+        # New hash "new_today_h" differs → todayUpdated.
         snapshot_mock = SimpleNamespace(
-            today_hash="old_today_hash",
+            today_hash=None,
             tomorrow_hash=None,
             schedule_data=json.dumps({"events": []}),
         )
@@ -1675,11 +1689,15 @@ class TestCheckSingleQueueBranches:
             stack.enter_context(_patch_async_session(mock_session))
             for p in patches:
                 stack.enter_context(p)
-            # _compute_date_hash: today returns "new_today_h" (≠ "old_today_hash")
+            # today: "new_today_h" ≠ stored None → todayUpdated; tomorrow: None
             stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=["new_today_h", None]))
+            save_mock = stack.enter_context(patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
             result = await _check_single_queue(bot_mock, "kyiv", "1.1")
 
         assert result is True
+        save_mock.assert_awaited_once()
+        update_type_json = save_mock.await_args[0][4]
+        assert json.loads(update_type_json).get("todayUpdated") is True
 
     async def test_snapshot_exists_tomorrow_appeared(self):
         """Snapshot exists with null tomorrow_hash, new tomorrow appears → tomorrowAppeared."""
@@ -1689,9 +1707,12 @@ class TestCheckSingleQueueBranches:
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
+        # today_hash=None consistent with schedule_data={"events": []} (no events).
+        # tomorrow_hash=None: no tomorrow data was stored previously.
+        # New tomorrow_hash="new_tomorrow_h" → tomorrowAppeared.
         snapshot_mock = SimpleNamespace(
-            today_hash="same_today",
-            tomorrow_hash=None,   # no tomorrow before
+            today_hash=None,
+            tomorrow_hash=None,
             schedule_data=json.dumps({"events": []}),
         )
         sched, patches = self._base_patches(
@@ -1705,11 +1726,15 @@ class TestCheckSingleQueueBranches:
             stack.enter_context(_patch_async_session(mock_session))
             for p in patches:
                 stack.enter_context(p)
-            # today same, tomorrow newly appears
-            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=["same_today", "new_tomorrow_h"]))
+            # today same (both None), tomorrow newly appears → tomorrowAppeared
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", side_effect=[None, "new_tomorrow_h"]))
+            save_mock = stack.enter_context(patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
             result = await _check_single_queue(bot_mock, "kyiv", "1.1")
 
         assert result is True
+        save_mock.assert_awaited_once()
+        update_type_json = save_mock.await_args[0][4]
+        assert json.loads(update_type_json).get("tomorrowAppeared") is True
 
     async def test_power_notify_exception_suppressed(self):
         """Exception from update_power_notifications_on_schedule_change is suppressed."""
@@ -1724,9 +1749,8 @@ class TestCheckSingleQueueBranches:
             snapshot=None,
             quiet=False,
         )
-        # Override power notify to raise
-        patches = [p for p in patches if "update_power" not in str(p)]
-
+        # Apply all base patches first, then override update_power with raising version.
+        # The innermost (last-entered) patch for the same target wins.
         with ExitStack() as stack:
             stack.enter_context(_patch_async_session(mock_session))
             for p in patches:
