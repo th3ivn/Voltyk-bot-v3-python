@@ -130,6 +130,7 @@ if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
     raise ValueError(
         "WEBHOOK_SECRET is required when USE_WEBHOOK=True. "
         "Set WEBHOOK_SECRET in your environment to protect the webhook endpoint from unauthorized requests. "
-        "If you intentionally want to disable secret verification (e.g. local tunnelling), "
-        "set WEBHOOK_SECRET to any non-empty value."
+        "For local tunnelling or other development setups, you may use a dummy non-empty value, "
+        "but Telegram or your webhook client must be configured to send the same secret token. "
+        "Outside local development, use a strong random value."
     )
