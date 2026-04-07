@@ -127,13 +127,9 @@ class Settings(BaseSettings):
 settings = Settings()  # type: ignore[call-arg]
 
 if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
-    if settings.ENVIRONMENT == "production":
-        raise ValueError(
-            "WEBHOOK_SECRET is required when USE_WEBHOOK=True in production. "
-            "Set WEBHOOK_SECRET in your environment."
-        )
-    logger.warning(
-        "⚠️  USE_WEBHOOK=True but WEBHOOK_SECRET is empty — "
-        "the webhook endpoint has no authentication. "
-        "Set WEBHOOK_SECRET in your environment to protect it."
+    raise ValueError(
+        "WEBHOOK_SECRET is required when USE_WEBHOOK=True. "
+        "Set WEBHOOK_SECRET in your environment to protect the webhook endpoint from unauthorized requests. "
+        "If you intentionally want to disable secret verification (e.g. local tunnelling), "
+        "set WEBHOOK_SECRET to any non-empty value."
     )
