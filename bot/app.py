@@ -32,6 +32,7 @@ from bot.services.api import (
     load_last_commit_sha,
     set_chart_render_mode,
 )
+from bot.services.chart_generator import shutdown_chart_executor
 from bot.services.power_monitor import (
     daily_ping_error_loop,
     power_monitor_loop,
@@ -256,6 +257,7 @@ async def on_shutdown(bot: Bot) -> None:
     await asyncio.gather(*_bg_tasks, return_exceptions=True)
     _bg_tasks.clear()
 
+    shutdown_chart_executor()  # stop chart render threads
     await close_http_client()
     await _stop_health_server()
 
