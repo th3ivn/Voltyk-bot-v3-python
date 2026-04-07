@@ -1,14 +1,15 @@
 """Tests for bot/handlers/admin/broadcast.py.
 
-Coverage targets (current: 22%):
+Covered scenarios:
 - admin_broadcast: not admin, already running, normal → enter waiting_for_text
 - broadcast_text: not admin, no text, text too long, valid → preview
 - broadcast_edit_text: not admin, normal → back to waiting_for_text
 - broadcast_confirm_send: not admin, already running, normal → create_task
-- broadcast_cancel_active: not admin, not running, running → set cancel
+- broadcast_cancel_active: not admin, not running, running → set cancel flag
 - broadcast_cancel: not admin, normal → clear + edit_text
-- _run_broadcast: all sent, ForbiddenError (deactivate), RetryAfter+retry,
-  RetryAfter exceeds retries, generic exception, cancel mid-batch, summary
+- _run_broadcast: all sent, ForbiddenError (deactivate), RetryAfter + retry,
+  RetryAfter exceeds retries, generic exception, cancellation handling,
+  progress reporting, summary
 - is_broadcast_running: task=None, task done, task running
 """
 from __future__ import annotations
@@ -399,15 +400,6 @@ class TestBroadcastCancel:
 # ---------------------------------------------------------------------------
 
 
-def _mock_session_ctx(rows: list[tuple]) -> MagicMock:
-    """Return a context manager mock that yields a session returning *rows*."""
-    session = AsyncMock()
-    ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=session)
-    ctx.__aexit__ = AsyncMock(return_value=False)
-    return ctx, session
-
-
 class TestRunBroadcast:
     def setup_method(self):
         _reset_broadcast_state()
@@ -564,48 +556,27 @@ class TestRunBroadcast:
         assert "Помилок: 1" in summary_text
 
     async def test_cancel_mid_batch_stops_early(self):
-        """Setting _broadcast_cancel mid-batch stops sending."""
+        """Cancellation mid-batch: first message sent, then cancel stops further sends."""
         import bot.handlers.admin.broadcast as bcast
         from bot.handlers.admin.broadcast import _run_broadcast
 
         bot = AsyncMock()
         rows = [(1, "101"), (2, "102"), (3, "103")]
-        bcast._broadcast_cancel.set()  # cancelled before start
 
         session_ctx = MagicMock()
         session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
         session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with (
-            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
-            patch(
-                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
-                AsyncMock(return_value=rows),
-            ),
-            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
-            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
-        ):
-            mock_settings.TELEGRAM_MAX_RETRIES = 3
-            await _run_broadcast(bot, "msg", 99)
+        send_count = 0
 
-        # No messages sent (cancelled before first row)
-        user_calls = [c for c in bot.send_message.call_args_list if c[0][0] != 99]
-        assert len(user_calls) == 0
-        # But summary should still be sent
-        summary_text: str = bot.send_message.call_args_list[-1][0][1]
-        assert "зупинено" in summary_text.lower()
+        async def _send_and_cancel(user_id, text, **kw):
+            nonlocal send_count
+            send_count += 1
+            if send_count == 1:
+                # Cancel after the very first successful send
+                bcast._broadcast_cancel.set()
 
-    async def test_progress_reported_every_1000(self):
-        """Progress message sent to admin every _PROGRESS_EVERY messages."""
-        from bot.handlers.admin.broadcast import _PROGRESS_EVERY, _run_broadcast
-
-        bot = AsyncMock()
-        # 1000 users → progress at 1000, then summary
-        rows = [(i, str(1000 + i)) for i in range(1, _PROGRESS_EVERY + 1)]
-
-        session_ctx = MagicMock()
-        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
-        session_ctx.__aexit__ = AsyncMock(return_value=False)
+        bot.send_message.side_effect = _send_and_cancel
 
         with (
             patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
@@ -619,7 +590,43 @@ class TestRunBroadcast:
             mock_settings.TELEGRAM_MAX_RETRIES = 3
             await _run_broadcast(bot, "msg", 99)
 
-        # calls to admin_id=99: progress + summary = 2
+        # Only 1 user message sent (cancelled after first), then summary to admin
+        user_calls = [c for c in bot.send_message.call_args_list if c[0][0] != 99]
+        assert len(user_calls) == 1
+        # Summary must indicate cancellation
+        summary_text: str = bot.send_message.call_args_list[-1][0][1]
+        assert "зупинено" in summary_text.lower()
+
+    async def test_progress_reported_every_n(self):
+        """Progress message sent to admin at every _PROGRESS_EVERY boundary.
+
+        Uses a patched threshold of 3 to keep the test fast while still
+        verifying the exact cadence of progress reporting.
+        """
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+        progress_every = 3
+        rows = [(i, str(1000 + i)) for i in range(1, progress_every + 1)]
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast._PROGRESS_EVERY", progress_every),
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=[rows, []]),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            await _run_broadcast(bot, "msg", 99)
+
+        # calls to admin_id=99: 1 progress (at row 3) + 1 summary = 2
         admin_calls = [c for c in bot.send_message.call_args_list if c[0][0] == 99]
         assert len(admin_calls) == 2
         progress_text: str = admin_calls[0][0][1]
