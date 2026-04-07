@@ -3,11 +3,14 @@
 SVG markup is built programmatically then rendered to PNG at 2× resolution
 via CairoSVG (Cairo graphics engine — the same used by Firefox and Inkscape).
 
-CPU-bound rendering runs in a thread-pool executor.
+CPU-bound rendering runs in a dedicated bounded ``ThreadPoolExecutor``
+(``_chart_executor``) so that chart renders cannot saturate the default
+executor shared by the rest of the application (Alembic migrations, etc.).
 """
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -15,6 +18,14 @@ from bot.constants.regions import REGIONS
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Dedicated bounded pool for CPU-heavy CairoSVG rendering.
+# max_workers=4 ensures at most 4 concurrent renders — sufficient because
+# the two-level cache (L1 in-memory + L2 Redis) means >99% of user requests
+# are served from cache without any rendering.  This also prevents chart
+# renders from saturating the default executor used by other bot subsystems
+# (Alembic migrations, etc.).
+_chart_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="chart-render")
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
@@ -575,22 +586,21 @@ def _generate_sync(region: str, queue: str, schedule_data: dict) -> bytes | None
 async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) -> bytes | None:
     """Render a PNG schedule chart via SVG + CairoSVG.
 
-    Drawing is CPU-bound and runs in the default thread-pool executor so the
-    asyncio event loop is never blocked.
+    Drawing is CPU-bound and runs in ``_chart_executor`` — a dedicated
+    ``ThreadPoolExecutor`` — so the asyncio event loop is never blocked and
+    chart renders cannot starve other bot operations that share the default
+    executor (Alembic migrations, etc.).
 
     Note: ``asyncio.wait_for`` cancels the *awaitable* (unblocks the coroutine)
     but the underlying thread in the pool continues running until it finishes or
     the process exits — Python threads cannot be forcibly killed.  The timeout
     therefore prevents the *caller* from hanging indefinitely, but a stuck
     CairoSVG/Pillow render still occupies one pool thread until it returns.
-    For production deployments with many concurrent requests consider using a
-    dedicated ``ThreadPoolExecutor`` with a small ``max_workers`` bound so that
-    stuck renders do not starve other bot operations.
     """
     try:
         loop = asyncio.get_running_loop()
         return await asyncio.wait_for(
-            loop.run_in_executor(None, _generate_sync, region, queue, schedule_data),
+            loop.run_in_executor(_chart_executor, _generate_sync, region, queue, schedule_data),
             timeout=30.0,
         )
     except asyncio.TimeoutError:
@@ -599,3 +609,13 @@ async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) 
     except Exception as e:
         logger.warning("Chart generation failed for %s/%s: %s", region, queue, e)
         return None
+
+
+def shutdown_chart_executor() -> None:
+    """Shut down the chart rendering thread pool.
+
+    Call once at bot shutdown. Uses wait=False so in-flight renders
+    do not block the shutdown sequence — threads will finish naturally
+    or be killed when the process exits.
+    """
+    _chart_executor.shutdown(wait=False)
