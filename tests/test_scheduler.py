@@ -972,6 +972,8 @@ class TestDeactivateBlockedUser:
             await _deactivate_blocked_user(999)
 
         mock_logger.warning.assert_called_once()
+        warning_args, _ = mock_logger.warning.call_args
+        assert any("999" in str(arg) for arg in warning_args)
 
 
 # ─── _get_schedule_interval ───────────────────────────────────────────────
@@ -1385,7 +1387,7 @@ class TestSendScheduleNotification:
                 stack.enter_context(p)
             await _send_schedule_notification(bot, user, {}, {}, {})
 
-        bot.send_message.assert_called_once()
+        bot.send_message.assert_awaited_once()
 
     async def test_sends_photo_when_image_available(self):
         from bot.services.scheduler import _send_schedule_notification
@@ -1407,7 +1409,7 @@ class TestSendScheduleNotification:
             )
             await _send_schedule_notification(bot, user, {}, {}, {})
 
-        bot.send_photo.assert_called_once()
+        bot.send_photo.assert_awaited_once()
 
     async def test_forbidden_error_deactivates_user(self):
         from bot.services.scheduler import _send_schedule_notification
@@ -1473,7 +1475,7 @@ class TestSendReminder:
             )
 
         assert result is True
-        bot.send_message.assert_called_once()
+        bot.send_message.assert_awaited_once()
 
     async def test_forbidden_deactivates_user(self):
         from bot.services.scheduler import _send_reminder
@@ -1532,4 +1534,4 @@ class TestSendReminder:
             )
 
         assert result is True
-        assert bot.send_message.call_count == 2
+        assert bot.send_message.await_count == 2
