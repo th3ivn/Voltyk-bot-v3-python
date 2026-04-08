@@ -690,7 +690,7 @@ class TestHelpKeyboards:
         btns = _all_buttons(kb)
         url_btns = [b for b in btns if b.url is not None]
         assert len(url_btns) == 1
-        assert "faq.example.com" in url_btns[0].url
+        assert url_btns[0].url == "https://faq.example.com"
 
     def test_get_support_keyboard_no_url(self):
         kb = get_support_keyboard()
@@ -705,7 +705,7 @@ class TestHelpKeyboards:
         btns = _all_buttons(kb)
         url_btns = [b for b in btns if b.url is not None]
         assert len(url_btns) == 1
-        assert "support.example.com" in url_btns[0].url
+        assert url_btns[0].url == "https://support.example.com"
 
     def test_get_instructions_keyboard(self):
         kb = get_instructions_keyboard()
@@ -790,7 +790,7 @@ class TestIpKeyboards:
         btns = _all_buttons(kb)
         url_btns = [b for b in btns if b.url is not None]
         assert len(url_btns) == 1
-        assert "support.example.com" in url_btns[0].url
+        assert url_btns[0].url == "https://support.example.com"
 
     def test_get_ip_ping_result_keyboard(self):
         kb = get_ip_ping_result_keyboard()
@@ -822,7 +822,7 @@ class TestIpKeyboards:
         btns = _all_buttons(kb)
         url_btns = [b for b in btns if b.url is not None]
         assert len(url_btns) == 1
-        assert "support.example.com" in url_btns[0].url
+        assert url_btns[0].url == "https://support.example.com"
 
 
 # ===========================================================================
