@@ -1160,18 +1160,25 @@ class TestConfirmStateDebounce:
 
         handle_mock = AsyncMock()
 
+        # When debounce_s == 0 the code falls back to settings.POWER_MIN_STABILIZATION_S
+        # (30 s).  Patch asyncio.sleep inside the module so the closure finishes instantly.
+        real_sleep = asyncio.sleep
+
+        async def _fast_sleep(s):
+            await real_sleep(0)
+
         with (
             patch("bot.services.power_monitor.check_router_http", return_value=True),
             _patch_pm_async_session(mock_session),
             patch("bot.services.power_monitor._get_debounce_seconds", return_value=0),
             patch("bot.services.power_monitor._handle_power_state_change", handle_mock),
+            patch("bot.services.power_monitor.asyncio.sleep", side_effect=_fast_sleep),
         ):
             await _check_user_power(bot, user)
             task = pm._user_states["111222333"]["debounce_task"]
             assert task is not None
-            # Let the task run
-            await asyncio.sleep(0.05)
-            await asyncio.sleep(0.05)
+            # Let the debounce task complete
+            await real_sleep(0.05)
 
         handle_mock.assert_called_once()
 
@@ -1543,19 +1550,27 @@ class TestPowerMonitorLoop:
         from bot.services.power_monitor import power_monitor_loop
 
         bot = AsyncMock()
-        pm._running = False  # Stop after first iteration
 
-        async def _slow_check(b):
+        # power_monitor_loop sets _running = True on entry, so we must stop
+        # it from inside the loop.  Patch asyncio.sleep to flip _running off.
+        real_sleep = asyncio.sleep
+
+        async def _stop_on_sleep(s):
             pm._running = False
-            raise asyncio.TimeoutError()
+            await real_sleep(0)
+
+        mock_session = _make_mock_session()
 
         with (
+            _patch_pm_async_session(mock_session),
             patch("bot.services.power_monitor._restore_user_states", new_callable=AsyncMock),
             patch("bot.services.power_monitor._restart_pending_debounce_tasks", new_callable=AsyncMock),
             patch("bot.services.power_monitor.asyncio.wait_for", side_effect=asyncio.TimeoutError()),
             patch("bot.services.power_monitor._check_all_ips", new_callable=AsyncMock),
+            patch("bot.services.power_monitor._get_check_interval", return_value=0),
+            patch("bot.services.power_monitor.asyncio.sleep", side_effect=_stop_on_sleep),
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
         ):
-            # Run with _running set to False so loop exits immediately
             await power_monitor_loop(bot)
 
     async def test_loop_check_exception_handled(self):
@@ -1695,7 +1710,7 @@ class TestSendDailyPingErrorAlertsExtra:
         bot = AsyncMock()
         # Alert sent 1 hour ago (naive datetime) → within 24h → skip
         from datetime import timedelta
-        recent_naive = datetime.utcnow() - timedelta(hours=1)  # naive, recent
+        recent_naive = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)  # naive, recent
         alert = SimpleNamespace(
             telegram_id="111222333",
             router_ip="8.8.8.8",
@@ -1743,23 +1758,17 @@ class TestSendDailyPingErrorAlertsExtra:
         from bot.services.power_monitor import _send_daily_ping_error_alerts
 
         bot = AsyncMock()
-
-        # Alert that causes an exception when accessing attributes
-        class BadAlert:
-            @property
-            def telegram_id(self):
-                raise RuntimeError("bad alert")
-
-            last_alert_at = None
-            router_ip = "1.2.3.4"
+        # Trigger exception in check_router_http (outside the inner try/except)
+        alert = SimpleNamespace(telegram_id="999", router_ip="1.2.3.4", last_alert_at=None)
 
         mock_session = _make_mock_session()
 
         with (
             _patch_pm_async_session(mock_session),
-            patch("bot.services.power_monitor.get_active_ping_error_alerts", return_value=[BadAlert()]),
+            patch("bot.services.power_monitor.get_active_ping_error_alerts", return_value=[alert]),
+            patch("bot.services.power_monitor.check_router_http", side_effect=RuntimeError("network boom")),
         ):
-            await _send_daily_ping_error_alerts(bot)
+            await _send_daily_ping_error_alerts(bot)  # Should not raise
 
 
 # ─── update_power_notifications_on_schedule_change ────────────────────────
@@ -2233,7 +2242,7 @@ class TestUpdatePowerNotificationsOnScheduleChange:
         bot.edit_message_text = AsyncMock()
         mock_session = _make_mock_session()
 
-        naive_changed_at = datetime.utcnow() - timedelta(minutes=30)
+        naive_changed_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
 
         user = SimpleNamespace(
             telegram_id="111222333",

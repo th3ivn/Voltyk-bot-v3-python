@@ -181,7 +181,6 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
-
     has_update, _ = await check_source_repo_updated()
     if not has_update:
         logger.debug("No new commits, skipping schedule check")
@@ -372,14 +371,16 @@ async def _check_single_queue(
 
     quiet = _is_quiet_hours()
 
-    # Single write session — update hash, snapshot, and optionally queue notification
+    # Update the hash immediately so the next checker cycle does not re-process
+    # the same schedule data.  The snapshot is written *after* notifications are
+    # sent so that reminders (which read from the snapshot) cannot race ahead.
     async with async_session() as session:
         await update_schedule_check_time(session, region, queue, last_hash=new_all_hash)
-        await upsert_daily_snapshot(
-            session, region, queue, today_date,
-            sched_data_json, new_today_hash, new_tomorrow_hash,
-        )
         if quiet:
+            await upsert_daily_snapshot(
+                session, region, queue, today_date,
+                sched_data_json, new_today_hash, new_tomorrow_hash,
+            )
             await save_pending_notification(
                 session, region, queue, sched_data_json, update_type_json, changes_json
             )
@@ -397,9 +398,13 @@ async def _check_single_queue(
         bot, users_in_queue, sched, update_type, changes, is_daily_planned=send_as_daily_planned
     )
 
-    # Supersede any pending quiet-hours notifications for this pair — they are
-    # now outdated because a newer notification was just sent by the checker.
+    # Now that notifications are sent, persist the snapshot so reminders can
+    # see the new schedule data.
     async with async_session() as session:
+        await upsert_daily_snapshot(
+            session, region, queue, today_date,
+            sched_data_json, new_today_hash, new_tomorrow_hash,
+        )
         await mark_pending_notifications_sent(session, region, queue)
         await session.commit()
 
@@ -449,20 +454,34 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
                         is_daily_planned_flag = bool(update_type.get("initial") or update_type.get("dailyPlanned"))
 
+                        # Re-fetch fresh data so the chart renders with today's
+                        # dates (pending data was saved the night before and
+                        # still references yesterday/today instead of today/tomorrow).
+                        fresh_data = await fetch_schedule_data(region, force_refresh=True)
+                        if fresh_data:
+                            fresh_sched = parse_schedule_for_queue(fresh_data, queue)
+                        else:
+                            fresh_sched = sched
+
+                        # Invalidate stale chart cache and pre-render with fresh data
+                        await invalidate_image_cache(region, queue)
+                        await _prerender_chart(region, queue, fresh_sched)
+
                         await _send_notifications_to_users(
-                            bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
+                            bot, users_in_queue, fresh_sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                         )
 
-                        sent_hash = calculate_schedule_hash(sched.get("events", []))
+                        sent_hash = calculate_schedule_hash(fresh_sched.get("events", []))
                         _snap_today = _kyiv_date_str()
                         _snap_tomorrow = _tomorrow_date_str()
-                        _snap_events = sched.get("events", [])
+                        _snap_events = fresh_sched.get("events", [])
+                        _snap_data_json = json.dumps(fresh_sched)
                         async with async_session() as session:
                             await mark_pending_notifications_sent(session, region, queue)
                             await update_schedule_check_time(session, region, queue, last_hash=sent_hash)
                             await upsert_daily_snapshot(
                                 session, region, queue, _snap_today,
-                                notif.schedule_data,
+                                _snap_data_json,
                                 _compute_date_hash(_snap_events, _snap_today),
                                 _compute_date_hash(_snap_events, _snap_tomorrow),
                             )
@@ -552,10 +571,23 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
 
     for region, queue in all_pairs:
         try:
-            raw = await fetch_schedule_data(region)
-            if not raw:
-                continue
-            sched = parse_schedule_for_queue(raw, queue)
+            # Prefer the DB snapshot; fall back to live fetch (same as
+            # _check_and_send_reminders).
+            async with async_session() as session:
+                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
+            if snapshot is not None:
+                try:
+                    sched = json.loads(snapshot.schedule_data)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning("Corrupt snapshot for %s/%s in catch-up, falling back", region, queue)
+                    sched = None
+            else:
+                sched = None
+            if sched is None:
+                raw = await fetch_schedule_data(region)
+                if not raw:
+                    continue
+                sched = parse_schedule_for_queue(raw, queue)
             next_event = find_next_event(sched)
             if not next_event:
                 continue
@@ -971,10 +1003,25 @@ async def _check_and_send_reminders(bot: Bot) -> None:
     # ── 3. For each (region, queue) check schedule and fire reminders ──
     for region, queue in all_pairs:
         try:
-            raw = await fetch_schedule_data(region)
-            if not raw:
-                continue
-            sched = parse_schedule_for_queue(raw, queue)
+            # Prefer the DB snapshot (updated only after the main notification
+            # is sent) so that reminders never race ahead of schedule-change
+            # notifications.  Fall back to a live fetch for pairs that have no
+            # snapshot yet (e.g. after restart or new region/queue).
+            async with async_session() as session:
+                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
+            if snapshot is not None:
+                try:
+                    sched = json.loads(snapshot.schedule_data)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning("Corrupt snapshot for %s/%s, falling back to live fetch", region, queue)
+                    sched = None
+            else:
+                sched = None
+            if sched is None:
+                raw = await fetch_schedule_data(region)
+                if not raw:
+                    continue
+                sched = parse_schedule_for_queue(raw, queue)
             next_event = find_next_event(sched)
             if not next_event:
                 continue
