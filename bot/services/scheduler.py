@@ -454,20 +454,34 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
                         is_daily_planned_flag = bool(update_type.get("initial") or update_type.get("dailyPlanned"))
 
+                        # Re-fetch fresh data so the chart renders with today's
+                        # dates (pending data was saved the night before and
+                        # still references yesterday/today instead of today/tomorrow).
+                        fresh_data = await fetch_schedule_data(region, force_refresh=True)
+                        if fresh_data:
+                            fresh_sched = parse_schedule_for_queue(fresh_data, queue)
+                        else:
+                            fresh_sched = sched
+
+                        # Invalidate stale chart cache and pre-render with fresh data
+                        await invalidate_image_cache(region, queue)
+                        await _prerender_chart(region, queue, fresh_sched)
+
                         await _send_notifications_to_users(
-                            bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
+                            bot, users_in_queue, fresh_sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                         )
 
-                        sent_hash = calculate_schedule_hash(sched.get("events", []))
+                        sent_hash = calculate_schedule_hash(fresh_sched.get("events", []))
                         _snap_today = _kyiv_date_str()
                         _snap_tomorrow = _tomorrow_date_str()
-                        _snap_events = sched.get("events", [])
+                        _snap_events = fresh_sched.get("events", [])
+                        _snap_data_json = json.dumps(fresh_sched)
                         async with async_session() as session:
                             await mark_pending_notifications_sent(session, region, queue)
                             await update_schedule_check_time(session, region, queue, last_hash=sent_hash)
                             await upsert_daily_snapshot(
                                 session, region, queue, _snap_today,
-                                notif.schedule_data,
+                                _snap_data_json,
                                 _compute_date_hash(_snap_events, _snap_today),
                                 _compute_date_hash(_snap_events, _snap_tomorrow),
                             )
