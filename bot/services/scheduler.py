@@ -552,10 +552,17 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
 
     for region, queue in all_pairs:
         try:
-            raw = await fetch_schedule_data(region)
-            if not raw:
+            # Use the DB snapshot so reminders only see data that has already
+            # been processed by the schedule checker (same rationale as in
+            # _check_and_send_reminders).
+            async with async_session() as session:
+                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
+            if snapshot is None:
                 continue
-            sched = parse_schedule_for_queue(raw, queue)
+            try:
+                sched = json.loads(snapshot.schedule_data)
+            except Exception:
+                continue
             next_event = find_next_event(sched)
             if not next_event:
                 continue
@@ -971,10 +978,18 @@ async def _check_and_send_reminders(bot: Bot) -> None:
     # ── 3. For each (region, queue) check schedule and fire reminders ──
     for region, queue in all_pairs:
         try:
-            raw = await fetch_schedule_data(region)
-            if not raw:
+            # Use the DB snapshot (updated only after the main notification is
+            # sent) so that reminders never race ahead of schedule-change
+            # notifications.  If no snapshot exists yet, skip this pair — the
+            # schedule checker hasn't processed it.
+            async with async_session() as session:
+                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
+            if snapshot is None:
                 continue
-            sched = parse_schedule_for_queue(raw, queue)
+            try:
+                sched = json.loads(snapshot.schedule_data)
+            except Exception:
+                continue
             next_event = find_next_event(sched)
             if not next_event:
                 continue
