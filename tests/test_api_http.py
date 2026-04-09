@@ -164,8 +164,10 @@ class TestFetchScheduleData:
         sha_url = "https://example.com/abc123/data/kyiv.json"
 
         old_sha = api_mod._last_commit_sha
+        old_fresh = api_mod._commit_sha_fresh
         try:
             api_mod._last_commit_sha = "abc123"
+            api_mod._commit_sha_fresh = True
             with (
                 patch("bot.services.api.settings") as mock_settings,
                 aioresponses() as m,
@@ -183,6 +185,7 @@ class TestFetchScheduleData:
             assert result == payload2
         finally:
             api_mod._last_commit_sha = old_sha
+            api_mod._commit_sha_fresh = old_fresh
 
     async def test_network_error_then_success_on_retry(self):
         """First attempt raises ClientError; second attempt succeeds."""

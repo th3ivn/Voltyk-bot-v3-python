@@ -58,7 +58,6 @@ _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background
 KYIV_TZ = settings.timezone
 
 
-
 async def _deactivate_blocked_user(telegram_id: int | str) -> None:
     """Deactivate a user who has blocked the bot.
 
