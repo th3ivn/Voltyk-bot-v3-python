@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
@@ -43,6 +42,11 @@ def get_chart_render_on_demand() -> bool:
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
 _last_etag: str | None = None
+
+
+def get_last_commit_sha() -> str | None:
+    """Return the last known commit SHA (used to pin raw URLs to a specific commit)."""
+    return _last_commit_sha
 
 
 async def init_http_client() -> None:
@@ -210,14 +214,11 @@ async def fetch_schedule_data(
                 return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
-    if force_refresh:
-        # Cache-busting: raw.githubusercontent.com CDN ignores Cache-Control
-        # headers but respects unique query strings.  Without this, the CDN
-        # can serve stale data for up to 5 minutes after a commit.
-        url += f"?_cb={int(time.time() * 1000)}"
+    if force_refresh and _last_commit_sha:
+        # Pin the URL to the exact commit SHA so the CDN returns the right
+        # version immediately, instead of a stale /main/ cached copy.
+        url = url.replace("/main/", f"/{_last_commit_sha}/")
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
-    if force_refresh:
-        req_headers["Cache-Control"] = "no-cache, no-store"
 
     retry_delays = [1, 3]
 
@@ -332,8 +333,8 @@ async def fetch_schedule_image(
     # ── Fallback: GitHub pre-rendered PNG ─────────────────────────────────────
     queue_dashed = queue.replace(".", "-")
     url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
-    # Cache-busting for GitHub CDN (same reason as fetch_schedule_data)
-    url += f"?_cb={int(time.time() * 1000)}"
+    if _last_commit_sha:
+        url = url.replace("/main/", f"/{_last_commit_sha}/")
 
     try:
         _owned = False
@@ -346,7 +347,7 @@ async def fetch_schedule_image(
             async with _session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
-                headers={"User-Agent": "SvitloCheck-Bot/4.0", "Cache-Control": "no-cache, no-store"},
+                headers={"User-Agent": "SvitloCheck-Bot/4.0"},
             ) as resp:
                 if resp.status == 200:
                     data = await resp.read()

@@ -57,13 +57,6 @@ DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = settings.timezone
 
-# After a new commit is detected, continue fetching fresh data for this many
-# extra cycles even when check_source_repo_updated() returns (False, None).
-# This guards against GitHub raw CDN serving stale JSON for a few minutes
-# after the commit lands.  Without it the bot sees "same hash" on the CDN-
-# cached response, records "no change", and never re-checks.
-_CDN_GRACE_CYCLES = 5
-_cdn_grace_remaining = 0
 
 
 async def _deactivate_blocked_user(telegram_id: int | str) -> None:
@@ -189,21 +182,11 @@ async def _check_all_schedules(
     bot: Bot, interval: int = DEFAULT_SCHEDULE_CHECK_INTERVAL_S
 ) -> None:
     """Fetch schedule for each unique region/queue pair and notify on changes."""
-    global _cdn_grace_remaining
-
     has_update, _ = await check_source_repo_updated()
-    if has_update:
-        # New commit detected — start a grace window so that if the CDN
-        # still serves stale data on this cycle, we keep re-fetching for
-        # several more cycles until the CDN catches up.
-        _cdn_grace_remaining = _CDN_GRACE_CYCLES
-        logger.info("Source repo updated, checking all schedules (grace=%d)", _cdn_grace_remaining)
-    elif _cdn_grace_remaining > 0:
-        _cdn_grace_remaining -= 1
-        logger.info("No new commits, but CDN grace active (%d left) — re-fetching", _cdn_grace_remaining)
-    else:
+    if not has_update:
         logger.debug("No new commits, skipping schedule check")
         return
+    logger.info("Source repo updated, checking all schedules")
 
     # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
     # cannot race with the checker and send duplicate notifications.

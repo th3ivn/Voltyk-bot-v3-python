@@ -9,7 +9,6 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -155,29 +154,35 @@ class TestFetchScheduleData:
 
     async def test_force_refresh_bypasses_cache(self):
         """force_refresh=True skips the cache even if data is fresh."""
+        import bot.services.api as api_mod
         from bot.services.api import fetch_schedule_data
 
         payload1 = _make_raw_schedule()
         payload2 = {"fact": {"data": {}, "updated": "02.01.2024 10:00"}}
         url = "https://example.com/kyiv.json"
-        # force_refresh appends ?_cb=<ms> for CDN cache-busting
-        url_pattern = re.compile(r"^https://example\.com/kyiv\.json(\?_cb=\d+)?$")
+        # force_refresh pins URL to commit SHA: /main/ → /{sha}/
+        sha_url = "https://example.com/abc123/data/kyiv.json"
 
-        with (
-            patch("bot.services.api.settings") as mock_settings,
-            aioresponses() as m,
-        ):
-            mock_settings.DATA_URL_TEMPLATE = "https://example.com/{region}.json"
-            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
-            mock_settings.GITHUB_TOKEN = ""
-            m.get(url, payload=payload1, status=200)
-            await fetch_schedule_data("kyiv")
+        old_sha = api_mod._last_commit_sha
+        try:
+            api_mod._last_commit_sha = "abc123"
+            with (
+                patch("bot.services.api.settings") as mock_settings,
+                aioresponses() as m,
+            ):
+                mock_settings.DATA_URL_TEMPLATE = "https://example.com/main/data/{region}.json"
+                mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+                mock_settings.GITHUB_TOKEN = ""
+                m.get("https://example.com/main/data/kyiv.json", payload=payload1, status=200)
+                await fetch_schedule_data("kyiv")
 
-            # Second fetch with force_refresh — should hit HTTP again (URL has ?_cb=...)
-            m.get(url_pattern, payload=payload2, status=200)
-            result = await fetch_schedule_data("kyiv", force_refresh=True)
+                # Second fetch with force_refresh — URL pinned to SHA
+                m.get(sha_url, payload=payload2, status=200)
+                result = await fetch_schedule_data("kyiv", force_refresh=True)
 
-        assert result == payload2
+            assert result == payload2
+        finally:
+            api_mod._last_commit_sha = old_sha
 
     async def test_network_error_then_success_on_retry(self):
         """First attempt raises ClientError; second attempt succeeds."""
