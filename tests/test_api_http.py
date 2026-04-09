@@ -9,6 +9,7 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -159,6 +160,8 @@ class TestFetchScheduleData:
         payload1 = _make_raw_schedule()
         payload2 = {"fact": {"data": {}, "updated": "02.01.2024 10:00"}}
         url = "https://example.com/kyiv.json"
+        # force_refresh appends ?_cb=<ms> for CDN cache-busting
+        url_pattern = re.compile(r"^https://example\.com/kyiv\.json(\?_cb=\d+)?$")
 
         with (
             patch("bot.services.api.settings") as mock_settings,
@@ -170,8 +173,8 @@ class TestFetchScheduleData:
             m.get(url, payload=payload1, status=200)
             await fetch_schedule_data("kyiv")
 
-            # Second fetch with force_refresh — should hit HTTP again
-            m.get(url, payload=payload2, status=200)
+            # Second fetch with force_refresh — should hit HTTP again (URL has ?_cb=...)
+            m.get(url_pattern, payload=payload2, status=200)
             result = await fetch_schedule_data("kyiv", force_refresh=True)
 
         assert result == payload2

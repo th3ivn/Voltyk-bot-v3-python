@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
@@ -209,6 +210,11 @@ async def fetch_schedule_data(
                 return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
+    if force_refresh:
+        # Cache-busting: raw.githubusercontent.com CDN ignores Cache-Control
+        # headers but respects unique query strings.  Without this, the CDN
+        # can serve stale data for up to 5 minutes after a commit.
+        url += f"?_cb={int(time.time() * 1000)}"
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
     if force_refresh:
         req_headers["Cache-Control"] = "no-cache, no-store"
@@ -326,6 +332,8 @@ async def fetch_schedule_image(
     # ── Fallback: GitHub pre-rendered PNG ─────────────────────────────────────
     queue_dashed = queue.replace(".", "-")
     url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
+    # Cache-busting for GitHub CDN (same reason as fetch_schedule_data)
+    url += f"?_cb={int(time.time() * 1000)}"
 
     try:
         _owned = False
@@ -338,7 +346,7 @@ async def fetch_schedule_image(
             async with _session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=30),
-                headers={"User-Agent": "SvitloCheck-Bot/4.0"},
+                headers={"User-Agent": "SvitloCheck-Bot/4.0", "Cache-Control": "no-cache, no-store"},
             ) as resp:
                 if resp.status == 200:
                     data = await resp.read()
