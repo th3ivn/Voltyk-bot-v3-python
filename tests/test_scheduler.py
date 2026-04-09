@@ -802,6 +802,7 @@ class TestCheckAndSendReminders:
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
              patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
             await _check_and_send_reminders(bot_mock)
@@ -1837,7 +1838,7 @@ class TestCatchUpMissedReminders:
 
         mock_send.assert_not_called()
 
-    async def test_no_snapshot_skips_pair(self):
+    async def test_no_snapshot_and_no_data_skips_pair(self):
         from bot.services.scheduler import catch_up_missed_reminders
 
         bot_mock = AsyncMock()
@@ -1846,6 +1847,7 @@ class TestCatchUpMissedReminders:
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
              patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
             await catch_up_missed_reminders(bot_mock)
 

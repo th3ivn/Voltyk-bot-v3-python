@@ -159,7 +159,6 @@ class TestFetchScheduleData:
 
         payload1 = _make_raw_schedule()
         payload2 = {"fact": {"data": {}, "updated": "02.01.2024 10:00"}}
-        url = "https://example.com/kyiv.json"
         # force_refresh pins URL to commit SHA: /main/ → /{sha}/
         sha_url = "https://example.com/abc123/data/kyiv.json"
 
