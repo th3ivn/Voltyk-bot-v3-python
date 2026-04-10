@@ -571,23 +571,9 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
 
     for region, queue in all_pairs:
         try:
-            # Prefer the DB snapshot; fall back to live fetch (same as
-            # _check_and_send_reminders).
-            async with async_session() as session:
-                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
-            if snapshot is not None:
-                try:
-                    sched = json.loads(snapshot.schedule_data)
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning("Corrupt snapshot for %s/%s in catch-up, falling back", region, queue)
-                    sched = None
-            else:
-                sched = None
+            sched = await _load_schedule_for_reminders(region, queue, context="catch-up")
             if sched is None:
-                raw = await fetch_schedule_data(region)
-                if not raw:
-                    continue
-                sched = parse_schedule_for_queue(raw, queue)
+                continue
             next_event = find_next_event(sched)
             if not next_event:
                 continue
@@ -961,6 +947,38 @@ def stop_scheduler() -> None:
 
 # ─── Reminder notifications ───────────────────────────────────────────────
 
+
+async def _load_schedule_for_reminders(
+    region: str, queue: str, *, context: str = "reminder"
+) -> dict | None:
+    """Load schedule data for reminder checks.
+
+    Prefers the DB snapshot (written only after the main notification is sent)
+    so reminders never race ahead of schedule-change notifications.
+    Falls back to a live API fetch for pairs without a snapshot (e.g. after
+    restart or for a newly added region/queue).
+
+    ``context`` is used only for log tagging so operators can distinguish
+    between the regular reminder loop and the catch-up path when debugging.
+    """
+    async with async_session() as session:
+        snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
+    if snapshot is not None:
+        try:
+            return json.loads(snapshot.schedule_data)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "Corrupt snapshot for %s/%s in %s, falling back to live fetch",
+                region,
+                queue,
+                context,
+            )
+    raw = await fetch_schedule_data(region)
+    if not raw:
+        return None
+    return parse_schedule_for_queue(raw, queue)
+
+
 _REMIND_MINUTES = [60, 30, 15]
 _REMIND_FIELDS     = {60: "remind_1h",    30: "remind_30m",    15: "remind_15m"}
 _CH_REMIND_FIELDS  = {60: "ch_remind_1h", 30: "ch_remind_30m", 15: "ch_remind_15m"}
@@ -1003,25 +1021,9 @@ async def _check_and_send_reminders(bot: Bot) -> None:
     # ── 3. For each (region, queue) check schedule and fire reminders ──
     for region, queue in all_pairs:
         try:
-            # Prefer the DB snapshot (updated only after the main notification
-            # is sent) so that reminders never race ahead of schedule-change
-            # notifications.  Fall back to a live fetch for pairs that have no
-            # snapshot yet (e.g. after restart or new region/queue).
-            async with async_session() as session:
-                snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
-            if snapshot is not None:
-                try:
-                    sched = json.loads(snapshot.schedule_data)
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning("Corrupt snapshot for %s/%s, falling back to live fetch", region, queue)
-                    sched = None
-            else:
-                sched = None
+            sched = await _load_schedule_for_reminders(region, queue)
             if sched is None:
-                raw = await fetch_schedule_data(region)
-                if not raw:
-                    continue
-                sched = parse_schedule_for_queue(raw, queue)
+                continue
             next_event = find_next_event(sched)
             if not next_event:
                 continue
