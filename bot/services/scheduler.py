@@ -503,6 +503,13 @@ async def flush_pending_notifications(bot: Bot) -> None:
                     continue
                 sched = parse_schedule_for_queue(data, queue)
 
+                # Invalidate stale chart cache and pre-render with fresh data
+                # so the 06:00 daily-planned message carries a chart showing
+                # today/tomorrow instead of the yesterday/today chart that
+                # Redis still holds from the previous day's last render.
+                await invalidate_image_cache(region, queue)
+                await _prerender_chart(region, queue, sched)
+
                 await _send_notifications_to_users(
                     bot, users_in_queue, sched, {}, {"added": [], "removed": []}, is_daily_planned=True
                 )
