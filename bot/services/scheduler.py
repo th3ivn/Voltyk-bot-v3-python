@@ -461,6 +461,12 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         if fresh_data:
                             fresh_sched = parse_schedule_for_queue(fresh_data, queue)
                         else:
+                            logger.warning(
+                                "06:00 flush: fresh fetch failed for %s/%s, "
+                                "falling back to overnight snapshot "
+                                "(chart may show yesterday's dates)",
+                                region, queue,
+                            )
                             fresh_sched = sched
 
                         # Invalidate stale chart cache and pre-render with fresh data
