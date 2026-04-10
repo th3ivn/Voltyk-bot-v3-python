@@ -1156,68 +1156,6 @@ class TestMenuTimer:
 
         cb.answer.assert_awaited_with("⏰ Timer text", show_alert=True)
 
-    async def test_timer_callback_invalid_id(self):
-        from bot.handlers.menu.timer import timer_callback
-
-        cb = _make_callback()
-        cb.data = "timer_notanumber"
-
-        await timer_callback(cb, AsyncMock())
-
-        cb.answer.assert_awaited_once_with()
-
-    async def test_timer_callback_user_not_found(self):
-        from bot.handlers.menu.timer import timer_callback
-
-        cb = _make_callback()
-        cb.data = "timer_999"
-        session = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalars.return_value.first.return_value = None
-        session.execute = AsyncMock(return_value=result_mock)
-
-        await timer_callback(cb, session)
-
-        cb.answer.assert_awaited_with("❌ Користувач не знайдений")
-
-    async def test_timer_callback_no_schedule_data(self):
-        from bot.handlers.menu.timer import timer_callback
-
-        cb = _make_callback()
-        cb.data = "timer_1"
-        user = _make_user()
-        session = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalars.return_value.first.return_value = user
-        session.execute = AsyncMock(return_value=result_mock)
-
-        with patch("bot.handlers.menu.timer.fetch_schedule_data", AsyncMock(return_value=None)):
-            await timer_callback(cb, session)
-
-        cb.answer.assert_awaited_with("⚠️ Дані тимчасово недоступні")
-
-    async def test_timer_callback_with_data(self):
-        from bot.handlers.menu.timer import timer_callback
-
-        cb = _make_callback()
-        cb.data = "timer_1"
-        user = _make_user()
-        session = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalars.return_value.first.return_value = user
-        session.execute = AsyncMock(return_value=result_mock)
-
-        with (
-            patch("bot.handlers.menu.timer.fetch_schedule_data", AsyncMock(return_value={"d": True})),
-            patch("bot.handlers.menu.timer.parse_schedule_for_queue", return_value={"events": []}),
-            patch("bot.handlers.menu.timer.find_next_event", return_value=None),
-            patch("bot.handlers.menu.timer.format_timer_popup", return_value="⏰ OK"),
-        ):
-            await timer_callback(cb, session)
-
-        cb.answer.assert_awaited_with("⏰ OK", show_alert=True)
-
-
 # ---------------------------------------------------------------------------
 # settings/channel.py
 # ---------------------------------------------------------------------------

@@ -106,9 +106,13 @@ async def handle_edit_title(message: Message, state: FSMContext, session: AsyncS
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.channel_user_title = title
-        await apply_channel_branding(message.bot, user.channel_config)
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+
+    user.channel_config.channel_user_title = title
+    await apply_channel_branding(message.bot, user.channel_config)
 
     await state.clear()
     await message.answer("✅ Назву каналу змінено!")
@@ -127,9 +131,13 @@ async def handle_edit_description(message: Message, state: FSMContext, session: 
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.channel_user_description = desc
-        await apply_channel_branding(message.bot, user.channel_config)
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+
+    user.channel_config.channel_user_description = desc
+    await apply_channel_branding(message.bot, user.channel_config)
 
     await state.clear()
     await message.answer("✅ Опис каналу змінено!")
@@ -140,8 +148,11 @@ async def handle_schedule_caption(message: Message, state: FSMContext, session: 
     if not message.text:
         return
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.schedule_caption = message.text.strip()
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+    user.channel_config.schedule_caption = message.text.strip()
     await state.clear()
     await message.answer("✅ Шаблон підпису оновлено!")
 
@@ -151,8 +162,11 @@ async def handle_period_format(message: Message, state: FSMContext, session: Asy
     if not message.text:
         return
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.period_format = message.text.strip()
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+    user.channel_config.period_format = message.text.strip()
     await state.clear()
     await message.answer("✅ Формат періодів оновлено!")
 
@@ -162,8 +176,11 @@ async def handle_power_off_text(message: Message, state: FSMContext, session: As
     if not message.text:
         return
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.power_off_text = message.text.strip()
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+    user.channel_config.power_off_text = message.text.strip()
     await state.clear()
     await message.answer("✅ Текст відключення оновлено!")
 
@@ -173,8 +190,11 @@ async def handle_power_on_text(message: Message, state: FSMContext, session: Asy
     if not message.text:
         return
     user = await get_user_by_telegram_id(session, message.from_user.id)
-    if user and user.channel_config:
-        user.channel_config.power_on_text = message.text.strip()
+    if not user or not user.channel_config:
+        await state.clear()
+        await message.reply("❌ Помилка. Спробуйте /start")
+        return
+    user.channel_config.power_on_text = message.text.strip()
     await state.clear()
     await message.answer("✅ Текст включення оновлено!")
 
