@@ -571,7 +571,7 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
 
     for region, queue in all_pairs:
         try:
-            sched = await _load_schedule_for_reminders(region, queue)
+            sched = await _load_schedule_for_reminders(region, queue, context="catch-up")
             if sched is None:
                 continue
             next_event = find_next_event(sched)
@@ -948,13 +948,18 @@ def stop_scheduler() -> None:
 # ─── Reminder notifications ───────────────────────────────────────────────
 
 
-async def _load_schedule_for_reminders(region: str, queue: str) -> dict | None:
+async def _load_schedule_for_reminders(
+    region: str, queue: str, *, context: str = "reminder"
+) -> dict | None:
     """Load schedule data for reminder checks.
 
     Prefers the DB snapshot (written only after the main notification is sent)
     so reminders never race ahead of schedule-change notifications.
     Falls back to a live API fetch for pairs without a snapshot (e.g. after
     restart or for a newly added region/queue).
+
+    ``context`` is used only for log tagging so operators can distinguish
+    between the regular reminder loop and the catch-up path when debugging.
     """
     async with async_session() as session:
         snapshot = await get_daily_snapshot(session, region, queue, _kyiv_date_str())
@@ -962,7 +967,12 @@ async def _load_schedule_for_reminders(region: str, queue: str) -> dict | None:
         try:
             return json.loads(snapshot.schedule_data)
         except (json.JSONDecodeError, TypeError):
-            logger.warning("Corrupt snapshot for %s/%s, falling back to live fetch", region, queue)
+            logger.warning(
+                "Corrupt snapshot for %s/%s in %s, falling back to live fetch",
+                region,
+                queue,
+                context,
+            )
     raw = await fetch_schedule_data(region)
     if not raw:
         return None
