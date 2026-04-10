@@ -461,6 +461,12 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         if fresh_data:
                             fresh_sched = parse_schedule_for_queue(fresh_data, queue)
                         else:
+                            logger.warning(
+                                "06:00 flush: fresh fetch failed for %s/%s, "
+                                "falling back to overnight snapshot "
+                                "(chart may show yesterday's dates)",
+                                region, queue,
+                            )
                             fresh_sched = sched
 
                         # Invalidate stale chart cache and pre-render with fresh data
@@ -502,6 +508,13 @@ async def flush_pending_notifications(bot: Bot) -> None:
                 if not data:
                     continue
                 sched = parse_schedule_for_queue(data, queue)
+
+                # Invalidate stale chart cache and pre-render with fresh data
+                # so the 06:00 daily-planned message carries a chart showing
+                # today/tomorrow instead of the yesterday/today chart that
+                # Redis still holds from the previous day's last render.
+                await invalidate_image_cache(region, queue)
+                await _prerender_chart(region, queue, sched)
 
                 await _send_notifications_to_users(
                     bot, users_in_queue, sched, {}, {"added": [], "removed": []}, is_daily_planned=True

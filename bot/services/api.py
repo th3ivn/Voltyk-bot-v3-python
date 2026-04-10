@@ -260,6 +260,11 @@ async def fetch_schedule_data(
         if attempt < len(retry_delays):
             await asyncio.sleep(retry_delays[attempt])
 
+    logger.warning(
+        "Schedule fetch %s exhausted all %d attempts — returning None",
+        region,
+        len(retry_delays) + 1,
+    )
     return None
 
 
@@ -362,6 +367,9 @@ async def fetch_schedule_image(
                     await chart_cache.store(region, queue, data)
                     await _l1_store_async(cache_key, now, data)
                     return data
+                logger.warning(
+                    "Image fetch %s/%s returned HTTP %d", region, queue, resp.status
+                )
         finally:
             if _owned:
                 await _session.close()
