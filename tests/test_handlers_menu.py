@@ -10,7 +10,7 @@ Covered scenarios:
   change_queue (photo/text)
 - menu/settings.py: menu_settings (no user, photo, edit)
 - menu/stats.py: menu_stats, stats_week, stats_device (no IP, state on/off/unknown)
-- menu/timer.py: menu_timer, timer_callback (invalid id, no user, no data)
+- menu/timer.py: menu_timer (no user, no data, with data)
 - settings/channel.py: settings_channel, channel_reconnect
 - settings/cleanup.py: settings_cleanup, cleanup_toggle_commands, cleanup_toggle_messages
 - settings/data.py: settings_delete_data, delete_data_step2, confirm_delete_data,
