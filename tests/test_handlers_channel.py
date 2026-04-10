@@ -632,7 +632,26 @@ class TestChannelConversation:
         with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
             await handle_edit_title(msg, state, session)
         state.clear.assert_awaited_once()
-        msg.answer.assert_awaited_once()
+        # When user/config is missing, an error reply is sent (NOT a misleading
+        # "✅ Назву каналу змінено!" message), so msg.reply is awaited and
+        # msg.answer is not.
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_edit_title_no_channel_config(self):
+        # User exists but channel_config is None — should also early-return with
+        # an error reply instead of the success message.
+        from bot.handlers.channel.conversation import handle_edit_title
+
+        msg = _make_message(text="New Title")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_edit_title(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
 
     async def test_handle_edit_description_empty(self):
         from bot.handlers.channel.conversation import handle_edit_description
@@ -678,7 +697,24 @@ class TestChannelConversation:
         with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
             await handle_edit_description(msg, state, session)
         state.clear.assert_awaited_once()
-        msg.answer.assert_awaited_once()
+        # When user/config is missing, an error reply is sent (NOT a misleading
+        # "✅ Опис каналу змінено!" message), so msg.reply is awaited and
+        # msg.answer is not.
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_edit_description_no_channel_config(self):
+        from bot.handlers.channel.conversation import handle_edit_description
+
+        msg = _make_message(text="New desc")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_edit_description(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
 
     async def test_handle_schedule_caption_no_text(self):
         from bot.handlers.channel.conversation import handle_schedule_caption
@@ -702,6 +738,31 @@ class TestChannelConversation:
         state.clear.assert_awaited_once()
         msg.answer.assert_awaited_once()
 
+    async def test_handle_schedule_caption_no_user(self):
+        from bot.handlers.channel.conversation import handle_schedule_caption
+
+        msg = _make_message(text="Caption {d}")
+        state = _make_state()
+        session = AsyncMock()
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
+            await handle_schedule_caption(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_schedule_caption_no_channel_config(self):
+        from bot.handlers.channel.conversation import handle_schedule_caption
+
+        msg = _make_message(text="Caption {d}")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_schedule_caption(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
     async def test_handle_period_format_no_text(self):
         from bot.handlers.channel.conversation import handle_period_format
 
@@ -723,6 +784,31 @@ class TestChannelConversation:
         assert user.channel_config.period_format == "{s}-{f}"
         state.clear.assert_awaited_once()
         msg.answer.assert_awaited_once()
+
+    async def test_handle_period_format_no_user(self):
+        from bot.handlers.channel.conversation import handle_period_format
+
+        msg = _make_message(text="{s}-{f}")
+        state = _make_state()
+        session = AsyncMock()
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
+            await handle_period_format(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_period_format_no_channel_config(self):
+        from bot.handlers.channel.conversation import handle_period_format
+
+        msg = _make_message(text="{s}-{f}")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_period_format(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
 
     async def test_handle_power_off_text_no_text(self):
         from bot.handlers.channel.conversation import handle_power_off_text
@@ -746,6 +832,31 @@ class TestChannelConversation:
         state.clear.assert_awaited_once()
         msg.answer.assert_awaited_once()
 
+    async def test_handle_power_off_text_no_user(self):
+        from bot.handlers.channel.conversation import handle_power_off_text
+
+        msg = _make_message(text="Power off text")
+        state = _make_state()
+        session = AsyncMock()
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
+            await handle_power_off_text(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_power_off_text_no_channel_config(self):
+        from bot.handlers.channel.conversation import handle_power_off_text
+
+        msg = _make_message(text="Power off text")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_power_off_text(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
     async def test_handle_power_on_text_no_text(self):
         from bot.handlers.channel.conversation import handle_power_on_text
 
@@ -767,6 +878,31 @@ class TestChannelConversation:
         assert user.channel_config.power_on_text == "Power on text"
         state.clear.assert_awaited_once()
         msg.answer.assert_awaited_once()
+
+    async def test_handle_power_on_text_no_user(self):
+        from bot.handlers.channel.conversation import handle_power_on_text
+
+        msg = _make_message(text="Power on text")
+        state = _make_state()
+        session = AsyncMock()
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=None):
+            await handle_power_on_text(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_power_on_text_no_channel_config(self):
+        from bot.handlers.channel.conversation import handle_power_on_text
+
+        msg = _make_message(text="Power on text")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(channel_config=None)
+        with patch("bot.handlers.channel.conversation.get_user_by_telegram_id", return_value=user):
+            await handle_power_on_text(msg, state, session)
+        state.clear.assert_awaited_once()
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
 
     async def test_handle_custom_test_no_text(self):
         from bot.handlers.channel.conversation import handle_custom_test
