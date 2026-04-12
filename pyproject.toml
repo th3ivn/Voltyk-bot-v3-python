@@ -46,6 +46,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "--tb=short -v"
 
 [tool.coverage.run]
 source = ["bot"]
