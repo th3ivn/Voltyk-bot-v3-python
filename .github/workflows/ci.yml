@@ -68,19 +68,23 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          set -o pipefail
-          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt
-          TEST_EXIT=${PIPESTATUS[0]}
+          # || true prevents set -e from aborting before we capture PIPESTATUS.
+          # PIPESTATUS[0] is pytest's exit code regardless of tee's exit code.
+          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt || true
+          PYTEST_EXIT="${PIPESTATUS[0]}"
 
           # Write full pytest output to job summary (visible in GitHub Actions UI)
-          echo "## Pytest Output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Pytest Output"
+            echo '```'
+            cat /tmp/pytest-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          # Emit error annotations for any FAILED or ERROR lines
-          grep -E "^(FAILED|ERROR)" /tmp/pytest-output.txt | head -20 | while IFS= read -r line; do
-            echo "::error::$line"
-          done
+          # Emit ::error:: annotations for FAILED/ERROR lines so they show as
+          # check-run annotations and are visible via the GitHub Checks API.
+          grep -E "(^FAILED|^ERROR| FAILED$)" /tmp/pytest-output.txt \
+            | head -20 \
+            | while IFS= read -r line; do echo "::error::${line}"; done || true
 
-          exit "$TEST_EXIT"
+          exit "${PYTEST_EXIT}"
