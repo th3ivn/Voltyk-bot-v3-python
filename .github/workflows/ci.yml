@@ -67,4 +67,20 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests with coverage
-        run: pytest --cov=bot --cov-report=term-missing
+        run: |
+          set -o pipefail
+          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt
+          TEST_EXIT=${PIPESTATUS[0]}
+
+          # Write full pytest output to job summary (visible in GitHub Actions UI)
+          echo "## Pytest Output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # Emit error annotations for any FAILED or ERROR lines
+          grep -E "^(FAILED|ERROR)" /tmp/pytest-output.txt | head -20 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+
+          exit "$TEST_EXIT"
