@@ -395,11 +395,16 @@ class TestScheduleCheck:
 
     async def test_api_failure_clears_cooldown(self):
         """Lines 161-165: new_data=None → pop cooldown, answer error."""
+        import bot.handlers.menu.schedule as m
         from bot.handlers.menu.schedule import schedule_check
 
         cb = _make_callback(user_id=203)
         session = _make_session()
         user = _make_user()
+
+        # Pre-populate user's last check far in the past so elapsed >> cooldown_s,
+        # regardless of how small monotonic() is in a fresh CI container.
+        m._user_last_check[203] = time.monotonic() - 10000
 
         with (
             patch("bot.handlers.menu.schedule.get_user_by_telegram_id", AsyncMock(return_value=user)),
@@ -415,11 +420,15 @@ class TestScheduleCheck:
 
     async def test_hash_changed_sends_update_and_answers(self):
         """Lines 171-173: old_hash != new_hash → send + answer 'знайдено зміни'."""
+        import bot.handlers.menu.schedule as m
         from bot.handlers.menu.schedule import schedule_check
 
         cb = _make_callback(user_id=204)
         session = _make_session()
         user = _make_user()
+
+        # Bypass cooldown in fresh CI containers where monotonic() < cooldown_s.
+        m._user_last_check[204] = time.monotonic() - 10000
 
         with (
             patch("bot.handlers.menu.schedule.get_user_by_telegram_id", AsyncMock(return_value=user)),
@@ -442,11 +451,15 @@ class TestScheduleCheck:
 
     async def test_no_hash_change_sends_update_and_answers(self):
         """Lines 174-176: old_hash == new_hash → send + answer 'без змін'."""
+        import bot.handlers.menu.schedule as m
         from bot.handlers.menu.schedule import schedule_check
 
         cb = _make_callback(user_id=205)
         session = _make_session()
         user = _make_user()
+
+        # Bypass cooldown in fresh CI containers where monotonic() < cooldown_s.
+        m._user_last_check[205] = time.monotonic() - 10000
 
         with (
             patch("bot.handlers.menu.schedule.get_user_by_telegram_id", AsyncMock(return_value=user)),
@@ -466,17 +479,22 @@ class TestScheduleCheck:
         from bot.handlers.menu.schedule import schedule_check, _USER_LAST_CHECK_MAX_SIZE
         import bot.handlers.menu.schedule as m
 
-        cb = _make_callback(user_id=99998)  # outside 0..(cap-1) to avoid cooldown hit
+        cb = _make_callback(user_id=99998)
         session = _make_session()
         user = _make_user()
 
         now = time.monotonic()
-        # Disable periodic cleanup so it doesn't eat stale entries before cap block
+        # Disable periodic cleanup so it doesn't eat stale entries before cap block.
         m._last_check_cleanup_at = now
+        # Pre-populate user 99998 far in the past so elapsed >> cooldown_s.
+        # This is needed in fresh CI containers where monotonic() < cooldown (30s),
+        # which would otherwise trigger the cooldown check before reaching cap eviction.
+        m._user_last_check[99998] = now - 10000
+        # Fill remaining slots to reach the cap (cap-1 more entries).
         half = _USER_LAST_CHECK_MAX_SIZE // 2
         for i in range(half):
             m._user_last_check[i] = now          # recent
-        for i in range(half, _USER_LAST_CHECK_MAX_SIZE):
+        for i in range(half, _USER_LAST_CHECK_MAX_SIZE - 1):
             m._user_last_check[i] = now - 10000  # stale (older than cooldown)
 
         with (
@@ -498,16 +516,21 @@ class TestScheduleCheck:
         from bot.handlers.menu.schedule import schedule_check, _USER_LAST_CHECK_MAX_SIZE
         import bot.handlers.menu.schedule as m
 
-        cb = _make_callback(user_id=99999)  # outside 0..(cap-1) to avoid cooldown hit
+        cb = _make_callback(user_id=99999)
         session = _make_session()
         user = _make_user()
 
         now = time.monotonic()
-        # Disable periodic cleanup so cap block is reached
+        # Disable periodic cleanup so cap block is reached.
         m._last_check_cleanup_at = now
-        # Fill to cap with ALL fresh entries → stale_uids will be empty
+        # Pre-populate user 99999 far in the past so elapsed >> cooldown_s.
+        # This is needed in fresh CI containers where monotonic() < cooldown (30s).
+        # After the single stale entry (99999) is evicted the dict is still at cap
+        # (10000 fresh entries), which triggers the force-evict-oldest-10% block.
+        m._user_last_check[99999] = now - 10000
+        # Fill 0..(cap-1) with ALL fresh entries → stale_uids = [99999] only.
         for i in range(_USER_LAST_CHECK_MAX_SIZE):
-            m._user_last_check[i] = now  # all fresh
+            m._user_last_check[i] = now  # all fresh (0..9999)
 
         with (
             patch("bot.handlers.menu.schedule.get_user_by_telegram_id", AsyncMock(return_value=user)),
