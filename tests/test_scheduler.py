@@ -2012,7 +2012,7 @@ class TestCheckAndSendRemindersBranches:
 
 class TestCheckAllSchedulesExtraBranches:
     async def test_single_queue_exception_is_caught(self):
-        """Exception from _check_single_queue is caught; sentry captures it (223-225)."""
+        """Exception from _check_single_queue is caught and reported to sentry."""
         from bot.services.scheduler import _check_all_schedules
 
         bot_mock = AsyncMock()
@@ -2190,7 +2190,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
 
 class TestFlushPendingNotificationsPurgeLogs:
     async def test_deleted_count_logged(self):
-        """Positive deleted counts trigger info log lines (517-519, 527-529)."""
+        """Positive deleted counts exercise the purge branches (coverage for positive-count paths)."""
         from bot.services.scheduler import flush_pending_notifications
 
         bot_mock = AsyncMock()

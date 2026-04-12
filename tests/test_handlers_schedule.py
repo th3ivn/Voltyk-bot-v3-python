@@ -373,9 +373,12 @@ class TestScheduleCheck:
         session = _make_session()
         user = _make_user()
 
-        # Add stale entry and set cleanup timer to far in the past
-        m._user_last_check[9999] = time.monotonic() - 10000
-        m._last_check_cleanup_at = 0.0  # forces cleanup
+        # Add stale entry and set cleanup timer far enough in the past to force cleanup.
+        # Use now-based offset so the condition holds even on fast CI containers
+        # where time.monotonic() may be < _LAST_CHECK_CLEANUP_INTERVAL (300s).
+        now = time.monotonic()
+        m._user_last_check[9999] = now - 10000  # stale: older than any cooldown
+        m._last_check_cleanup_at = now - m._LAST_CHECK_CLEANUP_INTERVAL - 1
 
         with (
             patch("bot.handlers.menu.schedule.get_user_by_telegram_id", AsyncMock(return_value=user)),
