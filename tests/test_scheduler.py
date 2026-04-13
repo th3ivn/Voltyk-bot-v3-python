@@ -2265,7 +2265,8 @@ class TestCatchUpMissedRemindersBranches:
         user = _make_user(notification_settings=_make_ns(
             remind_1h=True, remind_30m=False, remind_15m=False))
 
-        # Create explicit mocks to allow granular assertion messages in CI.
+        # Named mocks for granular CI diagnostics; also track get_active_users_by_region.
+        mock_get_users = AsyncMock(return_value=[user])
         mock_batch = AsyncMock(return_value=set())
         mock_send = AsyncMock(return_value=False)
 
@@ -2276,17 +2277,28 @@ class TestCatchUpMissedRemindersBranches:
                    new=AsyncMock(return_value={"r": "d"})), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
-                   new=AsyncMock(return_value=[user])), \
+             patch("bot.services.scheduler.get_active_users_by_region", new=mock_get_users), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new=mock_batch), \
              patch("bot.services.scheduler._send_reminder", new=mock_send), \
-             patch("bot.services.scheduler.mark_reminder_sent", new=AsyncMock()):
+             patch("bot.services.scheduler.mark_reminder_sent", new=AsyncMock()), \
+             patch("bot.services.scheduler._REMIND_MINUTES", [60, 30, 15]), \
+             patch("bot.services.scheduler._REMIND_FIELDS",
+                   {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}), \
+             patch("bot.services.scheduler._REMIND_TYPE_MAP",
+                   {60: "1h", 30: "30m", 15: "15m"}):
             await catch_up_missed_reminders(bot_mock)
 
+        # get_active_users_by_region must be called — proves execution reached pair processing.
+        assert mock_get_users.call_count == 1, (
+            f"get_active_users_by_region called {mock_get_users.call_count} times "
+            f"(expected 1 — execution should reach kyiv/1.1 pair processing)"
+        )
         # check_reminders_sent_batch called once (for remind_m=60 batch).
         assert mock_batch.call_count == 1, (
             f"check_reminders_sent_batch called {mock_batch.call_count} times "
-            f"(expected 1 — means to_send was populated for remind_m=60)"
+            f"(expected 1 — to_send should be non-empty for remind_m=60). "
+            f"get_users_called={mock_get_users.call_count}, "
+            f"remind_1h={user.notification_settings.remind_1h}"
         )
         # _send_reminder called once (only remind_m=60 window is eligible).
         assert mock_send.call_count == 1, (
