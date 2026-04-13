@@ -2265,6 +2265,8 @@ class TestCatchUpMissedRemindersBranches:
         user = _make_user(notification_settings=_make_ns(
             remind_1h=True, remind_30m=False, remind_15m=False))
 
+        import bot.services.scheduler as _sched_mod
+
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs",
                    new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
@@ -2284,7 +2286,15 @@ class TestCatchUpMissedRemindersBranches:
                    {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}), \
              patch("bot.services.scheduler._REMIND_TYPE_MAP",
                    {60: "1h", 30: "30m", 15: "15m"}):
+            # Diagnostics printed to stdout — visible in pytest failure CAPTURED STDOUT CALL.
+            print(f"\n[diag] _REMIND_MINUTES={_sched_mod._REMIND_MINUTES!r}")
+            print(f"[diag] _REMIND_FIELDS={_sched_mod._REMIND_FIELDS!r}")
+            print(f"[diag] remind_1h={user.notification_settings.remind_1h!r}")
+            print(f"[diag] notify_remind_off={user.notification_settings.notify_remind_off!r}")
             await catch_up_missed_reminders(bot_mock)
+            print(f"[diag] mock_get_users.call_count={mock_get_users.call_count}")
+            print(f"[diag] mock_batch.call_count={mock_batch.call_count}")
+            print(f"[diag] mock_send.call_count={mock_send.call_count}")
 
         # get_active_users_by_region must be called — proves execution reached pair processing.
         assert mock_get_users.call_count == 1, (
