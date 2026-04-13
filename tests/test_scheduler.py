@@ -2265,22 +2265,20 @@ class TestCatchUpMissedRemindersBranches:
         user = _make_user(notification_settings=_make_ns(
             remind_1h=True, remind_30m=False, remind_15m=False))
 
-        # Named mocks for granular CI diagnostics; also track get_active_users_by_region.
-        mock_get_users = AsyncMock(return_value=[user])
-        mock_batch = AsyncMock(return_value=set())
-        mock_send = AsyncMock(return_value=False)
-
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs",
-                   new=AsyncMock(return_value=[("kyiv", "1.1")])), \
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
              patch("bot.services.scheduler.fetch_schedule_data",
-                   new=AsyncMock(return_value={"r": "d"})), \
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region", new=mock_get_users), \
-             patch("bot.services.scheduler.check_reminders_sent_batch", new=mock_batch), \
-             patch("bot.services.scheduler._send_reminder", new=mock_send), \
-             patch("bot.services.scheduler.mark_reminder_sent", new=AsyncMock()), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]) as mock_get_users, \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()) as mock_batch, \
+             patch("bot.services.scheduler._send_reminder",
+                   new_callable=AsyncMock, return_value=False) as mock_send, \
+             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock), \
              patch("bot.services.scheduler._REMIND_MINUTES", [60, 30, 15]), \
              patch("bot.services.scheduler._REMIND_FIELDS",
                    {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}), \
