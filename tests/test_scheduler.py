@@ -2253,35 +2253,47 @@ class TestCatchUpMissedRemindersBranches:
         mock_send.assert_not_called()
 
     async def test_per_remind_m_outside_window_skipped(self):
-        """minutes_until > remind_m+1 → continue for that remind_m (592)."""
+        """minutes_until > remind_m+1 → continue for that remind_m; only remind_m=60 eligible."""
         from bot.services.scheduler import catch_up_missed_reminders
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
-        # minutes_until=45: skips remind_m=30 (45>31) and remind_m=15 (45>16)
+        # minutes_until=45: skips remind_m=30 (45>31) and remind_m=15 (45>16).
+        # Only remind_m=60 is in window (45 ≤ 61), so _send_reminder is called once.
         next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
                    "minutes": 45, "isPossible": False}
         user = _make_user(notification_settings=_make_ns(
             remind_1h=True, remind_30m=False, remind_15m=False))
 
+        # Create explicit mocks to allow granular assertion messages in CI.
+        mock_batch = AsyncMock(return_value=set())
+        mock_send = AsyncMock(return_value=False)
+
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs",
-                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+                   new=AsyncMock(return_value=[("kyiv", "1.1")])), \
              patch("bot.services.scheduler.fetch_schedule_data",
-                   new_callable=AsyncMock, return_value={"r": "d"}), \
+                   new=AsyncMock(return_value={"r": "d"})), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
              patch("bot.services.scheduler.get_active_users_by_region",
-                   new_callable=AsyncMock, return_value=[user]), \
-             patch("bot.services.scheduler.check_reminders_sent_batch",
-                   new_callable=AsyncMock, return_value=set()), \
-             patch("bot.services.scheduler._send_reminder",
-                   new_callable=AsyncMock, return_value=False) as mock_send, \
-             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
+                   new=AsyncMock(return_value=[user])), \
+             patch("bot.services.scheduler.check_reminders_sent_batch", new=mock_batch), \
+             patch("bot.services.scheduler._send_reminder", new=mock_send), \
+             patch("bot.services.scheduler.mark_reminder_sent", new=AsyncMock()):
             await catch_up_missed_reminders(bot_mock)
 
-        # Only remind_m=60 window eligible (45 ≤ 61); remind_m=30,15 skipped at 592
-        mock_send.assert_called_once()
+        # check_reminders_sent_batch called once (for remind_m=60 batch).
+        assert mock_batch.call_count == 1, (
+            f"check_reminders_sent_batch called {mock_batch.call_count} times "
+            f"(expected 1 — means to_send was populated for remind_m=60)"
+        )
+        # _send_reminder called once (only remind_m=60 window is eligible).
+        assert mock_send.call_count == 1, (
+            f"_send_reminder called {mock_send.call_count} times (expected 1). "
+            f"batch_called={mock_batch.call_count}, "
+            f"batch_args={mock_batch.call_args_list}"
+        )
 
     async def test_power_off_notify_remind_off_false_skipped(self):
         """power_off + notify_remind_off=False → excluded from to_send (601)."""
