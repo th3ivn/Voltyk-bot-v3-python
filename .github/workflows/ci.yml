@@ -68,10 +68,15 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          # || true prevents set -e from aborting before we capture PIPESTATUS.
-          # PIPESTATUS[0] is pytest's exit code regardless of tee's exit code.
-          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt || true
+          # Temporarily disable set -e so a pytest failure doesn't abort the
+          # script before we can write the step summary and error annotations.
+          # PIPESTATUS[0] correctly captures pytest's exit code after the
+          # pipeline because set +e means the shell never falls through to
+          # || true (which would reset PIPESTATUS to (0,)).
+          set +e
+          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt
           PYTEST_EXIT="${PIPESTATUS[0]}"
+          set -e
 
           # Write full pytest output to job summary (visible in GitHub Actions UI)
           {
