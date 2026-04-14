@@ -2253,66 +2253,55 @@ class TestCatchUpMissedRemindersBranches:
         mock_send.assert_not_called()
 
     async def test_per_remind_m_outside_window_skipped(self):
-        """minutes_until > remind_m+1 → continue for that remind_m; only remind_m=60 eligible."""
+        """minutes_until=45 → only remind_m=60 is in window (45 ≤ 61); 30 and 15 are skipped."""
         from bot.services.scheduler import catch_up_missed_reminders
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
         # minutes_until=45: skips remind_m=30 (45>31) and remind_m=15 (45>16).
         # Only remind_m=60 is in window (45 ≤ 61), so _send_reminder is called once.
-        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
-                   "minutes": 45, "isPossible": False}
+        next_ev = {
+            "type": "power_off",
+            "time": "2026-04-07T10:00:00",
+            "minutes": 45,
+            "isPossible": False,
+        }
         user = _make_user(notification_settings=_make_ns(
             remind_1h=True, remind_30m=False, remind_15m=False))
 
-        import bot.services.scheduler as _sched_mod
+        @asynccontextmanager
+        async def _fake_session():
+            yield mock_session
 
-        with _patch_async_session(mock_session), \
+        mock_get_users = AsyncMock(return_value=[user])
+        mock_batch = AsyncMock(return_value=set())
+        mock_send = AsyncMock(return_value=False)
+
+        with patch("bot.services.scheduler.async_session", _fake_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs",
                    new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
              patch("bot.services.scheduler.fetch_schedule_data",
                    new_callable=AsyncMock, return_value={"r": "d"}), \
-             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.parse_schedule_for_queue",
+                   return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
-                   new_callable=AsyncMock, return_value=[user]) as mock_get_users, \
-             patch("bot.services.scheduler.check_reminders_sent_batch",
-                   new_callable=AsyncMock, return_value=set()) as mock_batch, \
-             patch("bot.services.scheduler._send_reminder",
-                   new_callable=AsyncMock, return_value=False) as mock_send, \
-             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock), \
-             patch("bot.services.scheduler._REMIND_MINUTES", [60, 30, 15]), \
-             patch("bot.services.scheduler._REMIND_FIELDS",
-                   {60: "remind_1h", 30: "remind_30m", 15: "remind_15m"}), \
-             patch("bot.services.scheduler._REMIND_TYPE_MAP",
-                   {60: "1h", 30: "30m", 15: "15m"}):
-            # Diagnostics printed to stdout — visible in pytest failure CAPTURED STDOUT CALL.
-            print(f"\n[diag] _REMIND_MINUTES={_sched_mod._REMIND_MINUTES!r}")
-            print(f"[diag] _REMIND_FIELDS={_sched_mod._REMIND_FIELDS!r}")
-            print(f"[diag] remind_1h={user.notification_settings.remind_1h!r}")
-            print(f"[diag] notify_remind_off={user.notification_settings.notify_remind_off!r}")
+             patch("bot.services.scheduler.get_active_users_by_region", mock_get_users), \
+             patch("bot.services.scheduler.check_reminders_sent_batch", mock_batch), \
+             patch("bot.services.scheduler._send_reminder", mock_send), \
+             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
             await catch_up_missed_reminders(bot_mock)
-            print(f"[diag] mock_get_users.call_count={mock_get_users.call_count}")
-            print(f"[diag] mock_batch.call_count={mock_batch.call_count}")
-            print(f"[diag] mock_send.call_count={mock_send.call_count}")
 
-        # get_active_users_by_region must be called — proves execution reached pair processing.
         assert mock_get_users.call_count == 1, (
-            f"get_active_users_by_region called {mock_get_users.call_count} times "
-            f"(expected 1 — execution should reach kyiv/1.1 pair processing)"
+            f"get_active_users_by_region called {mock_get_users.call_count}x (expected 1)"
         )
-        # check_reminders_sent_batch called once (for remind_m=60 batch).
         assert mock_batch.call_count == 1, (
-            f"check_reminders_sent_batch called {mock_batch.call_count} times "
-            f"(expected 1 — to_send should be non-empty for remind_m=60). "
-            f"get_users_called={mock_get_users.call_count}, "
-            f"remind_1h={user.notification_settings.remind_1h}"
+            f"check_reminders_sent_batch called {mock_batch.call_count}x "
+            f"(expected 1 — to_send non-empty for remind_m=60 only). "
+            f"get_users_called={mock_get_users.call_count}"
         )
-        # _send_reminder called once (only remind_m=60 window is eligible).
         assert mock_send.call_count == 1, (
-            f"_send_reminder called {mock_send.call_count} times (expected 1). "
-            f"batch_called={mock_batch.call_count}, "
-            f"batch_args={mock_batch.call_args_list}"
+            f"_send_reminder called {mock_send.call_count}x (expected 1). "
+            f"batch_called={mock_batch.call_count}"
         )
 
     async def test_power_off_notify_remind_off_false_skipped(self):
