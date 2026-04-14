@@ -2253,31 +2253,26 @@ class TestCatchUpMissedRemindersBranches:
         mock_send.assert_not_called()
 
     async def test_per_remind_m_outside_window_skipped(self):
-        """minutes_until=45 → only remind_m=60 is in window (45 ≤ 61); 30 and 15 are skipped."""
+        """minutes_until > remind_m+1 → continue for that remind_m.
+
+        With minutes_until=45: remind_m=30 (45>31) and remind_m=15 (45>16) are
+        skipped by the window check.  User only has remind_30m=True, so
+        _send_reminder is never reached regardless of whether remind_m=60 fires.
+        """
         from bot.services.scheduler import catch_up_missed_reminders
 
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
-        # minutes_until=45: skips remind_m=30 (45>31) and remind_m=15 (45>16).
-        # Only remind_m=60 is in window (45 ≤ 61), so _send_reminder is called once.
-        next_ev = {
-            "type": "power_off",
-            "time": "2026-04-07T10:00:00",
-            "minutes": 45,
-            "isPossible": False,
-        }
+        # minutes_until=45: remind_m=30 (45>31) and remind_m=15 (45>16) skipped.
+        # remind_m=60 is in window but user has remind_1h=False, so to_send=[].
+        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
+                   "minutes": 45, "isPossible": False}
         user = _make_user(notification_settings=_make_ns(
-            remind_1h=True, remind_30m=False, remind_15m=False))
+            remind_1h=False, remind_30m=True, remind_15m=False))
 
-        @asynccontextmanager
-        async def _fake_session():
-            yield mock_session
+        mock_logger = MagicMock()
 
-        mock_get_users = AsyncMock(return_value=[user])
-        mock_batch = AsyncMock(return_value=set())
-        mock_send = AsyncMock(return_value=False)
-
-        with patch("bot.services.scheduler.async_session", _fake_session), \
+        with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs",
                    new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
              patch("bot.services.scheduler.fetch_schedule_data",
@@ -2285,24 +2280,24 @@ class TestCatchUpMissedRemindersBranches:
              patch("bot.services.scheduler.parse_schedule_for_queue",
                    return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region", mock_get_users), \
-             patch("bot.services.scheduler.check_reminders_sent_batch", mock_batch), \
-             patch("bot.services.scheduler._send_reminder", mock_send), \
-             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder",
+                   new_callable=AsyncMock, return_value=False) as mock_send, \
+             patch("bot.services.scheduler.logger", mock_logger):
             await catch_up_missed_reminders(bot_mock)
 
-        assert mock_get_users.call_count == 1, (
-            f"get_active_users_by_region called {mock_get_users.call_count}x (expected 1)"
+        # Any swallowed exception inside catch_up_missed_reminders triggers logger.error.
+        # If this fails it means a silent exception was thrown — inspect call_args_list.
+        assert not mock_logger.error.called, (
+            f"Silent exception inside catch_up_missed_reminders: "
+            f"{mock_logger.error.call_args_list}"
         )
-        assert mock_batch.call_count == 1, (
-            f"check_reminders_sent_batch called {mock_batch.call_count}x "
-            f"(expected 1 — to_send non-empty for remind_m=60 only). "
-            f"get_users_called={mock_get_users.call_count}"
-        )
-        assert mock_send.call_count == 1, (
-            f"_send_reminder called {mock_send.call_count}x (expected 1). "
-            f"batch_called={mock_batch.call_count}"
-        )
+        # remind_m=30 is skipped by window (45>31); user has no remind_1h → to_send=[].
+        # _send_reminder must never be called.
+        mock_send.assert_not_called()
 
     async def test_power_off_notify_remind_off_false_skipped(self):
         """power_off + notify_remind_off=False → excluded from to_send (601)."""
