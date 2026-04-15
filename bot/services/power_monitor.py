@@ -34,6 +34,7 @@ from bot.keyboards.inline import get_ip_ping_error_keyboard
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
 from bot.utils.helpers import SSRF_BLOCKED_NETWORKS, retry_bot_call
 from bot.utils.logger import get_logger
+from bot.utils.metrics import DIRTY_STATES_COUNT, POWER_NOTIFICATIONS_SENT, USER_STATES_IN_MEMORY
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,9 @@ KYIV_TZ = settings.timezone
 
 _user_states: dict[str, dict] = {}
 _user_states_lock: asyncio.Lock = asyncio.Lock()
+# Tracks telegram_ids whose state changed since last DB flush.
+# Must be modified only while _user_states_lock is held.
+_dirty_states: set[str] = set()
 _running = False
 # Mutex that prevents concurrent _check_all_ips invocations.
 # A bare boolean + timestamp was previously used, which had a TOCTOU race: two
@@ -63,7 +67,11 @@ def _get_http_connector() -> aiohttp.TCPConnector:
 
 
 def _get_user_state(telegram_id: str) -> dict:
-    """Get or create in-memory state for a user."""
+    """Get or create in-memory state for a user.
+
+    Must be called while *_user_states_lock* is held.  Newly created entries
+    are automatically marked dirty so they are persisted on the next flush.
+    """
     if telegram_id not in _user_states:
         _user_states[telegram_id] = {
             "current_state": None,
@@ -82,7 +90,16 @@ def _get_user_state(telegram_id: str) -> dict:
             "last_ping_success": None,
             "last_notification_at": None,
         }
+        _dirty_states.add(telegram_id)
     return _user_states[telegram_id]
+
+
+def _mark_dirty(telegram_id: str) -> None:
+    """Mark a user state as needing DB persistence.
+
+    Must be called while *_user_states_lock* is held.
+    """
+    _dirty_states.add(telegram_id)
 
 
 # ─── Router check ─────────────────────────────────────────────────────────
@@ -344,6 +361,7 @@ async def _handle_power_state_change(
                 try:
                     sent = await retry_bot_call(lambda: bot.send_message(int(telegram_id), message, parse_mode="HTML"))
                     bot_msg_id = sent.message_id
+                    POWER_NOTIFICATIONS_SENT.labels(state=new_state).inc()
                     logger.info("📱 Power notification sent to user %s (%s)", telegram_id, new_state)
                 except TelegramForbiddenError:
                     logger.info("User %s blocked the bot — deactivating", telegram_id)
@@ -380,6 +398,7 @@ async def _handle_power_state_change(
                         logger.error("Error sending to channel %s: %s", cc.channel_id, e, exc_info=True)
 
             user_state["last_notification_at"] = now.isoformat()
+            _mark_dirty(telegram_id)
 
         # ── Session 2: Persist message IDs + deactivate ping alert ───
         if not user_deactivated and (bot_msg_id or ch_msg_id or new_state == "on"):
@@ -418,6 +437,7 @@ async def _handle_power_state_change(
         user_state["last_stable_state"] = new_state
         user_state["instability_start"] = None
         user_state["switch_count"] = 0
+        _mark_dirty(telegram_id)
 
     except Exception as e:
         logger.error(
@@ -450,6 +470,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
             user_state = _get_user_state(telegram_id)
             user_state["last_ping_time"] = datetime.now(KYIV_TZ).isoformat()
             user_state["last_ping_success"] = is_available
+            _mark_dirty(telegram_id)
 
         new_state = "on" if is_available else "off"
 
@@ -502,6 +523,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
                 user_state["pending_state"] = None
                 user_state["pending_state_time"] = None
                 user_state["original_change_time"] = None
+                _mark_dirty(telegram_id)
 
                 try:
                     async with async_session() as session:
@@ -543,6 +565,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
         original_change_time = datetime.now(KYIV_TZ)
         user_state["pending_state_time"] = original_change_time
         user_state["original_change_time"] = original_change_time
+        _mark_dirty(telegram_id)
 
         # Persist pending to DB
         try:
@@ -588,6 +611,7 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
                     user_state["pending_state"] = None
                     user_state["pending_state_time"] = None
                     user_state["original_change_time"] = None
+                    _mark_dirty(telegram_id)
                 await _handle_power_state_change(bot, user, new_state, old_state, user_state, orig_dt)
             except asyncio.CancelledError:
                 pass
@@ -702,9 +726,18 @@ async def _save_user_state_to_db(telegram_id: str, state: dict) -> None:
 
 
 async def _save_all_user_states() -> None:
-    """Save all in-memory user states to DB in a single batch upsert."""
+    """Persist only dirty (changed) user states to DB in a single batch upsert.
+
+    Uses a snapshot of *_dirty_states* taken under the lock.  Entries added to
+    *_dirty_states* after the snapshot is taken are preserved and will be saved
+    on the next flush cycle — no changes are silently dropped.
+    """
     async with _user_states_lock:
-        snapshot = list(_user_states.items())
+        if not _dirty_states:
+            return
+        save_ids: frozenset[str] = frozenset(_dirty_states)
+        snapshot = [(tid, dict(_user_states[tid])) for tid in save_ids if tid in _user_states]
+
     if not snapshot:
         return
 
@@ -733,9 +766,15 @@ async def _save_all_user_states() -> None:
         async with async_session() as session:
             await batch_upsert_user_power_states(session, rows)
             await session.commit()
-        logger.debug("💾 Saved %d user power states", len(rows))
+        # Remove only the IDs we successfully saved — new dirty entries are kept.
+        # Use .difference_update() (in-place) to avoid Python treating it as a
+        # local variable assignment (augmented -= would trigger UnboundLocalError).
+        async with _user_states_lock:
+            _dirty_states.difference_update(save_ids)
+        logger.debug("💾 Saved %d dirty user power states", len(rows))
     except Exception as e:
         logger.error("Error batch-saving user power states: %s", e, exc_info=True)
+        # _dirty_states is not cleared on failure — will retry next cycle
 
 
 async def _restore_user_states() -> None:
@@ -771,6 +810,8 @@ async def _restore_user_states() -> None:
                     "last_ping_success": None,
                     "last_notification_at": last_notif_str,
                 }
+                # Restored states are already in DB — do not mark as dirty
+                _dirty_states.discard(tid)
 
         logger.info("🔄 Restored %d user power states", len(rows))
     except Exception as e:
@@ -833,6 +874,7 @@ async def _restart_pending_debounce_tasks(bot: Bot) -> None:
                         us["pending_state"] = None
                         us["pending_state_time"] = None
                         us["original_change_time"] = None
+                        _mark_dirty(tid)
                     async with async_session() as session:
                         fresh_user = await get_user_by_telegram_id(session, tid)
                     if fresh_user:
@@ -899,9 +941,11 @@ async def power_monitor_loop(bot: Bot) -> None:
             logger.error("Power monitor check error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
-        # Periodic state save
+        # Periodic state save + metrics update
         now_t = asyncio.get_running_loop().time()
         if now_t - last_save_at >= save_interval_s:
+            USER_STATES_IN_MEMORY.set(len(_user_states))
+            DIRTY_STATES_COUNT.set(len(_dirty_states))
             await _save_all_user_states()
             last_save_at = now_t
 

@@ -23,6 +23,7 @@ __all__ = [
     "deactivate_user",
     "delete_user_data",
     "get_active_users_by_region",
+    "get_active_users_by_region_cursor",
     "get_distinct_region_queue_pairs",
     "get_active_user_ids_paginated",
     "get_active_user_ids_cursor",
@@ -146,6 +147,30 @@ async def get_active_users_by_region(
         conditions.append(User.queue == queue)
     result = await session.execute(
         select(User).options(*_USER_WITH_RELATIONS).where(*conditions)
+    )
+    return list(result.scalars().all())
+
+
+async def get_active_users_by_region_cursor(
+    session: AsyncSession,
+    region: str,
+    queue: str | None = None,
+    limit: int = 1000,
+    after_id: int = 0,
+) -> list[User]:
+    """Cursor-based version of get_active_users_by_region.
+
+    Uses ``WHERE id > after_id`` for O(1) seeks — safe for 100k-scale
+    notification blasts.  Pass ``after_id=batch[-1].id`` to get the next page.
+    """
+    conditions = [User.is_active.is_(True), User.region == region, User.id > after_id]
+    if queue is not None:
+        conditions.append(User.queue == queue)
+    result = await session.execute(
+        select(User).options(*_USER_WITH_RELATIONS)
+        .where(*conditions)
+        .order_by(User.id)
+        .limit(limit)
     )
     return list(result.scalars().all())
 

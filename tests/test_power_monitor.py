@@ -699,10 +699,12 @@ class TestSaveAllUserStates:
     def setup_method(self):
         import bot.services.power_monitor as pm
         pm._user_states.clear()
+        pm._dirty_states.clear()
 
     def teardown_method(self):
         import bot.services.power_monitor as pm
         pm._user_states.clear()
+        pm._dirty_states.clear()
 
     async def test_empty_states_makes_no_db_call(self):
         from bot.services.power_monitor import _save_all_user_states
@@ -722,6 +724,7 @@ class TestSaveAllUserStates:
         from bot.services.power_monitor import _save_all_user_states
 
         pm._user_states["111"] = {**_default_user_state(), "current_state": "on"}
+        pm._dirty_states.add("111")
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
@@ -745,6 +748,7 @@ class TestSaveAllUserStates:
             **_default_user_state(),
             "last_notification_at": "2024-01-15T14:30:00+02:00",
         }
+        pm._dirty_states.add("222")
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
@@ -763,6 +767,8 @@ class TestSaveAllUserStates:
 
         pm._user_states["aaa"] = {**_default_user_state(), "current_state": "on"}
         pm._user_states["bbb"] = {**_default_user_state(), "current_state": "off"}
+        pm._dirty_states.add("aaa")
+        pm._dirty_states.add("bbb")
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
@@ -781,6 +787,7 @@ class TestSaveAllUserStates:
         from bot.services.power_monitor import _save_all_user_states
 
         pm._user_states["333"] = {**_default_user_state(), "current_state": "off"}
+        pm._dirty_states.add("333")
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
@@ -2581,10 +2588,12 @@ class TestSaveAllUserStatesMissingLines:
     def setup_method(self):
         import bot.services.power_monitor as pm
         pm._user_states.clear()
+        pm._dirty_states.clear()
 
     def teardown_method(self):
         import bot.services.power_monitor as pm
         pm._user_states.clear()
+        pm._dirty_states.clear()
 
     async def test_invalid_iso_last_notification_at_silently_ignored(self):
         """Lines 718-719: invalid last_notification_at → fromisoformat raises → pass."""
@@ -2596,6 +2605,7 @@ class TestSaveAllUserStatesMissingLines:
             "current_state": "on",
             "last_notification_at": "not-an-iso-date",
         }
+        pm._dirty_states.add("xyz")
 
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):

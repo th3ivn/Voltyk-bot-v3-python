@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 _CLEANUP_INTERVAL = 300  # run cleanup every 5 minutes
 _ENTRY_TTL = 60  # remove entries inactive for 60+ seconds
-_MAX_ENTRIES = 50_000  # hard cap on dict size
+_MAX_ENTRIES = 100_000  # hard cap — sized for 100k active users
 
 
 class ThrottleMiddleware(BaseMiddleware):

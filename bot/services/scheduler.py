@@ -18,6 +18,7 @@ from bot.db.queries import (
     delete_old_pending_notifications,
     get_active_reminder_anchors,
     get_active_users_by_region,
+    get_active_users_by_region_cursor,
     get_all_pending_region_queue_pairs,
     get_daily_snapshot,
     get_distinct_region_queue_pairs,
@@ -48,6 +49,12 @@ from bot.services.power_monitor import update_power_notifications_on_schedule_ch
 from bot.utils.helpers import retry_bot_call
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
+from bot.utils.metrics import (
+    NOTIFICATION_BLAST_DURATION,
+    SCHEDULE_NOTIFICATIONS_SENT,
+    TELEGRAM_RETRY_AFTER_TOTAL,
+)
+from bot.utils.rate_limiter import tg_rate_limiter
 
 logger = get_logger(__name__)
 
@@ -69,6 +76,41 @@ async def _deactivate_blocked_user(telegram_id: int | str) -> None:
             await session.commit()
     except Exception as e:
         logger.warning("Could not deactivate blocked user %s: %s", telegram_id, e, exc_info=True)
+
+
+async def _send_notifications_for_pair(
+    bot: Bot,
+    region: str,
+    queue: str,
+    sched_data: dict,
+    update_type: dict,
+    changes: dict,
+    is_daily_planned: bool = False,
+) -> int:
+    """Send notifications to all users in a region/queue using cursor pagination.
+
+    Pages through users in batches of ``_DB_SCAN_BATCH_SIZE`` so that large
+    queues (10k+ users) never materialise the whole list in memory at once.
+    Returns the total number of users notified.
+    """
+    after_id = 0
+    total = 0
+    with NOTIFICATION_BLAST_DURATION.time():
+        while True:
+            async with async_session() as session:
+                batch = await get_active_users_by_region_cursor(
+                    session, region, queue=queue,
+                    limit=_DB_SCAN_BATCH_SIZE, after_id=after_id,
+                )
+            if not batch:
+                break
+            await _send_notifications_to_users(bot, batch, sched_data, update_type, changes, is_daily_planned)
+            total += len(batch)
+            if len(batch) < _DB_SCAN_BATCH_SIZE:
+                break
+            after_id = batch[-1].id
+    SCHEDULE_NOTIFICATIONS_SENT.labels(region=region).inc(total)
+    return total
 
 
 # Mutex that prevents the 06:00 flush and the periodic checker from running
@@ -389,12 +431,9 @@ async def _check_single_queue(
         logger.info("Queued notification for %s/%s (quiet hours)", region, queue)
         return True
 
-    # Fetch users and send notifications
-    async with async_session() as session:
-        users_in_queue = await get_active_users_by_region(session, region, queue=queue)
-
-    await _send_notifications_to_users(
-        bot, users_in_queue, sched, update_type, changes, is_daily_planned=send_as_daily_planned
+    # Send notifications using cursor pagination — avoids loading all users at once
+    await _send_notifications_for_pair(
+        bot, region, queue, sched, update_type, changes, is_daily_planned=send_as_daily_planned
     )
 
     # Supersede any pending quiet-hours notifications for this pair — they are
@@ -438,9 +477,8 @@ async def flush_pending_notifications(bot: Bot) -> None:
         for region, queue in all_pairs:
             try:
                 if (region, queue) in pending_set:
-                    # Fetch users and pending notification in a single session
+                    # Fetch only the pending notification row — users are streamed in _send_notifications_for_pair
                     async with async_session() as session:
-                        users_in_queue = await get_active_users_by_region(session, region, queue=queue)
                         notif = await get_latest_pending_notification(session, region, queue)
 
                     if notif:
@@ -449,8 +487,8 @@ async def flush_pending_notifications(bot: Bot) -> None:
                         changes = json.loads(notif.changes) if notif.changes else {"added": [], "removed": []}
                         is_daily_planned_flag = bool(update_type.get("initial") or update_type.get("dailyPlanned"))
 
-                        await _send_notifications_to_users(
-                            bot, users_in_queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
+                        await _send_notifications_for_pair(
+                            bot, region, queue, sched, update_type, changes, is_daily_planned=is_daily_planned_flag
                         )
 
                         sent_hash = calculate_schedule_hash(sched.get("events", []))
@@ -477,15 +515,13 @@ async def flush_pending_notifications(bot: Bot) -> None:
                     )
 
                 # No overnight changes (or pending row was already consumed) — send daily planned
-                async with async_session() as session:
-                    users_in_queue = await get_active_users_by_region(session, region, queue=queue)
                 data = await fetch_schedule_data(region, force_refresh=True)
                 if not data:
                     continue
                 sched = parse_schedule_for_queue(data, queue)
 
-                await _send_notifications_to_users(
-                    bot, users_in_queue, sched, {}, {"added": [], "removed": []}, is_daily_planned=True
+                await _send_notifications_for_pair(
+                    bot, region, queue, sched, {}, {"added": [], "removed": []}, is_daily_planned=True
                 )
 
                 fresh_hash = calculate_schedule_hash(sched.get("events", []))
@@ -571,17 +607,25 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
             if minutes_until <= 0 or minutes_until > max_remind_m + 1:
                 continue
 
-            # Fetch users with reminder settings for this pair
-            async with async_session() as session:
-                pair_users = await get_active_users_by_region(session, region, queue=queue)
+            # Collect users with reminder settings using cursor pagination
             users = []
-            for u in pair_users:
-                ns = u.notification_settings
-                if not ns:
-                    continue
-                has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
-                if has_any and (ns.notify_remind_off or ns.notify_remind_on):
-                    users.append(u)
+            _after_id = 0
+            while True:
+                async with async_session() as session:
+                    _batch = await get_active_users_by_region_cursor(
+                        session, region, queue=queue,
+                        limit=_DB_SCAN_BATCH_SIZE, after_id=_after_id,
+                    )
+                for u in _batch:
+                    ns = u.notification_settings
+                    if not ns:
+                        continue
+                    has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+                    if has_any and (ns.notify_remind_off or ns.notify_remind_on):
+                        users.append(u)
+                if len(_batch) < _DB_SCAN_BATCH_SIZE:
+                    break
+                _after_id = _batch[-1].id
 
             for remind_m in _REMIND_MINUTES:
                 # The ideal send time for this reminder was remind_m minutes before the
@@ -708,12 +752,15 @@ async def _send_notifications_to_users(
         while True:
             user = await queue.get()
             try:
+                await tg_rate_limiter.acquire()
                 await _send_schedule_notification(
                     bot, user, sched_data, update_type, changes, is_daily_planned
                 )
             except TelegramRetryAfter as e:
+                TELEGRAM_RETRY_AFTER_TOTAL.inc()
                 await asyncio.sleep(e.retry_after + 1)
                 try:
+                    await tg_rate_limiter.acquire()
                     await _send_schedule_notification(
                         bot, user, sched_data, update_type, changes, is_daily_planned
                     )
@@ -984,17 +1031,25 @@ async def _check_and_send_reminders(bot: Bot) -> None:
             minutes_until: int = next_event["minutes"]
             is_possible: bool  = next_event.get("isPossible", False)
 
-            # Fetch only users for this pair and filter by reminder settings
-            async with async_session() as session:
-                pair_users = await get_active_users_by_region(session, region, queue=queue)
+            # Collect users with reminder settings via cursor pagination
             users = []
-            for u in pair_users:
-                ns = u.notification_settings
-                if not ns:
-                    continue
-                has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
-                if has_any and (ns.notify_remind_off or ns.notify_remind_on):
-                    users.append(u)
+            _after_id = 0
+            while True:
+                async with async_session() as session:
+                    _batch = await get_active_users_by_region_cursor(
+                        session, region, queue=queue,
+                        limit=_DB_SCAN_BATCH_SIZE, after_id=_after_id,
+                    )
+                for u in _batch:
+                    ns = u.notification_settings
+                    if not ns:
+                        continue
+                    has_any = any(getattr(ns, _REMIND_FIELDS[m], False) for m in _REMIND_MINUTES)
+                    if has_any and (ns.notify_remind_off or ns.notify_remind_on):
+                        users.append(u)
+                if len(_batch) < _DB_SCAN_BATCH_SIZE:
+                    break
+                _after_id = _batch[-1].id
 
             # Collect (user, remind_m) pairs that are in the timing window
             to_send: list[tuple] = []
