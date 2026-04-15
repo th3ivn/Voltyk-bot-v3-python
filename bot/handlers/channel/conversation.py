@@ -152,6 +152,7 @@ async def handle_schedule_caption(message: Message, state: FSMContext, session: 
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
+
     user.channel_config.schedule_caption = message.text.strip()
     await state.clear()
     await message.answer("✅ Шаблон підпису оновлено!")
@@ -166,6 +167,7 @@ async def handle_period_format(message: Message, state: FSMContext, session: Asy
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
+
     user.channel_config.period_format = message.text.strip()
     await state.clear()
     await message.answer("✅ Формат періодів оновлено!")
@@ -180,6 +182,7 @@ async def handle_power_off_text(message: Message, state: FSMContext, session: As
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
+
     user.channel_config.power_off_text = message.text.strip()
     await state.clear()
     await message.answer("✅ Текст відключення оновлено!")
@@ -194,6 +197,7 @@ async def handle_power_on_text(message: Message, state: FSMContext, session: Asy
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
+
     user.channel_config.power_on_text = message.text.strip()
     await state.clear()
     await message.answer("✅ Текст включення оновлено!")

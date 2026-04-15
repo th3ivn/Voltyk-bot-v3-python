@@ -595,7 +595,7 @@ async def generate_schedule_chart(region: str, queue: str, schedule_data: dict) 
     but the underlying thread in the pool continues running until it finishes or
     the process exits — Python threads cannot be forcibly killed.  The timeout
     therefore prevents the *caller* from hanging indefinitely, but a stuck
-    CairoSVG render still occupies one pool thread until it returns.
+    CairoSVG/Pillow render still occupies one pool thread until it returns.
     """
     try:
         loop = asyncio.get_running_loop()
