@@ -131,8 +131,8 @@ async def _health_handler(_request: web.Request) -> web.Response:
     pool_size: int | None = None
     pool_checked_out: int | None = None
     try:
-        pool_size = engine.pool.size()
-        pool_checked_out = engine.pool.checkedout()
+        pool_size = engine.pool.size()  # type: ignore[attr-defined]
+        pool_checked_out = engine.pool.checkedout()  # type: ignore[attr-defined]
     except Exception:
         pass
 
@@ -168,8 +168,8 @@ async def _metrics_handler(_request: web.Request) -> web.Response:
     from bot.utils.metrics import DB_POOL_CHECKED_OUT, DB_POOL_SIZE, metrics_response
 
     try:
-        pool_size = engine.pool.size()
-        pool_checked_out = engine.pool.checkedout()
+        pool_size = engine.pool.size()  # type: ignore[attr-defined]
+        pool_checked_out = engine.pool.checkedout()  # type: ignore[attr-defined]
         DB_POOL_SIZE.set(pool_size)
         DB_POOL_CHECKED_OUT.set(pool_checked_out)
     except Exception:
