@@ -5,6 +5,7 @@ import os
 from contextlib import suppress
 from datetime import datetime
 
+import alembic.command as alembic_command
 import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -17,7 +18,6 @@ from alembic.config import Config as AlembicConfig
 from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
-from alembic import command as alembic_command
 from bot.config import settings
 from bot.db.queries import get_setting
 from bot.db.session import async_session, check_db_connectivity, engine

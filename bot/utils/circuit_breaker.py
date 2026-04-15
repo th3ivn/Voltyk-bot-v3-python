@@ -61,7 +61,7 @@ class CircuitBreaker:
         name: str,
         fail_max: int = 5,
         reset_timeout: float = 60.0,
-        exclude: tuple[type[Exception], ...] = (),
+        exclude: tuple[type[BaseException], ...] = (),
     ) -> None:
         self.name = name
         self.fail_max = fail_max

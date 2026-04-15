@@ -66,6 +66,7 @@ class TokenBucketRateLimiter:
                 wait = (1.0 - self._tokens) / self._rate
                 await asyncio.sleep(wait)
                 self._tokens = 0.0
+                self._last_refill = loop.time()
             else:
                 self._tokens -= 1.0
 

@@ -224,19 +224,20 @@ async def fetch_schedule_data(
                 _schedule_cache.move_to_end(cache_key)
                 return data
 
-    # If the circuit is open, return stale cache data rather than failing hard
-    if _schedule_api_breaker.state != "closed":
+    # If the circuit is OPEN (not half_open), return stale cache rather than failing hard.
+    # HALF_OPEN must proceed to allow the circuit breaker probe call through.
+    if _schedule_api_breaker.state == "open":
         async with _schedule_cache_lock:
             if cache_key in _schedule_cache:
                 _, stale = _schedule_cache[cache_key]
                 logger.warning(
-                    "schedule_api circuit breaker %s — returning stale cache for %s",
-                    _schedule_api_breaker.state, region,
+                    "schedule_api circuit breaker open — returning stale cache for %s",
+                    region,
                 )
                 return stale
         logger.warning(
-            "schedule_api circuit breaker %s — no cache available for %s",
-            _schedule_api_breaker.state, region,
+            "schedule_api circuit breaker open — no cache available for %s",
+            region,
         )
         return None
 

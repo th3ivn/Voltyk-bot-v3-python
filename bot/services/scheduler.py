@@ -17,7 +17,6 @@ from bot.db.queries import (
     deactivate_user,
     delete_old_pending_notifications,
     get_active_reminder_anchors,
-    get_active_users_by_region,
     get_active_users_by_region_cursor,
     get_all_pending_region_queue_pairs,
     get_daily_snapshot,
