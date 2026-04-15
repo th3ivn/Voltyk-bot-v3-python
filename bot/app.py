@@ -176,7 +176,9 @@ async def _metrics_handler(_request: web.Request) -> web.Response:
         pass
 
     body, content_type = metrics_response()
-    return web.Response(body=body, content_type=content_type)
+    # Pass Content-Type via headers= to avoid aiohttp's ValueError when the
+    # value contains a charset parameter (CONTENT_TYPE_LATEST includes one).
+    return web.Response(body=body, headers={"Content-Type": content_type})
 
 
 async def _start_health_server() -> None:
