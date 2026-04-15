@@ -92,8 +92,7 @@ def get_schedule_interval_keyboard(current_seconds: int = 0) -> InlineKeyboardMa
         return _btn(f"{minutes} хв", f"admin_schedule_{minutes}", style="success" if selected else None)
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [_s(1), _s(2), _s(3), _s(5)],
-        [_s(10), _s(15)],
+        [_s(3), _s(5), _s(10), _s(15)],
         [_btn("← Назад", "admin_intervals"), _btn("⤴ Меню", "back_to_main")],
     ])
 

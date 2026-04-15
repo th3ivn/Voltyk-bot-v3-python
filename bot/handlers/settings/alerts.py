@@ -294,6 +294,21 @@ async def notif_target_set(callback: CallbackQuery, session: AsyncSession) -> No
     await callback.answer("✅ Збережено")
 
 
+@router.callback_query(F.data == "alert_toggle")
+async def alert_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if user and user.notification_settings:
+        ns = user.notification_settings
+        enabled = any([ns.notify_schedule_changes, ns.notify_remind_off, ns.notify_fact_off])
+        new_val = not enabled
+        ns.notify_schedule_changes = new_val
+        ns.notify_remind_off = new_val
+        ns.notify_fact_off = new_val
+        ns.notify_remind_on = new_val
+        ns.notify_fact_on = new_val
+    await callback.answer("✅ Збережено")
+
+
 @router.callback_query(F.data.startswith("ch_notif_"))
 async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> None:
     action = callback.data.replace("ch_notif_", "")

@@ -124,12 +124,6 @@ def _make_sched(events: list[dict] | None = None, region: str = "kyiv", queue: s
     return {"region": region, "queue": queue, "events": events or []}
 
 
-def _make_snapshot(sched: dict) -> SimpleNamespace:
-    """Create a mock ScheduleDailySnapshot with serialised schedule_data."""
-    import json
-    return SimpleNamespace(schedule_data=json.dumps(sched))
-
-
 # ─── _is_quiet_hours ──────────────────────────────────────────────────────
 
 
@@ -801,7 +795,6 @@ class TestCheckAndSendReminders:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
@@ -835,7 +828,8 @@ class TestCheckAndSendReminders:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(sched)), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
              patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=set()), \
@@ -873,7 +867,8 @@ class TestCheckAndSendReminders:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(sched)), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
              patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=already_sent), \
@@ -907,7 +902,8 @@ class TestCheckAndSendReminders:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(sched)), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
              patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
@@ -1838,7 +1834,7 @@ class TestCatchUpMissedReminders:
 
         mock_send.assert_not_called()
 
-    async def test_no_snapshot_and_no_data_skips_pair(self):
+    async def test_no_raw_data_skips_pair(self):
         from bot.services.scheduler import catch_up_missed_reminders
 
         bot_mock = AsyncMock()
@@ -1846,7 +1842,6 @@ class TestCatchUpMissedReminders:
 
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
             await catch_up_missed_reminders(bot_mock)
@@ -1864,7 +1859,8 @@ class TestCatchUpMissedReminders:
 
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(sched)), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
             await catch_up_missed_reminders(bot_mock)
@@ -1889,7 +1885,8 @@ class TestCatchUpMissedReminders:
 
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(sched)), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
              patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=set()), \
@@ -1974,7 +1971,8 @@ class TestCheckAndSendRemindersBranches:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(_make_sched())), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=None), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
@@ -1998,7 +1996,8 @@ class TestCheckAndSendRemindersBranches:
         with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.get_active_reminder_anchors", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=_make_snapshot(_make_sched())), \
+             patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
              patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
@@ -2006,3 +2005,1147 @@ class TestCheckAndSendRemindersBranches:
             await _check_and_send_reminders(bot_mock)
 
         mock_send.assert_not_called()
+
+
+# ─── TestCheckAllSchedules — exception in _check_single_queue ───────────────
+
+
+class TestCheckAllSchedulesExtraBranches:
+    async def test_single_queue_exception_is_caught(self):
+        """Exception from _check_single_queue is caught and reported to sentry."""
+        from bot.services.scheduler import _check_all_schedules
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with patch("bot.services.scheduler.check_source_repo_updated", AsyncMock(return_value=(True, "abc"))), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs", AsyncMock(return_value=[("kyiv", "1.1")])), \
+             patch("bot.services.scheduler.fetch_schedule_data", AsyncMock(return_value={"r": "d"})), \
+             patch("bot.services.scheduler._check_single_queue", AsyncMock(side_effect=RuntimeError("queue error"))), \
+             patch("bot.services.scheduler.sentry_sdk") as mock_sentry:
+            await _check_all_schedules(bot_mock)  # no raise
+
+        mock_sentry.capture_exception.assert_called_once()
+
+
+# ─── TestCheckSingleQueue — more branch coverage ────────────────────────────
+
+
+class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
+    """Extra branches: 305-306, 314, 324-325, 331-348."""
+
+    async def test_yesterday_json_parse_fails(self):
+        """Invalid JSON in yesterday snapshot is caught (305-306)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        yesterday_mock = SimpleNamespace(schedule_data="NOT_VALID_JSON{", tomorrow_hash="some_hash")
+        sched, patches = self._base_patches(stored_hash=None, snapshot=None,
+                                            yesterday_snapshot=yesterday_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash", return_value=None))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+
+    async def test_today_unchanged_when_tomorrow_appeared_and_today_matched(self):
+        """todayUnchanged set when tomorrowAppeared + comparison succeeded + no todayUpdated (314)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        yesterday_mock = SimpleNamespace(schedule_data=json.dumps({"events": []}), tomorrow_hash="abc")
+        sched, patches = self._base_patches(stored_hash=None, snapshot=None,
+                                            yesterday_snapshot=yesterday_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            # today="abc" matches yesterday.tomorrow_hash → no todayUpdated; tomorrow appears
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=["abc", "new_tmrw"]))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        save_mock.assert_awaited_once()
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("tomorrowAppeared") is True
+        assert ut.get("todayUnchanged") is True
+
+    async def test_snapshot_today_json_parse_fails(self):
+        """Invalid schedule_data in snapshot when computing today changes is caught (324-325)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        snapshot_mock = SimpleNamespace(today_hash=None, tomorrow_hash=None,
+                                        schedule_data="INVALID{JSON")
+        sched, patches = self._base_patches(stored_hash="old_hash", snapshot=snapshot_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=["new_today_h", None]))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("todayUpdated") is True
+
+    async def test_snapshot_tomorrow_cancelled(self):
+        """tomorrow_hash was set but now None → tomorrowCancelled (331-332)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        snapshot_mock = SimpleNamespace(today_hash=None, tomorrow_hash="old_tmrw",
+                                        schedule_data=json.dumps({"events": []}))
+        sched, patches = self._base_patches(stored_hash="old_hash", snapshot=snapshot_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            # today same, tomorrow disappears → tomorrowCancelled
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=[None, None]))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("tomorrowCancelled") is True
+
+    async def test_snapshot_tomorrow_updated(self):
+        """tomorrow_hash changed to new non-None value → tomorrowUpdated (334-346)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        snapshot_mock = SimpleNamespace(today_hash=None, tomorrow_hash="old_tmrw",
+                                        schedule_data=json.dumps({"events": []}))
+        sched, patches = self._base_patches(stored_hash="old_hash", snapshot=snapshot_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=[None, "new_tmrw"]))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("tomorrowUpdated") is True
+
+    async def test_snapshot_tomorrow_update_json_parse_fails(self):
+        """Invalid schedule_data when computing tomorrow changes is caught (347-348)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        snapshot_mock = SimpleNamespace(today_hash=None, tomorrow_hash="old_tmrw",
+                                        schedule_data="INVALID{JSON")
+        sched, patches = self._base_patches(stored_hash="old_hash", snapshot=snapshot_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=[None, "new_tmrw"]))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("tomorrowUpdated") is True
+
+
+# ─── Flush purge logs + CatchUp extra branches ──────────────────────────────
+
+
+class TestFlushPendingNotificationsPurgeLogs:
+    async def test_deleted_count_logged(self):
+        """Positive deleted counts exercise the purge branches (coverage for positive-count paths)."""
+        from bot.services.scheduler import flush_pending_notifications
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_all_pending_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.delete_old_pending_notifications",
+                   new_callable=AsyncMock, return_value=5), \
+             patch("bot.services.scheduler.cleanup_old_reminders",
+                   new_callable=AsyncMock, return_value=3):
+            await flush_pending_notifications(bot_mock)  # no raise
+
+
+class TestCatchUpMissedRemindersBranches:
+    async def test_no_next_event_skips_pair(self):
+        """find_next_event returning None → continue (561)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=None), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
+            await catch_up_missed_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_user_without_ns_skipped(self):
+        """User with notification_settings=None is filtered out (581)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
+                   "minutes": 15, "isPossible": False}
+        user_no_ns = _make_user(notification_settings=None)
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user_no_ns]), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
+            await catch_up_missed_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_per_remind_m_outside_window_skipped(self):
+        """minutes_until > remind_m+1 → continue for that remind_m.
+
+        With minutes_until=45: remind_m=30 (45>31) and remind_m=15 (45>16) are
+        skipped by the window check.  User only has remind_30m=True, so
+        _send_reminder is never reached regardless of whether remind_m=60 fires.
+        """
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        # minutes_until=45: remind_m=30 (45>31) and remind_m=15 (45>16) skipped.
+        # remind_m=60 is in window but user has remind_1h=False, so to_send=[].
+        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
+                   "minutes": 45, "isPossible": False}
+        user = _make_user(notification_settings=_make_ns(
+            remind_1h=False, remind_30m=True, remind_15m=False))
+
+        mock_logger = MagicMock()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue",
+                   return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder",
+                   new_callable=AsyncMock, return_value=False) as mock_send, \
+             patch("bot.services.scheduler.logger", mock_logger):
+            await catch_up_missed_reminders(bot_mock)
+
+        # Any swallowed exception inside catch_up_missed_reminders triggers logger.error.
+        # If this fails it means a silent exception was thrown — inspect call_args_list.
+        assert not mock_logger.error.called, (
+            f"Silent exception inside catch_up_missed_reminders: "
+            f"{mock_logger.error.call_args_list}"
+        )
+        # remind_m=30 is skipped by window (45>31); user has no remind_1h → to_send=[].
+        # _send_reminder must never be called.
+        mock_send.assert_not_called()
+
+    async def test_power_off_notify_remind_off_false_skipped(self):
+        """power_off + notify_remind_off=False → excluded from to_send (601)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
+                   "minutes": 15, "isPossible": False}
+        user = _make_user(notification_settings=_make_ns(
+            remind_15m=True, notify_remind_off=False, notify_remind_on=True))
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
+            await catch_up_missed_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_power_on_notify_remind_on_false_skipped(self):
+        """power_on + notify_remind_on=False → excluded from to_send (603)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        next_ev = {"type": "power_on", "time": "2026-04-07T10:00:00",
+                   "minutes": 15, "isPossible": False}
+        user = _make_user(notification_settings=_make_ns(
+            remind_15m=True, notify_remind_off=True, notify_remind_on=False))
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
+            await catch_up_missed_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_already_sent_reminder_skipped(self):
+        """User already in already_sent set is skipped (623)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        next_ev = {"type": "power_off", "time": "2026-04-07T10:00:00",
+                   "minutes": 15, "isPossible": False}
+        user = _make_user(notification_settings=_make_ns(remind_15m=True, notify_remind_off=True))
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock,
+                   return_value=[("111222333", "2026-04-07T10:00:00")]), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
+            await catch_up_missed_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_exception_per_pair_is_suppressed(self):
+        """Exception during pair processing is caught (638-639)."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, side_effect=RuntimeError("fetch error")):
+            await catch_up_missed_reminders(bot_mock)  # no raise
+
+
+# ─── TestDailyFlushLoop ──────────────────────────────────────────────────────
+
+
+class TestDailyFlushLoop:
+    def setup_method(self):
+        import bot.services.scheduler as sched
+        self._saved_running = sched._running
+
+    def teardown_method(self):
+        import bot.services.scheduler as sched
+        sched._running = self._saved_running
+
+    async def test_target_adjusted_when_past_six_am(self):
+        """now >= 06:00 → target pushed to next day (651-652)."""
+        from datetime import datetime as real_dt
+        import bot.services.scheduler as sched_mod
+        from bot.services.scheduler import daily_flush_loop
+
+        sched_mod._running = True
+
+        async def _stop(*_):
+            sched_mod._running = False
+
+        times = [
+            real_dt(2026, 4, 7, 6, 1, 0, tzinfo=KYIV_TZ),  # outer: 06:01 ≥ 06:00 → +1 day
+            real_dt(2026, 4, 7, 6, 1, 0, tzinfo=KYIV_TZ),  # inner: remaining positive → sleep
+        ]
+        mock_dt = MagicMock()
+        mock_dt.now.side_effect = times
+
+        with patch("bot.services.scheduler.datetime", mock_dt), \
+             patch("bot.services.scheduler.asyncio.sleep", side_effect=_stop):
+            await daily_flush_loop(AsyncMock())  # exits after _running=False
+
+    async def test_flushes_once_and_catch_up_then_exits(self):
+        """Flush and catch-up called once; loop exits when _running=False (646-677)."""
+        from datetime import datetime as real_dt
+        import bot.services.scheduler as sched_mod
+        from bot.services.scheduler import daily_flush_loop
+
+        sched_mod._running = True
+        bot_mock = AsyncMock()
+        flush_mock = AsyncMock()
+        catchup_mock = AsyncMock()
+
+        async def _flush_and_stop(*_):
+            sched_mod._running = False
+
+        flush_mock.side_effect = _flush_and_stop
+
+        times = [
+            real_dt(2026, 4, 7, 5, 59, 0, tzinfo=KYIV_TZ),  # outer: 05:59 → target=06:00
+            real_dt(2026, 4, 7, 5, 59, 0, tzinfo=KYIV_TZ),  # inner 1st: remaining>0 → sleep
+            real_dt(2026, 4, 7, 6, 1, 0, tzinfo=KYIV_TZ),   # inner 2nd: remaining<0 → break
+        ]
+        mock_dt = MagicMock()
+        mock_dt.now.side_effect = times
+
+        with patch("bot.services.scheduler.datetime", mock_dt), \
+             patch("bot.services.scheduler.flush_pending_notifications", flush_mock), \
+             patch("bot.services.scheduler.catch_up_missed_reminders", catchup_mock), \
+             patch("bot.services.scheduler.asyncio.sleep", AsyncMock()):
+            await daily_flush_loop(bot_mock)
+
+        flush_mock.assert_awaited_once()
+        catchup_mock.assert_awaited_once()
+
+    async def test_flush_retries_on_exception_and_catch_up_exception_caught(self):
+        """Flush retries on error; catch_up error caught (667-671, 679-680)."""
+        from datetime import datetime as real_dt
+        import bot.services.scheduler as sched_mod
+        from bot.services.scheduler import daily_flush_loop
+
+        sched_mod._running = True
+        bot_mock = AsyncMock()
+        attempt_count = [0]
+
+        async def _flush_raises_twice_then_stops(*_):
+            attempt_count[0] += 1
+            if attempt_count[0] < 3:
+                raise RuntimeError("flush error")
+            sched_mod._running = False  # 3rd attempt stops loop but doesn't raise
+
+        times = [
+            real_dt(2026, 4, 7, 5, 59, 0, tzinfo=KYIV_TZ),
+            real_dt(2026, 4, 7, 5, 59, 0, tzinfo=KYIV_TZ),
+            real_dt(2026, 4, 7, 6, 1, 0, tzinfo=KYIV_TZ),
+        ]
+        mock_dt = MagicMock()
+        mock_dt.now.side_effect = times
+
+        with patch("bot.services.scheduler.datetime", mock_dt), \
+             patch("bot.services.scheduler.flush_pending_notifications",
+                   side_effect=_flush_raises_twice_then_stops), \
+             patch("bot.services.scheduler.catch_up_missed_reminders",
+                   AsyncMock(side_effect=RuntimeError("catch error"))), \
+             patch("bot.services.scheduler.asyncio.sleep", AsyncMock()), \
+             patch("bot.services.scheduler.sentry_sdk"):
+            await daily_flush_loop(bot_mock)  # no raise
+
+        assert attempt_count[0] == 3
+
+
+# ─── _send_notifications_to_users — retry second fail ───────────────────────
+
+
+class TestSendNotificationsToUsersRetryFail:
+    async def test_retry_after_second_attempt_exception(self):
+        """Second attempt after TelegramRetryAfter also fails → error logged, no raise (720-721)."""
+        from bot.services.scheduler import _send_notifications_to_users
+
+        bot_mock = AsyncMock()
+        user = _make_user()
+        sched = _make_sched()
+        retry_exc = _make_telegram_retry_after(retry_after=1)
+        call_count = [0]
+
+        async def _retry_then_fail(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise retry_exc
+            raise RuntimeError("still failing after retry")
+
+        with patch("bot.services.scheduler._send_schedule_notification",
+                   side_effect=_retry_then_fail), \
+             patch("bot.services.scheduler.asyncio.sleep", AsyncMock()):
+            await _send_notifications_to_users(bot_mock, [user], sched, {}, {})  # no raise
+
+        assert call_count[0] == 2
+
+
+# ─── _send_schedule_notification — extra branches ───────────────────────────
+
+
+class TestSendScheduleNotificationMore:
+    def _common_patches(self, user):
+        return [
+            patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.services.scheduler.get_schedule_check_time", AsyncMock(return_value=None)),
+            patch("bot.services.scheduler.format_schedule_message", return_value="<b>Розклад</b>"),
+            patch("bot.services.scheduler.get_schedule_view_keyboard", return_value=MagicMock()),
+            patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=None)),
+            patch("bot.services.scheduler.append_timestamp", return_value=("plain", [])),
+            patch("bot.services.scheduler.html_to_entities", return_value=("plain", [])),
+            patch("bot.services.scheduler.to_aiogram_entities", return_value=[]),
+            patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call),
+        ]
+
+    async def test_deletes_previous_message_before_send(self):
+        """Previous schedule message deleted when not daily_planned (833)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user(message_tracking=SimpleNamespace(
+            last_schedule_message_id=77,
+            last_reminder_message_id=None,
+            last_channel_reminder_message_id=None,
+        ))
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_message.return_value = mock_msg
+        mock_session = _make_mock_session()
+        safe_delete_mock = AsyncMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("bot.services.scheduler._safe_delete_message", safe_delete_mock))
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        safe_delete_mock.assert_awaited_once()
+
+    async def test_send_exception_suppressed(self):
+        """General exception in bot send is caught (862-863)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user()
+        bot = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("bot.services.scheduler.retry_bot_call",
+                      AsyncMock(side_effect=RuntimeError("net error"))))
+            await _send_schedule_notification(bot, user, {}, {}, {})  # no raise
+
+    async def test_channel_send_text(self):
+        """Channel with ch_notify_schedule=True gets text message; ID saved (871-893, 915)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        cc = _make_cc(channel_id="-100555", channel_status="active", ch_notify_schedule=True)
+        user = _make_user(channel_config=cc)
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_message.return_value = mock_msg
+        mock_session = _make_mock_session()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        assert bot.send_message.await_count == 2
+        assert cc.last_schedule_message_id == 555
+
+    async def test_channel_deletes_previous_message(self):
+        """Channel previous message deleted when last_schedule_message_id set (877)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        cc = _make_cc(channel_id="-100555", channel_status="active",
+                      ch_notify_schedule=True, last_schedule_message_id=88)
+        user = _make_user(channel_config=cc)
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_message.return_value = mock_msg
+        mock_session = _make_mock_session()
+        safe_delete_mock = AsyncMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("bot.services.scheduler._safe_delete_message", safe_delete_mock))
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        # safe_delete called for channel (user.message_tracking.last_schedule_message_id=None)
+        safe_delete_mock.assert_awaited_once()
+
+    async def test_channel_send_photo(self):
+        """Channel gets photo when image available (879-888)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        cc = _make_cc(channel_id="-100555", channel_status="active", ch_notify_schedule=True)
+        user = _make_user(channel_config=cc)
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        bot.send_photo.return_value = mock_msg
+        mock_session = _make_mock_session()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=b"PNG")))
+            await _send_schedule_notification(bot, user, {}, {}, {})
+
+        assert bot.send_photo.await_count == 2
+
+    async def test_channel_forbidden_error_suppressed(self):
+        """TelegramForbiddenError from channel send is caught (896-900)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        cc = _make_cc(channel_id="-100555", channel_status="active", ch_notify_schedule=True)
+        user = _make_user(channel_config=cc)
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        call_count = [0]
+
+        async def _send_or_forbidden(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_msg
+            raise _make_telegram_forbidden()
+
+        bot.send_message = _send_or_forbidden
+        mock_session = _make_mock_session()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            await _send_schedule_notification(bot, user, {}, {}, {})  # no raise
+
+    async def test_channel_exception_suppressed(self):
+        """General exception in channel send is caught (901-902)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        cc = _make_cc(channel_id="-100555", channel_status="active", ch_notify_schedule=True)
+        user = _make_user(channel_config=cc)
+        bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 555
+        call_count = [0]
+
+        async def _send_or_error(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_msg
+            raise RuntimeError("channel error")
+
+        bot.send_message = _send_or_error
+        mock_session = _make_mock_session()
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in self._common_patches(user):
+                stack.enter_context(p)
+            await _send_schedule_notification(bot, user, {}, {}, {})  # no raise
+
+    async def test_top_level_exception_suppressed(self):
+        """Top-level exception in _send_schedule_notification is caught (918-919)."""
+        from bot.services.scheduler import _send_schedule_notification
+
+        user = _make_user()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id",
+                   AsyncMock(side_effect=RuntimeError("db gone"))):
+            await _send_schedule_notification(AsyncMock(), user, {}, {}, {})  # no raise
+
+
+# ─── reminder_checker_loop exception + _check_and_send_reminders extras ─────
+
+
+class TestReminderCheckerLoopException:
+    def setup_method(self):
+        import bot.services.scheduler as sched
+        self._saved = sched._running
+
+    def teardown_method(self):
+        import bot.services.scheduler as sched
+        sched._running = self._saved
+
+    async def test_exception_in_check_is_caught(self):
+        """Exception from _check_and_send_reminders is caught (942-948)."""
+        import bot.services.scheduler as sched_mod
+        from bot.services.scheduler import reminder_checker_loop
+
+        sched_mod._running = True
+
+        async def _stop(*_):
+            sched_mod._running = False
+
+        with patch("bot.services.scheduler._check_and_send_reminders",
+                   AsyncMock(side_effect=RuntimeError("check error"))), \
+             patch("bot.services.scheduler.asyncio.sleep", side_effect=_stop):
+            await reminder_checker_loop(AsyncMock())  # no raise
+
+
+class TestCheckAndSendRemindersMore:
+    async def test_passed_anchor_deletes_messages(self):
+        """Active anchor that has passed triggers _delete_reminder_messages (962-963)."""
+        from bot.services.scheduler import _check_and_send_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        past_anchor = (datetime.now(KYIV_TZ) - timedelta(hours=1)).isoformat()
+
+        with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
+             patch("bot.services.scheduler.get_active_reminder_anchors",
+                   new_callable=AsyncMock, return_value=[("111222333", past_anchor)]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler._delete_reminder_messages",
+                   new_callable=AsyncMock) as mock_delete, \
+             _patch_async_session(mock_session):
+            await _check_and_send_reminders(bot_mock)
+
+        mock_delete.assert_awaited_once_with(bot_mock, "111222333")
+
+    async def test_user_without_ns_skipped(self):
+        """User with notification_settings=None filtered out (994)."""
+        from bot.services.scheduler import _check_and_send_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        now = datetime.now(KYIV_TZ)
+        next_ev = {"type": "power_off", "time": now.isoformat(), "minutes": 15, "isPossible": False}
+        user_no_ns = _make_user(notification_settings=None)
+
+        with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
+             patch("bot.services.scheduler.get_active_reminder_anchors",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user_no_ns]), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
+             _patch_async_session(mock_session):
+            await _check_and_send_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_power_on_notify_remind_on_false_skipped(self):
+        """power_on event + notify_remind_on=False → not added to to_send (1006)."""
+        from bot.services.scheduler import _check_and_send_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        now = datetime.now(KYIV_TZ)
+        next_ev = {"type": "power_on", "time": now.isoformat(), "minutes": 15, "isPossible": False}
+        user = _make_user(notification_settings=_make_ns(
+            remind_15m=True, notify_remind_off=True, notify_remind_on=False))
+
+        with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
+             patch("bot.services.scheduler.get_active_reminder_anchors",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region",
+                   new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
+             _patch_async_session(mock_session):
+            await _check_and_send_reminders(bot_mock)
+
+        mock_send.assert_not_called()
+
+    async def test_exception_per_pair_is_suppressed(self):
+        """Exception during pair processing is caught (1046-1047)."""
+        from bot.services.scheduler import _check_and_send_reminders
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
+             patch("bot.services.scheduler.get_active_reminder_anchors",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, side_effect=RuntimeError("fetch error")), \
+             _patch_async_session(mock_session):
+            await _check_and_send_reminders(bot_mock)  # no raise
+
+
+# ─── _delete_reminder_messages extra exceptions ──────────────────────────────
+
+
+class TestDeleteReminderMessagesExceptions:
+    async def test_bot_delete_exception_suppressed(self):
+        """Exception from bot.delete_message for user chat is caught (1073-1074)."""
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        bot.delete_message.side_effect = RuntimeError("tg error")
+        mt = SimpleNamespace(last_reminder_message_id=42, last_channel_reminder_message_id=None)
+        user = SimpleNamespace(message_tracking=mt, channel_config=None)
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await _delete_reminder_messages(bot, "111")  # no raise
+
+        assert mt.last_reminder_message_id is None
+
+    async def test_string_channel_id_fallback(self):
+        """Non-numeric channel_id is used as-is (1082-1083)."""
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        mt = SimpleNamespace(last_reminder_message_id=None, last_channel_reminder_message_id=77)
+        cc = SimpleNamespace(channel_id="@mychannel")
+        user = SimpleNamespace(message_tracking=mt, channel_config=cc)
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await _delete_reminder_messages(bot, "111")
+
+        bot.delete_message.assert_awaited_once_with("@mychannel", 77)
+        assert mt.last_channel_reminder_message_id is None
+
+    async def test_channel_delete_exception_suppressed(self):
+        """Exception from bot.delete_message for channel is caught (1085-1086)."""
+        from bot.services.scheduler import _delete_reminder_messages
+
+        bot = AsyncMock()
+        bot.delete_message.side_effect = RuntimeError("ch error")
+        mt = SimpleNamespace(last_reminder_message_id=None, last_channel_reminder_message_id=77)
+        cc = SimpleNamespace(channel_id="-100555")
+        user = SimpleNamespace(message_tracking=mt, channel_config=cc)
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await _delete_reminder_messages(bot, "111")  # no raise
+
+        assert mt.last_channel_reminder_message_id is None
+
+
+# ─── _build_reminder_text — power_off with next outage ──────────────────────
+
+
+class TestBuildReminderTextMore:
+    def test_power_off_with_next_outage_shows_next_outage_time(self):
+        """power_off + next outage after end_dt → context line includes outage time (1147-1150)."""
+        from bot.services.scheduler import _build_reminder_text
+
+        ev = {
+            "type": "power_off",
+            "time": "2026-04-07T10:00:00",
+            "endTime": "2026-04-07T12:00:00",
+            "minutes": 15,
+        }
+        events = [{"start": "2026-04-07T16:00:00", "end": "2026-04-07T18:00:00",
+                   "isPossible": False}]
+        text = _build_reminder_text(ev, 15, _make_sched(events=events), "kyiv", "1.1",
+                                    is_possible=False)
+        assert "Наступне відключення о 16:00" in text
+
+
+# ─── _send_reminder extra branches ──────────────────────────────────────────
+
+
+class TestSendReminderMore:
+    async def test_bot_send_exception_suppressed(self):
+        """General exception from bot send is caught (1231-1232)."""
+        from bot.services.scheduler import _send_reminder
+
+        user = _make_user()
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call",
+                   AsyncMock(side_effect=RuntimeError("net"))):
+            result = await _send_reminder(
+                AsyncMock(), user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False, user.notification_settings, None,
+            )
+
+        assert result is False
+
+    async def test_channel_string_channel_id_fallback(self):
+        """Non-numeric channel_id is used as-is for channel send (1239-1240)."""
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        bot_msg = MagicMock(); bot_msg.message_id = 11
+        ch_msg = MagicMock(); ch_msg.message_id = 22
+        bot.send_message.side_effect = [bot_msg, ch_msg]
+
+        user = _make_user()
+        cc = SimpleNamespace(
+            channel_id="@mychannel",
+            channel_status="active", channel_paused=False,
+            ch_notify_remind_off=True, ch_notify_remind_on=True,
+            ch_remind_15m=True, ch_remind_30m=False, ch_remind_1h=False,
+        )
+        mock_session = _make_mock_session()
+        db_user = _make_user()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=db_user)):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False, user.notification_settings, cc,
+            )
+
+        assert result is True
+        assert bot.send_message.await_args_list[1].args[0] == "@mychannel"
+
+    async def test_channel_forbidden_suppressed(self):
+        """TelegramForbiddenError from channel send caught silently (1246-1247)."""
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        bot_msg = MagicMock(); bot_msg.message_id = 11
+        call_count = [0]
+
+        async def _send_or_forbidden(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return bot_msg
+            raise _make_telegram_forbidden()
+
+        bot.send_message = _send_or_forbidden
+        user = _make_user()
+        cc = SimpleNamespace(
+            channel_id="-100555",
+            channel_status="active", channel_paused=False,
+            ch_notify_remind_off=True, ch_notify_remind_on=True,
+            ch_remind_15m=True, ch_remind_30m=False, ch_remind_1h=False,
+        )
+        mock_session = _make_mock_session()
+        db_user = _make_user()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=db_user)):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False, user.notification_settings, cc,
+            )
+
+        assert result is True  # bot message sent ok
+
+    async def test_channel_exception_suppressed(self):
+        """General exception from channel send caught (1248-1249)."""
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        bot_msg = MagicMock(); bot_msg.message_id = 11
+        call_count = [0]
+
+        async def _send_or_error(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return bot_msg
+            raise RuntimeError("channel net error")
+
+        bot.send_message = _send_or_error
+        user = _make_user()
+        cc = SimpleNamespace(
+            channel_id="-100555",
+            channel_status="active", channel_paused=False,
+            ch_notify_remind_off=True, ch_notify_remind_on=True,
+            ch_remind_15m=True, ch_remind_30m=False, ch_remind_1h=False,
+        )
+        mock_session = _make_mock_session()
+        db_user = _make_user()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id", AsyncMock(return_value=db_user)):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False, user.notification_settings, cc,
+            )
+
+        assert result is True
+
+    async def test_save_ids_exception_suppressed(self):
+        """Exception when saving reminder message IDs is caught (1261-1262)."""
+        from bot.services.scheduler import _send_reminder
+
+        bot = AsyncMock()
+        mock_msg = MagicMock(); mock_msg.message_id = 11
+        bot.send_message.return_value = mock_msg
+        user = _make_user()
+        mock_session = _make_mock_session()
+
+        with patch("bot.services.scheduler._delete_reminder_messages", AsyncMock()), \
+             patch("bot.services.scheduler._build_reminder_text", return_value="text"), \
+             patch("bot.services.scheduler.get_reminder_keyboard", return_value=MagicMock()), \
+             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call), \
+             _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_user_by_telegram_id",
+                   AsyncMock(side_effect=RuntimeError("db error"))):
+            result = await _send_reminder(
+                bot, user,
+                {"type": "power_off", "time": "2026-04-07T10:00:00", "minutes": 15},
+                15, _make_sched(), "kyiv", "1.1", False, user.notification_settings, None,
+            )
+
+        assert result is True  # message sent even though ID save failed
+
+
+# ─── Covering last missing lines ─────────────────────────────────────────────
+
+
+class TestCheckSingleQueueTomorrowMerge(TestCheckSingleQueueBranches):
+    """Covers lines 342-345: tomorrow added events merged into changes."""
+
+    async def test_snapshot_tomorrow_updated_merges_added_events(self):
+        """tomorrowUpdated + added tomorrow events merged into changes dict (342-345)."""
+        from contextlib import ExitStack
+        from bot.services.scheduler import _check_single_queue
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+        snapshot_mock = SimpleNamespace(today_hash=None, tomorrow_hash="old_tmrw",
+                                        schedule_data=json.dumps({"events": []}))
+        sched, patches = self._base_patches(stored_hash="old_hash", snapshot=snapshot_mock, quiet=True)
+
+        with ExitStack() as stack:
+            stack.enter_context(_patch_async_session(mock_session))
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch("bot.services.scheduler._compute_date_hash",
+                                      side_effect=[None, "new_tmrw"]))
+            # _compute_changes called once (for tomorrow); return non-empty added list
+            stack.enter_context(patch("bot.services.scheduler._compute_changes",
+                                      return_value={"added": [{"start": "t1", "end": "t2"}],
+                                                    "removed": []}))
+            save_mock = stack.enter_context(
+                patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock))
+            result = await _check_single_queue(bot_mock, "kyiv", "1.1")
+
+        assert result is True
+        ut = json.loads(save_mock.await_args[0][4])
+        assert ut.get("tomorrowUpdated") is True
+
+
+class TestFlushPendingNotificationsPurgeExceptions:
+    async def test_purge_notifications_exception_suppressed(self):
+        """Exception from delete_old_pending_notifications is caught (518-519)."""
+        from bot.services.scheduler import flush_pending_notifications
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_all_pending_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.delete_old_pending_notifications",
+                   new_callable=AsyncMock, side_effect=RuntimeError("db gone")), \
+             patch("bot.services.scheduler.cleanup_old_reminders",
+                   new_callable=AsyncMock, return_value=0):
+            await flush_pending_notifications(bot_mock)  # no raise
+
+    async def test_purge_reminders_exception_suppressed(self):
+        """Exception from cleanup_old_reminders is caught (528-529)."""
+        from bot.services.scheduler import flush_pending_notifications
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_all_pending_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.delete_old_pending_notifications",
+                   new_callable=AsyncMock, return_value=0), \
+             patch("bot.services.scheduler.cleanup_old_reminders",
+                   new_callable=AsyncMock, side_effect=RuntimeError("reminders db gone")):
+            await flush_pending_notifications(bot_mock)  # no raise

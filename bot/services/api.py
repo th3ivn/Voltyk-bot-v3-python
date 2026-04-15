@@ -42,15 +42,6 @@ def get_chart_render_on_demand() -> bool:
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
 _last_etag: str | None = None
-# True when _last_commit_sha was confirmed by a successful GitHub API response
-# (200 or 304).  Set to False on API errors so that fetch_schedule_data falls
-# back to /main/ instead of pinning to a potentially stale SHA.
-_commit_sha_fresh: bool = False
-
-
-def get_last_commit_sha() -> str | None:
-    """Return the last known commit SHA (used to pin raw URLs to a specific commit)."""
-    return _last_commit_sha
 
 
 async def init_http_client() -> None:
@@ -89,7 +80,7 @@ async def check_source_repo_updated() -> tuple[bool, str | None]:
 
 
 async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
-    global _last_commit_sha, _last_etag, _commit_sha_fresh
+    global _last_commit_sha, _last_etag
 
     headers = {
         "Accept": "application/vnd.github+json",
@@ -115,7 +106,6 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
             headers=headers,
         ) as resp:
             if resp.status == 304:
-                _commit_sha_fresh = True
                 logger.debug("GitHub API 304 Not Modified (cached)")
                 return False, None
             if resp.status == 200:
@@ -126,11 +116,9 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                 if commits and isinstance(commits, list):
                     first = commits[0]
                     if not isinstance(first, dict) or "sha" not in first:
-                        _commit_sha_fresh = False
                         logger.warning("Unexpected commit object structure, falling back to full fetch")
                         return True, None
                     new_sha = first["sha"]
-                    _commit_sha_fresh = True
                     if _last_commit_sha is None:
                         _last_commit_sha = new_sha
                         logger.info("Initial commit SHA: %s", new_sha[:8])
@@ -145,6 +133,10 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
                         _last_commit_sha = new_sha
                         try:
+                            # create_task is fire-and-forget by design here: the
+                            # state is already in-memory (_last_commit_sha) and the
+                            # DB write is best-effort persistence for restart recovery.
+                            # We name the task so it shows up in asyncio debug logs.
                             asyncio.get_running_loop().create_task(
                                 _save_commit_state(), name="save_commit_state"
                             )
@@ -154,15 +146,12 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                     logger.debug("No new commits (SHA: %s)", new_sha[:8])
                     return False, None
                 # Empty or non-list response body — trigger a full check
-                _commit_sha_fresh = False
                 logger.warning("GitHub API returned empty or non-list commits body, falling back to full fetch")
                 return True, None
             else:
-                _commit_sha_fresh = False
                 logger.warning("GitHub Commits API returned %d, falling back to full fetch", resp.status)
                 return True, None
     except Exception as e:
-        _commit_sha_fresh = False
         logger.warning("GitHub Commits API check failed: %s, falling back to full fetch", e)
         return True, None
     finally:
@@ -220,13 +209,9 @@ async def fetch_schedule_data(
                 return data
 
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
-    if force_refresh and _last_commit_sha and _commit_sha_fresh:
-        # Pin the URL to the exact commit SHA so the CDN returns the right
-        # version immediately, instead of a stale /main/ cached copy.
-        # Only pin when the SHA was confirmed by a successful API response;
-        # on API errors we fall back to /main/ to avoid serving stale data.
-        url = url.replace("/main/", f"/{_last_commit_sha}/")
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
+    if force_refresh:
+        req_headers["Cache-Control"] = "no-cache, no-store"
 
     retry_delays = [1, 3]
 
@@ -260,11 +245,6 @@ async def fetch_schedule_data(
         if attempt < len(retry_delays):
             await asyncio.sleep(retry_delays[attempt])
 
-    logger.warning(
-        "Schedule fetch %s exhausted all %d attempts — returning None",
-        region,
-        len(retry_delays) + 1,
-    )
     return None
 
 
@@ -344,8 +324,6 @@ async def fetch_schedule_image(
         logger.warning("Local chart generation failed for %s/%s — falling back to GitHub", region, queue)
 
     # ── Fallback: GitHub pre-rendered PNG ─────────────────────────────────────
-    # Unlike JSON data, we don't pin the image URL to a commit SHA because
-    # this code path has no freshness guarantee for _last_commit_sha.
     queue_dashed = queue.replace(".", "-")
     url = settings.IMAGE_URL_TEMPLATE.replace('{region}', region).replace('{queue}', queue_dashed)
 
@@ -367,9 +345,6 @@ async def fetch_schedule_image(
                     await chart_cache.store(region, queue, data)
                     await _l1_store_async(cache_key, now, data)
                     return data
-                logger.warning(
-                    "Image fetch %s/%s returned HTTP %d", region, queue, resp.status
-                )
         finally:
             if _owned:
                 await _session.close()
