@@ -51,6 +51,9 @@ class User(Base):
         Index("idx_users_active_region", "is_active", "region"),
         Index("idx_users_router_ip_active", "router_ip", "is_active"),
         Index("idx_users_created_at_desc", "created_at"),
+        # Covering index for cursor-based pagination:
+        # WHERE is_active = ? AND region = ? AND queue = ? AND id > ? ORDER BY id
+        Index("idx_users_region_queue_active", "is_active", "region", "queue", "id"),
     )
 
 

@@ -316,9 +316,15 @@ async def on_shutdown(bot: Bot) -> None:
     stop_scheduler()
     stop_power_monitor()
 
-    for task in _bg_tasks:
-        task.cancel()
-    await asyncio.gather(*_bg_tasks, return_exceptions=True)
+    # Give tasks up to 10s to finish gracefully before cancelling
+    if _bg_tasks:
+        done, pending = await asyncio.wait(list(_bg_tasks), timeout=10)
+        if pending:
+            logger.warning("Graceful shutdown timeout: cancelling %d task(s)", len(pending))
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
     _bg_tasks.clear()
 
     shutdown_chart_executor()  # stop chart render threads
