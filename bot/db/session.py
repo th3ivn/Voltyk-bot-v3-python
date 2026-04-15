@@ -59,11 +59,12 @@ _connect_args.setdefault("command_timeout", 30)
 
 engine = create_async_engine(
     _clean_url,
-    pool_size=30,
-    max_overflow=20,
-    pool_timeout=30,
+    pool_size=100,
+    max_overflow=50,
+    pool_timeout=60,
     pool_pre_ping=True,
     pool_recycle=3600,
+    pool_use_lifo=True,  # reuse recently-returned connections → fewer idle sockets at low load
     connect_args=_connect_args,
 )
 

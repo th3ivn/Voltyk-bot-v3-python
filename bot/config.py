@@ -69,10 +69,14 @@ class Settings(BaseSettings):
     DTEK_REQUEST_TIMEOUT_S: int = 15
     DTEK_MAX_RETRIES: int = 2
 
-    CHANNEL_GUARD_BATCH_SIZE: int = 5
-    CHANNEL_GUARD_DELAY_BETWEEN_BATCHES_MS: int = 1000
+    CHANNEL_GUARD_BATCH_SIZE: int = 50
+    CHANNEL_GUARD_DELAY_BETWEEN_BATCHES_MS: int = 100
     CHANNEL_GUARD_RETRY_ATTEMPTS: int = 3
     CHANNEL_GUARD_RETRY_BASE_DELAY_MS: int = 1000
+
+    # Set to False to skip automatic Alembic migrations on startup.
+    # Useful when migrations are run as a separate init-container step.
+    AUTO_MIGRATE: bool = True
 
     SENTRY_DSN: str = ""
     ENVIRONMENT: str = "production"

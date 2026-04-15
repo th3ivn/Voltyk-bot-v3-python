@@ -562,7 +562,6 @@ class TestCheckSingleQueue:
         mock_session = _make_mock_session()
         events = [{"start": "2025-01-15T08:00:00", "end": "2025-01-15T10:00:00"}]
         sched = _make_sched(events=events)
-        users = [_make_user()]
 
         with patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
@@ -574,8 +573,7 @@ class TestCheckSingleQueue:
              patch("bot.services.scheduler._prerender_chart", new_callable=AsyncMock), \
              patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock), \
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
-             patch("bot.services.scheduler._send_notifications_to_users", new_callable=AsyncMock) as mock_notify, \
+             patch("bot.services.scheduler._send_notifications_for_pair", new_callable=AsyncMock, return_value=1) as mock_notify, \
              patch("bot.services.scheduler.mark_pending_notifications_sent", new_callable=AsyncMock), \
              patch("bot.services.scheduler.update_power_notifications_on_schedule_change", new_callable=AsyncMock), \
              _patch_async_session(mock_session):
@@ -613,19 +611,18 @@ class TestCheckSingleQueue:
         mock_session = _make_mock_session()
         events = [{"start": "2025-01-15T08:00:00", "end": "2025-01-15T10:00:00"}]
         sched = _make_sched(events=events)
-        users = [_make_user()]
         notified_args = {}
 
-        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
+        async def _capture_notify(bot, region, queue, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
             notified_args["update_type"] = update_type
+            return 1
 
         with patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.calculate_schedule_hash", side_effect=["new_hash", "today_hash"]), \
              patch("bot.services.scheduler.get_schedule_hash", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler.get_daily_snapshot", new_callable=AsyncMock, return_value=None), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
              patch("bot.services.scheduler.invalidate_image_cache", new_callable=AsyncMock), \
              patch("bot.services.scheduler._prerender_chart", new_callable=AsyncMock), \
@@ -633,7 +630,7 @@ class TestCheckSingleQueue:
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
              patch("bot.services.scheduler.mark_pending_notifications_sent", new_callable=AsyncMock), \
              patch("bot.services.scheduler.update_power_notifications_on_schedule_change", new_callable=AsyncMock), \
-             patch("bot.services.scheduler._send_notifications_to_users", side_effect=_capture_notify), \
+             patch("bot.services.scheduler._send_notifications_for_pair", side_effect=_capture_notify), \
              _patch_async_session(mock_session):
             await _check_single_queue(bot_mock, "kyiv", "1.1")
 
@@ -655,7 +652,6 @@ class TestFlushPendingNotifications:
         region, queue = "kyiv", "1.1"
         events = [{"start": "2025-01-15T08:00:00", "end": "2025-01-15T10:00:00"}]
         sched = _make_sched(events=events)
-        users = [_make_user()]
         notif = SimpleNamespace(
             schedule_data=json.dumps(sched),
             update_type=json.dumps({"todayUpdated": True}),
@@ -664,13 +660,12 @@ class TestFlushPendingNotifications:
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler.get_latest_pending_notification", new_callable=AsyncMock, return_value=notif), \
              patch("bot.services.scheduler.mark_pending_notifications_sent", new_callable=AsyncMock) as mock_mark, \
              patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock), \
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
              patch("bot.services.scheduler.calculate_schedule_hash", return_value="sent_hash"), \
-             patch("bot.services.scheduler._send_notifications_to_users", new_callable=AsyncMock) as mock_send, \
+             patch("bot.services.scheduler._send_notifications_for_pair", new_callable=AsyncMock, return_value=1) as mock_send, \
              patch("bot.services.scheduler.delete_old_pending_notifications", new_callable=AsyncMock, return_value=0), \
              patch("bot.services.scheduler.cleanup_old_reminders", new_callable=AsyncMock, return_value=0), \
              _patch_async_session(mock_session):
@@ -689,22 +684,21 @@ class TestFlushPendingNotifications:
         region, queue = "kyiv", "1.1"
         events = [{"start": "2025-01-15T08:00:00", "end": "2025-01-15T10:00:00"}]
         sched = _make_sched(events=events)
-        users = [_make_user()]
 
         notified_args = {}
 
-        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
+        async def _capture_notify(bot, region, queue, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
+            return 1
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.calculate_schedule_hash", return_value="fresh_hash"), \
              patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock), \
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
-             patch("bot.services.scheduler._send_notifications_to_users", side_effect=_capture_notify), \
+             patch("bot.services.scheduler._send_notifications_for_pair", side_effect=_capture_notify), \
              patch("bot.services.scheduler.delete_old_pending_notifications", new_callable=AsyncMock, return_value=0), \
              patch("bot.services.scheduler.cleanup_old_reminders", new_callable=AsyncMock, return_value=0), \
              _patch_async_session(mock_session):
@@ -724,7 +718,7 @@ class TestFlushPendingNotifications:
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler._send_notifications_to_users", new_callable=AsyncMock) as mock_send, \
              patch("bot.services.scheduler.delete_old_pending_notifications", new_callable=AsyncMock, return_value=0), \
@@ -743,7 +737,6 @@ class TestFlushPendingNotifications:
 
         region, queue = "kyiv", "1.1"
         sched = _make_sched()
-        users = [_make_user()]
         notif = SimpleNamespace(
             schedule_data=json.dumps(sched),
             update_type=json.dumps({"dailyPlanned": True}),
@@ -751,18 +744,18 @@ class TestFlushPendingNotifications:
         )
         notified_args = {}
 
-        async def _capture_notify(bot, user, schedule_data, update_type, changes, is_daily_planned=False):
+        async def _capture_notify(bot, region, queue, schedule_data, update_type, changes, is_daily_planned=False):
             notified_args["is_daily_planned"] = is_daily_planned
+            return 1
 
         with patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[(region, queue)]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler.get_latest_pending_notification", new_callable=AsyncMock, return_value=notif), \
              patch("bot.services.scheduler.mark_pending_notifications_sent", new_callable=AsyncMock), \
              patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock), \
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
              patch("bot.services.scheduler.calculate_schedule_hash", return_value="hash"), \
-             patch("bot.services.scheduler._send_notifications_to_users", side_effect=_capture_notify), \
+             patch("bot.services.scheduler._send_notifications_for_pair", side_effect=_capture_notify), \
              patch("bot.services.scheduler.delete_old_pending_notifications", new_callable=AsyncMock, return_value=0), \
              patch("bot.services.scheduler.cleanup_old_reminders", new_callable=AsyncMock, return_value=0), \
              _patch_async_session(mock_session):
@@ -831,7 +824,7 @@ class TestCheckAndSendReminders:
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=set()), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock, return_value=True) as mock_send, \
              patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock), \
@@ -870,7 +863,7 @@ class TestCheckAndSendReminders:
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=already_sent), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock, return_value=True) as mock_send, \
              _patch_async_session(mock_session):
@@ -905,7 +898,7 @@ class TestCheckAndSendReminders:
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "data"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_event), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
             await _check_and_send_reminders(bot_mock)
@@ -1563,8 +1556,7 @@ class TestCheckSingleQueueBranches:
             patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock),
             patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock),
             patch("bot.services.scheduler.save_pending_notification", new_callable=AsyncMock),
-            patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users),
-            patch("bot.services.scheduler._send_notifications_to_users", new_callable=AsyncMock),
+            patch("bot.services.scheduler._send_notifications_for_pair", new_callable=AsyncMock, return_value=1),
             patch("bot.services.scheduler.mark_pending_notifications_sent", new_callable=AsyncMock),
             patch("bot.services.scheduler.update_power_notifications_on_schedule_change", new_callable=AsyncMock),
         ]
@@ -1781,11 +1773,10 @@ class TestFlushPendingNotificationsBranches:
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[["kyiv", "1.1"]]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=users), \
              patch("bot.services.scheduler.get_latest_pending_notification", new_callable=AsyncMock, return_value=None), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
-             patch("bot.services.scheduler._send_notifications_to_users", notify_mock), \
+             patch("bot.services.scheduler._send_notifications_for_pair", notify_mock), \
              patch("bot.services.scheduler.update_schedule_check_time", new_callable=AsyncMock), \
              patch("bot.services.scheduler.upsert_daily_snapshot", new_callable=AsyncMock), \
              patch("bot.services.scheduler.calculate_schedule_hash", return_value="h"), \
@@ -1809,7 +1800,7 @@ class TestFlushPendingNotificationsBranches:
         with _patch_async_session(mock_session), \
              patch("bot.services.scheduler.get_all_pending_region_queue_pairs", new_callable=AsyncMock, return_value=[]), \
              patch("bot.services.scheduler.get_distinct_region_queue_pairs", new_callable=AsyncMock, return_value=[("kyiv", "1.1"), ("kyiv", "2.1")]), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, side_effect=RuntimeError("db error")), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, side_effect=RuntimeError("db error")), \
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"raw": "d"}), \
              patch("bot.services.scheduler.delete_old_pending_notifications", new_callable=AsyncMock, return_value=0), \
              patch("bot.services.scheduler.cleanup_old_reminders", new_callable=AsyncMock, return_value=0):
@@ -1888,7 +1879,7 @@ class TestCatchUpMissedReminders:
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=sched), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch", new_callable=AsyncMock, return_value=set()), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock, return_value=True) as mock_send, \
              patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
@@ -1999,7 +1990,7 @@ class TestCheckAndSendRemindersBranches:
              patch("bot.services.scheduler.fetch_schedule_data", new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region", new_callable=AsyncMock, return_value=[user]), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor", new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
             await _check_and_send_reminders(bot_mock)
@@ -2245,7 +2236,7 @@ class TestCatchUpMissedRemindersBranches:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user_no_ns]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send:
             await catch_up_missed_reminders(bot_mock)
@@ -2280,7 +2271,7 @@ class TestCatchUpMissedRemindersBranches:
              patch("bot.services.scheduler.parse_schedule_for_queue",
                    return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch",
                    new_callable=AsyncMock, return_value=set()), \
@@ -2317,7 +2308,7 @@ class TestCatchUpMissedRemindersBranches:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch",
                    new_callable=AsyncMock, return_value=set()), \
@@ -2344,7 +2335,7 @@ class TestCatchUpMissedRemindersBranches:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch",
                    new_callable=AsyncMock, return_value=set()), \
@@ -2370,7 +2361,7 @@ class TestCatchUpMissedRemindersBranches:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler.check_reminders_sent_batch",
                    new_callable=AsyncMock,
@@ -2787,7 +2778,7 @@ class TestCheckAndSendRemindersMore:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user_no_ns]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):
@@ -2815,7 +2806,7 @@ class TestCheckAndSendRemindersMore:
                    new_callable=AsyncMock, return_value={"r": "d"}), \
              patch("bot.services.scheduler.parse_schedule_for_queue", return_value=_make_sched()), \
              patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
-             patch("bot.services.scheduler.get_active_users_by_region",
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
                    new_callable=AsyncMock, return_value=[user]), \
              patch("bot.services.scheduler._send_reminder", new_callable=AsyncMock) as mock_send, \
              _patch_async_session(mock_session):

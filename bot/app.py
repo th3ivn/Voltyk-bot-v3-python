@@ -5,6 +5,7 @@ import os
 from contextlib import suppress
 from datetime import datetime
 
+import alembic.command as alembic_command
 import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -17,7 +18,6 @@ from alembic.config import Config as AlembicConfig
 from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
-from alembic import command as alembic_command
 from bot.config import settings
 from bot.db.queries import get_setting
 from bot.db.session import async_session, check_db_connectivity, engine
@@ -88,6 +88,8 @@ async def _run_migrations() -> None:
 
 async def _health_handler(_request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
+    import os
+
     from sqlalchemy import text
 
     db_status = "ok"
@@ -116,9 +118,67 @@ async def _health_handler(_request: web.Request) -> web.Response:
         redis_status = "unreachable"
         healthy = False
 
-    payload = {"status": "ok" if healthy else "degraded", "db": db_status, "redis": redis_status}
+    # ── Extended diagnostics (non-blocking) ──────────────────────────────
+    memory_mb: int | None = None
+    try:
+        import resource
+        mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux reports in KB; macOS in bytes
+        memory_mb = mem // 1024 if os.uname().sysname != "Darwin" else mem // (1024 * 1024)
+    except Exception:
+        pass
+
+    pool_size: int | None = None
+    pool_checked_out: int | None = None
+    try:
+        pool_size = engine.pool.size()  # type: ignore[attr-defined]
+        pool_checked_out = engine.pool.checkedout()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+    user_states_count: int | None = None
+    dirty_states_count: int | None = None
+    try:
+        from bot.services.power_monitor import _dirty_states, _user_states
+        user_states_count = len(_user_states)
+        dirty_states_count = len(_dirty_states)
+    except Exception:
+        pass
+
+    payload: dict = {
+        "status": "ok" if healthy else "degraded",
+        "db": db_status,
+        "redis": redis_status,
+    }
+    if memory_mb is not None:
+        payload["memory_mb"] = memory_mb
+    if pool_size is not None:
+        payload["db_pool_size"] = pool_size
+        payload["db_pool_checked_out"] = pool_checked_out
+    if user_states_count is not None:
+        payload["power_states_in_memory"] = user_states_count
+        payload["power_dirty_states"] = dirty_states_count
+
     status_code = 200 if healthy else 503
     return web.json_response(payload, status=status_code)
+
+
+async def _metrics_handler(_request: web.Request) -> web.Response:
+    """Expose Prometheus metrics at /metrics."""
+    from bot.utils.metrics import DB_POOL_CHECKED_OUT, DB_POOL_SIZE, metrics_response
+
+    try:
+        pool_size = engine.pool.size()  # type: ignore[attr-defined]
+        pool_checked_out = engine.pool.checkedout()  # type: ignore[attr-defined]
+        DB_POOL_SIZE.set(pool_size)
+        DB_POOL_CHECKED_OUT.set(pool_checked_out)
+    except Exception:
+        pass
+
+    body, content_type = metrics_response()
+    # Pass Content-Type via headers= to avoid aiohttp's ValueError when the
+    # value contains a charset parameter (CONTENT_TYPE_LATEST includes one).
+    return web.Response(body=body, headers={"Content-Type": content_type})
 
 
 async def _start_health_server() -> None:
@@ -129,6 +189,7 @@ async def _start_health_server() -> None:
 
     app = web.Application()
     app.router.add_get("/health", _health_handler)
+    app.router.add_get("/metrics", _metrics_handler)
 
     port = int(os.getenv("PORT", settings.HEALTH_PORT))
     runner = web.AppRunner(app)
@@ -199,7 +260,10 @@ async def on_startup(bot: Bot) -> None:
         )
         logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
     logger.info("🚀 Запуск Вольтик v4...")
-    await _run_migrations()
+    if settings.AUTO_MIGRATE:
+        await _run_migrations()
+    else:
+        logger.info("AUTO_MIGRATE=False — skipping automatic migrations")
     await check_db_connectivity()
     logger.info("✅ База даних ініційована")
 
@@ -287,6 +351,7 @@ async def main() -> None:
 
             app = web.Application()
             app.router.add_get("/health", _health_handler)
+            app.router.add_get("/metrics", _metrics_handler)
 
             handler = SimpleRequestHandler(
                 dispatcher=dp, bot=bot, secret_token=settings.WEBHOOK_SECRET or None,

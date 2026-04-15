@@ -10,9 +10,19 @@ from typing import Any
 import aiohttp
 
 from bot.config import settings
+from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Circuit breaker for the upstream schedule data source.
+# Opens after 5 consecutive fetch failures; re-probes after 60 s.
+_schedule_api_breaker = CircuitBreaker(
+    name="schedule_api",
+    fail_max=5,
+    reset_timeout=60.0,
+    exclude=(asyncio.CancelledError,),
+)
 
 KYIV_TZ = settings.timezone
 
@@ -196,6 +206,12 @@ async def load_last_commit_sha() -> None:
 async def fetch_schedule_data(
     region: str, cache_ttl_s: int | None = None, force_refresh: bool = False
 ) -> dict | None:
+    """Fetch schedule JSON for *region*, with L1 in-memory caching and a circuit breaker.
+
+    When the upstream source has been failing repeatedly the circuit breaker
+    opens and we return stale cached data (if available) instead of hammering
+    a down endpoint.
+    """
     # TTL = interval minus 5s buffer (minimum 10s). Falls back to settings if not provided.
     effective_ttl = timedelta(seconds=max((cache_ttl_s or settings.SCHEDULE_CHECK_INTERVAL_S) - 5, 10))
 
@@ -208,6 +224,23 @@ async def fetch_schedule_data(
                 _schedule_cache.move_to_end(cache_key)
                 return data
 
+    # If the circuit is OPEN (not half_open), return stale cache rather than failing hard.
+    # HALF_OPEN must proceed to allow the circuit breaker probe call through.
+    if _schedule_api_breaker.state == "open":
+        async with _schedule_cache_lock:
+            if cache_key in _schedule_cache:
+                _, stale = _schedule_cache[cache_key]
+                logger.warning(
+                    "schedule_api circuit breaker open — returning stale cache for %s",
+                    region,
+                )
+                return stale
+        logger.warning(
+            "schedule_api circuit breaker open — no cache available for %s",
+            region,
+        )
+        return None
+
     url = settings.DATA_URL_TEMPLATE.replace('{region}', region)
     req_headers: dict[str, str] = {"User-Agent": "SvitloCheck-Bot/4.0"}
     if force_refresh:
@@ -215,37 +248,50 @@ async def fetch_schedule_data(
 
     retry_delays = [1, 3]
 
-    for attempt in range(len(retry_delays) + 1):
-        _owned = False
-        _session = _http_client
-        if _session is None:
-            logger.warning("HTTP client not initialised, falling back to temporary session")
-            _session = aiohttp.ClientSession()
-            _owned = True
-        try:
-            async with _session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=30),
-                headers=req_headers,
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json(content_type=None)
-                    async with _schedule_cache_lock:
-                        if len(_schedule_cache) >= MAX_CACHE_SIZE:
-                            _schedule_cache.popitem(last=False)
-                        _schedule_cache[cache_key] = (now, data)
-                        _schedule_cache.move_to_end(cache_key)
-                    return data
-                logger.warning("Schedule fetch %s returned %d", region, resp.status)
-        except (TimeoutError, aiohttp.ClientError) as e:
-            logger.warning("Schedule fetch %s attempt %d failed: %s", region, attempt + 1, e)
-        finally:
-            if _owned:
-                await _session.close()
-        if attempt < len(retry_delays):
-            await asyncio.sleep(retry_delays[attempt])
+    async def _do_fetch() -> dict | None:
+        for attempt in range(len(retry_delays) + 1):
+            _owned = False
+            _session = _http_client
+            if _session is None:
+                logger.warning("HTTP client not initialised, falling back to temporary session")
+                _session = aiohttp.ClientSession()
+                _owned = True
+            try:
+                async with _session.get(
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                    headers=req_headers,
+                ) as resp:
+                    if resp.status == 200:
+                        fetched = await resp.json(content_type=None)
+                        async with _schedule_cache_lock:
+                            if len(_schedule_cache) >= MAX_CACHE_SIZE:
+                                _schedule_cache.popitem(last=False)
+                            _schedule_cache[cache_key] = (now, fetched)
+                            _schedule_cache.move_to_end(cache_key)
+                        return fetched
+                    logger.warning("Schedule fetch %s returned %d", region, resp.status)
+            except (TimeoutError, aiohttp.ClientError) as e:
+                logger.warning("Schedule fetch %s attempt %d failed: %s", region, attempt + 1, e)
+                if attempt == len(retry_delays):
+                    raise  # re-raise last error so circuit breaker records the failure
+            finally:
+                if _owned:
+                    await _session.close()
+            if attempt < len(retry_delays):
+                await asyncio.sleep(retry_delays[attempt])
+        return None
 
-    return None
+    try:
+        return await _schedule_api_breaker.call(_do_fetch)
+    except CircuitBreakerOpen:
+        async with _schedule_cache_lock:
+            if cache_key in _schedule_cache:
+                _, stale = _schedule_cache[cache_key]
+                return stale
+        return None
+    except (TimeoutError, aiohttp.ClientError):
+        return None
 
 
 async def invalidate_image_cache(region: str, queue: str) -> None:
