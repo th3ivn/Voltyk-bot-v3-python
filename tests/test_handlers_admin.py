@@ -24,7 +24,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -445,6 +444,34 @@ class TestChartPreviewRender:
 
         cb.message.answer_photo.assert_awaited_once()
 
+    async def test_three_outages_scenario_sends_photo(self):
+        from bot.handlers.admin.chart_settings import chart_preview_render
+
+        cb = _make_callback(data="chart_preview:three_outages")
+        png_data = b"fakepng"
+        with (
+            patch("bot.handlers.admin.chart_settings.settings") as ms,
+            patch("bot.handlers.admin.chart_settings.generate_schedule_chart", new_callable=AsyncMock, return_value=png_data),
+        ):
+            ms.is_admin.return_value = True
+            await chart_preview_render(cb)
+
+        cb.message.answer_photo.assert_awaited_once()
+
+    async def test_halfhour_scenario_sends_photo(self):
+        from bot.handlers.admin.chart_settings import chart_preview_render
+
+        cb = _make_callback(data="chart_preview:halfhour")
+        png_data = b"fakepng"
+        with (
+            patch("bot.handlers.admin.chart_settings.settings") as ms,
+            patch("bot.handlers.admin.chart_settings.generate_schedule_chart", new_callable=AsyncMock, return_value=png_data),
+        ):
+            ms.is_admin.return_value = True
+            await chart_preview_render(cb)
+
+        cb.message.answer_photo.assert_awaited_once()
+
 
 # ===========================================================================
 # database.py
@@ -511,6 +538,7 @@ class TestAdminRestartConfirm:
 
     async def test_owner_calls_sys_exit(self):
         import sys
+
         from bot.handlers.admin.database import admin_restart_confirm
 
         cb = _make_callback()
@@ -1876,6 +1904,7 @@ class TestPauseLog:
 
     async def test_with_logs(self):
         from datetime import datetime
+
         from bot.handlers.admin.pause import pause_log
 
         cb = _make_callback()

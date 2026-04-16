@@ -631,3 +631,170 @@ class TestRunBroadcast:
         assert len(admin_calls) == 2
         progress_text: str = admin_calls[0][0][1]
         assert "Прогрес" in progress_text
+
+    async def test_deactivate_user_exception_is_swallowed(self):
+        """Lines 187-188: if deactivate_user itself raises, warning is logged and broadcast continues."""
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+        bot.send_message.side_effect = [
+            TelegramForbiddenError(method=MagicMock(), message="Forbidden"),
+            None,  # summary
+        ]
+        rows = [(1, "101")]
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=[rows, []]),
+            ),
+            patch(
+                "bot.handlers.admin.broadcast.deactivate_user",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            # Should not raise — exception swallowed
+            await _run_broadcast(bot, "msg", 99)
+
+        # Summary still sent despite the deactivation failure
+        summary_text: str = bot.send_message.call_args_list[-1][0][1]
+        assert "Заблокували" in summary_text
+
+    async def test_progress_send_exception_is_swallowed(self):
+        """Lines 211-212: if progress send_message fails, exception is logged and broadcast continues."""
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+        progress_every = 2
+        rows = [(1, "101"), (2, "102")]
+
+        send_calls = 0
+
+        async def _send(chat_id, text, **kw):
+            nonlocal send_calls
+            send_calls += 1
+            if chat_id == 99 and "Прогрес" in text:
+                raise RuntimeError("send failed")
+
+        bot.send_message.side_effect = _send
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast._PROGRESS_EVERY", progress_every),
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=[rows, []]),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            # Should not raise — swallowed by except block
+            await _run_broadcast(bot, "msg", 99)
+
+        # Summary still sent after the failed progress message
+        summary_text: str = bot.send_message.call_args_list[-1][0][1]
+        assert "Надіслано: 2" in summary_text
+
+    async def test_cancelled_error_stops_broadcast_gracefully(self):
+        """Lines 216-217: asyncio.CancelledError from cursor raises → broadcast logs and ends."""
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=asyncio.CancelledError()),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            await _run_broadcast(bot, "msg", 99)
+
+        # Summary still sent to admin; no user messages sent
+        assert bot.send_message.await_count >= 1
+        summary_text: str = bot.send_message.call_args_list[-1][0][1]
+        assert "Надіслано: 0" in summary_text
+
+    async def test_outer_exception_increments_failed_and_sends_summary(self):
+        """Lines 218-220: unexpected outer exception → failed+1, summary sent."""
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=RuntimeError("outer boom")),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            await _run_broadcast(bot, "msg", 99)
+
+        summary_text: str = bot.send_message.call_args_list[-1][0][1]
+        assert "Помилок: 1" in summary_text
+
+    async def test_summary_send_exception_is_swallowed(self):
+        """Lines 230-231: if final summary send fails, exception is logged and no re-raise."""
+        from bot.handlers.admin.broadcast import _run_broadcast
+
+        bot = AsyncMock()
+        rows = [(1, "101")]
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        # All sends succeed except the final summary
+        user_send_done = False
+
+        async def _send(chat_id, text, **kw):
+            nonlocal user_send_done
+            if chat_id != 99:
+                user_send_done = True
+                return
+            # Summary send always raises
+            raise RuntimeError("telegram down")
+
+        bot.send_message.side_effect = _send
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_active_user_ids_cursor",
+                AsyncMock(side_effect=[rows, []]),
+            ),
+            patch("bot.handlers.admin.broadcast.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+        ):
+            mock_settings.TELEGRAM_MAX_RETRIES = 3
+            # Must not raise even though summary send fails
+            await _run_broadcast(bot, "msg", 99)
+
+        assert user_send_done
