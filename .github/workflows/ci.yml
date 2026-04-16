@@ -74,7 +74,7 @@ jobs:
           # pipeline because set +e means the shell never falls through to
           # || true (which would reset PIPESTATUS to (0,)).
           set +e
-          pytest --cov=bot --cov-report=term-missing 2>&1 | tee /tmp/pytest-output.txt
+          pytest --cov=bot --cov-report=term-missing --cov-fail-under=30 2>&1 | tee /tmp/pytest-output.txt
           PYTEST_EXIT="${PIPESTATUS[0]}"
           set -e
 
@@ -93,3 +93,53 @@ jobs:
             | while IFS= read -r line; do echo "::error::${line}"; done || true
 
           exit "${PYTEST_EXIT}"
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t voltyk-bot-test . --no-cache
+
+  migrations:
+    name: Migration check (alembic)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: voltyk
+          POSTGRES_PASSWORD: voltyk
+          POSTGRES_DB: voltyk_test
+        options: >-
+          --health-cmd "pg_isready -U voltyk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://voltyk:voltyk@localhost:5432/voltyk_test
+          BOT_TOKEN: "0:test"
+        run: alembic upgrade head
+
+      - name: Check alembic heads (no unmerged branches)
+        run: alembic heads --verbose

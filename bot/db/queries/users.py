@@ -31,6 +31,7 @@ __all__ = [
     "get_active_users_paginated",
     "get_users_with_ip",
     "get_users_with_ip_cursor",
+    "get_active_power_users_by_region_queue_cursor",
     "get_users_with_channel",
     "get_user_by_channel_id",
     "count_active_users",
@@ -277,6 +278,39 @@ async def get_users_with_ip_cursor(
             User.is_active.is_(True),
             User.router_ip.isnot(None),
             User.router_ip != "",
+            User.id > after_id,
+        )
+        .order_by(User.id)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_active_power_users_by_region_queue_cursor(
+    session: AsyncSession,
+    region: str,
+    queue: str,
+    limit: int = 500,
+    after_id: int = 0,
+) -> list[User]:
+    """Cursor-based fetch of active power-monitoring users for a region/queue pair.
+
+    Returns active users who have a non-empty router_ip, belong to *region* and
+    *queue*, and whose id > after_id.  Pass ``after_id=batch[-1].id`` for the
+    next page.  Loads power_tracking and channel_config eagerly because callers
+    need both relationships.
+    """
+    result = await session.execute(
+        select(User)
+        .options(
+            selectinload(User.power_tracking),
+            selectinload(User.channel_config),
+        )
+        .where(
+            User.is_active.is_(True),
+            User.region == region,
+            User.queue == queue,
+            User.router_ip.isnot(None),
             User.id > after_id,
         )
         .order_by(User.id)

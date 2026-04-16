@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
@@ -12,6 +13,7 @@ import aiohttp
 from bot.config import settings
 from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 from bot.utils.logger import get_logger
+from bot.utils.metrics import SCHEDULE_FETCH_DURATION, SCHEDULE_FETCH_ERRORS
 
 logger = get_logger(__name__)
 
@@ -257,6 +259,7 @@ async def fetch_schedule_data(
                 _session = aiohttp.ClientSession()
                 _owned = True
             try:
+                _t0 = time.monotonic()
                 async with _session.get(
                     url,
                     timeout=aiohttp.ClientTimeout(total=30),
@@ -264,6 +267,7 @@ async def fetch_schedule_data(
                 ) as resp:
                     if resp.status == 200:
                         fetched = await resp.json(content_type=None)
+                        SCHEDULE_FETCH_DURATION.observe(time.monotonic() - _t0)
                         async with _schedule_cache_lock:
                             if len(_schedule_cache) >= MAX_CACHE_SIZE:
                                 _schedule_cache.popitem(last=False)
@@ -274,6 +278,7 @@ async def fetch_schedule_data(
             except (TimeoutError, aiohttp.ClientError) as e:
                 logger.warning("Schedule fetch %s attempt %d failed: %s", region, attempt + 1, e)
                 if attempt == len(retry_delays):
+                    SCHEDULE_FETCH_ERRORS.labels(region=region).inc()
                     raise  # re-raise last error so circuit breaker records the failure
             finally:
                 if _owned:

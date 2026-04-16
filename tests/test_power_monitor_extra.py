@@ -1721,7 +1721,7 @@ class TestSendDailyPingErrorAlertsExtra:
 
         with (
             _patch_pm_async_session(mock_session),
-            patch("bot.services.power_monitor.get_active_ping_error_alerts", return_value=[alert]),
+            patch("bot.services.power_monitor.get_active_ping_error_alerts_cursor", return_value=[alert]),
         ):
             await _send_daily_ping_error_alerts(bot)
 
@@ -1742,7 +1742,7 @@ class TestSendDailyPingErrorAlertsExtra:
 
         with (
             _patch_pm_async_session(mock_session),
-            patch("bot.services.power_monitor.get_active_ping_error_alerts", return_value=[alert]),
+            patch("bot.services.power_monitor.get_active_ping_error_alerts_cursor", return_value=[alert]),
             patch("bot.services.power_monitor.check_router_http", return_value=False),
             patch(
                 "bot.services.power_monitor.retry_bot_call",
@@ -1765,7 +1765,7 @@ class TestSendDailyPingErrorAlertsExtra:
 
         with (
             _patch_pm_async_session(mock_session),
-            patch("bot.services.power_monitor.get_active_ping_error_alerts", return_value=[alert]),
+            patch("bot.services.power_monitor.get_active_ping_error_alerts_cursor", return_value=[alert]),
             patch("bot.services.power_monitor.check_router_http", side_effect=RuntimeError("network boom")),
         ):
             await _send_daily_ping_error_alerts(bot)  # Should not raise

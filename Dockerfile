@@ -29,6 +29,10 @@ COPY assets ./assets
 # This layer is only re-executed when pyproject.toml or sources change.
 RUN pip install --no-cache-dir --no-deps .
 
+# ── Security: run as non-root user ────────────────────────────────────────
+RUN groupadd --system bot && useradd --system --gid bot --no-create-home bot
+USER bot
+
 # ── Health check (used by Docker and Railway) ──────────────────────────────
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health', timeout=4)" \
