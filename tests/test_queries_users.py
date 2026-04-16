@@ -47,6 +47,14 @@ def _rows_result(rows):
     return result
 
 
+def _compile_sql(session_mock) -> str:
+    """Compile the SQLAlchemy statement passed to session.execute into a SQL string."""
+    from sqlalchemy.dialects import postgresql
+
+    stmt = session_mock.execute.call_args[0][0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})).lower()
+
+
 def _make_user(**kwargs) -> SimpleNamespace:
     defaults = dict(
         id=1,
@@ -412,7 +420,7 @@ class TestGetActivePowerUsersByRegionQueueCursor:
     """Tests for get_active_power_users_by_region_queue_cursor() — cursor pagination."""
 
     async def test_returns_users_for_region_queue(self):
-        """Returns active users matching region/queue on first page."""
+        """Returns active users matching region/queue — both values appear in compiled SQL."""
         from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
 
         session = _make_session()
@@ -423,6 +431,9 @@ class TestGetActivePowerUsersByRegionQueueCursor:
 
         assert result == users
         session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "kyiv" in sql, f"Expected region 'kyiv' in SQL WHERE clause, got: {sql}"
+        assert "queue" in sql, f"Expected 'queue' column reference in SQL, got: {sql}"
 
     async def test_returns_empty_when_no_users(self):
         """No users matching criteria → empty list."""
@@ -436,7 +447,7 @@ class TestGetActivePowerUsersByRegionQueueCursor:
         assert result == []
 
     async def test_respects_after_id(self):
-        """after_id filters users with id > after_id."""
+        """after_id predicate `id > after_id` is present in the compiled SQL."""
         from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
 
         session = _make_session()
@@ -449,9 +460,12 @@ class TestGetActivePowerUsersByRegionQueueCursor:
 
         assert result == users
         session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "id >" in sql, f"Expected 'id >' predicate in SQL, got: {sql}"
+        assert "5" in sql, f"Expected literal after_id value 5 in SQL, got: {sql}"
 
     async def test_respects_limit(self):
-        """Returns at most `limit` items."""
+        """LIMIT clause appears in the compiled SQL with the requested value."""
         from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
 
         session = _make_session()
@@ -463,6 +477,9 @@ class TestGetActivePowerUsersByRegionQueueCursor:
         )
 
         assert len(result) == 3
+        sql = _compile_sql(session)
+        assert "limit" in sql, f"Expected LIMIT clause in SQL, got: {sql}"
+        assert "3" in sql, f"Expected literal limit value 3 in SQL, got: {sql}"
 
     async def test_returns_list_type(self):
         """Return value is always a list."""

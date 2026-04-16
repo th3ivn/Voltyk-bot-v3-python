@@ -26,6 +26,14 @@ def _make_scalars_result(items):
     return result
 
 
+def _compile_sql(session_mock) -> str:
+    """Compile the SQLAlchemy statement passed to session.execute into a SQL string."""
+    from sqlalchemy.dialects import postgresql
+
+    stmt = session_mock.execute.call_args[0][0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})).lower()
+
+
 # ---------------------------------------------------------------------------
 # change_power_state_and_get_duration
 # ---------------------------------------------------------------------------
@@ -371,7 +379,7 @@ class TestGetActivePingErrorAlertsCursor:
         assert result == []
 
     async def test_respects_after_id(self):
-        """Passing after_id filters to alerts with id > after_id."""
+        """Passing after_id filters to alerts with id > after_id — verified in compiled SQL."""
         from bot.db.queries.power import get_active_ping_error_alerts_cursor
 
         session = _make_session()
@@ -382,9 +390,12 @@ class TestGetActivePingErrorAlertsCursor:
 
         assert result == alerts
         session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "id >" in sql, f"Expected 'id >' predicate in SQL, got: {sql}"
+        assert "5" in sql, f"Expected literal after_id value 5 in SQL, got: {sql}"
 
     async def test_respects_limit(self):
-        """Returns at most `limit` results."""
+        """LIMIT clause appears in the compiled SQL with the requested value."""
         from bot.db.queries.power import get_active_ping_error_alerts_cursor
 
         session = _make_session()
@@ -394,6 +405,9 @@ class TestGetActivePingErrorAlertsCursor:
         result = await get_active_ping_error_alerts_cursor(session, limit=3, after_id=0)
 
         assert len(result) == 3
+        sql = _compile_sql(session)
+        assert "limit" in sql, f"Expected LIMIT clause in SQL, got: {sql}"
+        assert "3" in sql, f"Expected literal limit value 3 in SQL, got: {sql}"
 
     async def test_returns_list_type(self):
         """Return value is always a list, never a lazy object."""
