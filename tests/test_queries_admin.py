@@ -41,6 +41,14 @@ def _scalars_one(value):
     return result
 
 
+def _compile_sql(session_mock) -> str:
+    """Compile the SQLAlchemy statement passed to session.execute into a SQL string."""
+    from sqlalchemy.dialects import postgresql
+
+    stmt = session_mock.execute.call_args[0][0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})).lower()
+
+
 # ---------------------------------------------------------------------------
 # get_admin_router
 # ---------------------------------------------------------------------------
@@ -104,28 +112,31 @@ class TestUpsertAdminRouter:
         assert result is router
 
     async def test_telegram_id_coerced_to_str(self):
-        """int admin_telegram_id is coerced to str."""
+        """int admin_telegram_id is coerced to str — verified in compiled INSERT SQL."""
         from bot.db.queries.admin import upsert_admin_router
 
         session = _make_session()
         router = SimpleNamespace(admin_telegram_id="77", router_ip="10.0.0.2")
         session.execute.return_value = _scalars_one(router)
 
-        result = await upsert_admin_router(session, 77, router_ip="10.0.0.2")
+        await upsert_admin_router(session, 77, router_ip="10.0.0.2")
 
-        assert result is router
+        sql = _compile_sql(session)
+        assert "'77'" in sql, f"Expected literal '77' (str) in INSERT VALUES, got: {sql}"
 
     async def test_extra_kwargs_passed_through(self):
-        """Additional kwargs (e.g. router_name) are forwarded to upsert."""
+        """Additional kwargs are present in the compiled INSERT statement."""
         from bot.db.queries.admin import upsert_admin_router
 
         session = _make_session()
-        router = SimpleNamespace(admin_telegram_id="1", router_ip="1.2.3.4", router_name="Home")
+        router = SimpleNamespace(admin_telegram_id="1", router_ip="1.2.3.4", router_port=8080)
         session.execute.return_value = _scalars_one(router)
 
-        result = await upsert_admin_router(session, "1", router_ip="1.2.3.4", router_name="Home")
+        await upsert_admin_router(session, "1", router_ip="1.2.3.4", router_port=8080)
 
-        assert result.router_name == "Home"
+        sql = _compile_sql(session)
+        assert "8080" in sql, f"Expected literal router_port value 8080 in INSERT, got: {sql}"
+        assert "router_port" in sql, f"Expected 'router_port' column in INSERT, got: {sql}"
 
 
 # ---------------------------------------------------------------------------
