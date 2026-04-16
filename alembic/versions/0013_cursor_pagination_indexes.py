@@ -19,19 +19,20 @@ A single covering index on (is_active, region, queue, id) satisfies all WHERE
 conditions as equality/range lookups and provides the ORDER BY id order for
 free — no extra sort step is needed.
 
-Strategy:
-- CREATE INDEX CONCURRENTLY — builds the index without holding an Access
-  Exclusive lock on the table, so reads and writes are not blocked during the
-  build.  This requires the statement to run outside an explicit transaction
-  block; we therefore COMMIT the Alembic transaction before issuing the DDL.
-- IF NOT EXISTS — makes the upgrade idempotent: safe on fresh databases and
-  on re-runs after a partial failure.
-- DROP INDEX CONCURRENTLY IF EXISTS in downgrade — symmetric approach, no lock.
+Note: CREATE INDEX CONCURRENTLY cannot run inside an Alembic transaction block,
+and its async-driver compatibility (asyncpg + run_sync) is fragile across
+Alembic versions.  A regular CREATE INDEX is used here instead; it holds an
+Access Exclusive lock only for the duration of the build, which is acceptable
+for most deployments.  On very large tables, run this migration during a
+maintenance window or apply the index manually with CONCURRENTLY before running
+alembic upgrade head.
 """
 
 from __future__ import annotations
 
-from alembic import op
+import sqlalchemy as sa
+
+from alembic import context, op
 
 revision = "0013"
 down_revision = "0012"
@@ -42,19 +43,29 @@ _INDEX_NAME = "idx_users_region_queue_active"
 _TABLE_NAME = "users"
 
 
+def _table_exists(name: str) -> bool:
+    """Return True if the table exists in the public schema (online mode only)."""
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return bool(result.scalar())
+
+
 def upgrade() -> None:
-    # CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
-    # Commit the transaction that Alembic opened, then execute outside it.
-    op.execute("COMMIT")
+    if not _table_exists(_TABLE_NAME):
+        return
     op.execute(
-        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX_NAME} "
+        f"CREATE INDEX IF NOT EXISTS {_INDEX_NAME} "
         f"ON {_TABLE_NAME} (is_active, region, queue, id)"
     )
 
 
 def downgrade() -> None:
-    # DROP INDEX CONCURRENTLY is also a non-transactional statement.
-    op.execute("COMMIT")
-    op.execute(
-        f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX_NAME}"
-    )
+    op.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")

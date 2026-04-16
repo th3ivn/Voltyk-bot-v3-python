@@ -128,3 +128,7 @@ class CircuitBreaker:
                     "CircuitBreaker '%s': OPEN after %d failure(s) — last: %s",
                     self.name, self._failures, exc,
                 )
+                # Local import avoids a module-level circular dependency
+                # (metrics → circuit_breaker would form a cycle).
+                from bot.utils.metrics import CIRCUIT_BREAKER_TRIPS  # noqa: PLC0415
+                CIRCUIT_BREAKER_TRIPS.labels(name=self.name).inc()

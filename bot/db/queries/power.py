@@ -21,6 +21,7 @@ __all__ = [
     "get_power_history_week",
     "upsert_ping_error_alert",
     "get_active_ping_error_alerts",
+    "get_active_ping_error_alerts_cursor",
     "deactivate_ping_error_alert",
     "update_ping_error_alert_time",
 ]
@@ -170,6 +171,25 @@ async def get_active_ping_error_alerts(session: AsyncSession) -> list[PingErrorA
     """Return all active ping-error alert records."""
     result = await session.execute(
         select(PingErrorAlert).where(PingErrorAlert.is_active.is_(True))
+    )
+    return list(result.scalars().all())
+
+
+async def get_active_ping_error_alerts_cursor(
+    session: AsyncSession,
+    limit: int = 500,
+    after_id: int = 0,
+) -> list[PingErrorAlert]:
+    """Cursor-based version of get_active_ping_error_alerts.
+
+    Returns active PingErrorAlert rows where id > after_id, ordered by id.
+    Pass ``after_id=batch[-1].id`` for the next page.
+    """
+    result = await session.execute(
+        select(PingErrorAlert)
+        .where(PingErrorAlert.is_active.is_(True), PingErrorAlert.id > after_id)
+        .order_by(PingErrorAlert.id)
+        .limit(limit)
     )
     return list(result.scalars().all())
 

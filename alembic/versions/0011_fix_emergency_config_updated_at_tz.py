@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
-from alembic import op
-
+from alembic import context, op
 
 revision = "0011"
 down_revision = "0010"
@@ -24,7 +23,24 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    """Return True if the table exists in the public schema (online mode only)."""
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return bool(result.scalar())
+
+
 def upgrade() -> None:
+    if not _table_exists("user_emergency_config"):
+        return
     op.alter_column(
         "user_emergency_config",
         "updated_at",

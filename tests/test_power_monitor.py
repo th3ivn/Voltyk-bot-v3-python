@@ -1375,7 +1375,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 await _send_daily_ping_error_alerts(bot_mock)
@@ -1394,7 +1394,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 # Router is now alive → deactivate and skip
@@ -1421,7 +1421,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
@@ -1442,7 +1442,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
@@ -1463,7 +1463,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
@@ -1486,7 +1486,7 @@ class TestSendDailyPingErrorAlerts:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(side_effect=Exception("DB error")),
             ):
                 await _send_daily_ping_error_alerts(bot_mock)  # Should not raise
@@ -3291,7 +3291,7 @@ class TestSendDailyPingErrorAlertsMoreBranches:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 await _send_daily_ping_error_alerts(bot_mock)
@@ -3310,7 +3310,7 @@ class TestSendDailyPingErrorAlertsMoreBranches:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=False)):
@@ -3332,7 +3332,7 @@ class TestSendDailyPingErrorAlertsMoreBranches:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_active_ping_error_alerts",
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
                 AsyncMock(return_value=[alert]),
             ):
                 with patch(
