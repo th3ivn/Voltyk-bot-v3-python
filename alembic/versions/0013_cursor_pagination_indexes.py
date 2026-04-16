@@ -30,7 +30,9 @@ alembic upgrade head.
 
 from __future__ import annotations
 
-from alembic import op
+import sqlalchemy as sa
+
+from alembic import context, op
 
 revision = "0013"
 down_revision = "0012"
@@ -41,7 +43,24 @@ _INDEX_NAME = "idx_users_region_queue_active"
 _TABLE_NAME = "users"
 
 
+def _table_exists(name: str) -> bool:
+    """Return True if the table exists in the public schema (online mode only)."""
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return bool(result.scalar())
+
+
 def upgrade() -> None:
+    if not _table_exists(_TABLE_NAME):
+        return
     op.execute(
         f"CREATE INDEX IF NOT EXISTS {_INDEX_NAME} "
         f"ON {_TABLE_NAME} (is_active, region, queue, id)"
