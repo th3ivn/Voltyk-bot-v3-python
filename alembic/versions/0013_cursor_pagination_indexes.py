@@ -44,17 +44,20 @@ _TABLE_NAME = "users"
 
 def upgrade() -> None:
     # CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
-    # Commit the transaction that Alembic opened, then execute outside it.
-    op.execute("COMMIT")
-    op.execute(
-        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX_NAME} "
-        f"ON {_TABLE_NAME} (is_active, region, queue, id)"
-    )
+    # autocommit_block() is the correct Alembic >= 1.7 API: it commits the
+    # current transaction, executes the DDL in autocommit mode, and works
+    # with both sync (psycopg2) and async (asyncpg) SQLAlchemy drivers —
+    # unlike raw op.execute("COMMIT") which is unreliable with asyncpg.
+    with op.get_context().autocommit_block():
+        op.execute(
+            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX_NAME} "
+            f"ON {_TABLE_NAME} (is_active, region, queue, id)"
+        )
 
 
 def downgrade() -> None:
     # DROP INDEX CONCURRENTLY is also a non-transactional statement.
-    op.execute("COMMIT")
-    op.execute(
-        f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX_NAME}"
-    )
+    with op.get_context().autocommit_block():
+        op.execute(
+            f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX_NAME}"
+        )
