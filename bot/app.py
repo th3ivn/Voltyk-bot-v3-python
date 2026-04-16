@@ -51,6 +51,7 @@ logger = get_logger(__name__)
 
 _bg_tasks: list[asyncio.Task] = []
 _health_runner = None
+_bg_restart_enabled: bool = True
 
 
 def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
@@ -69,6 +70,46 @@ def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
     task.add_done_callback(_on_done)
     _bg_tasks.append(task)
     return task
+
+
+async def _restart_with_backoff(
+    coro_factory,  # callable that returns a new coroutine
+    name: str,
+    max_retries: int = 5,
+    base_delay: float = 5.0,
+) -> None:
+    """Run coro_factory(), restart with exponential backoff on crash."""
+    retries = 0
+    while _bg_restart_enabled:
+        try:
+            await coro_factory()
+            return  # clean exit (stop flag set) — don't restart
+        except asyncio.CancelledError:
+            return  # graceful shutdown
+        except Exception as exc:
+            retries += 1
+            if retries > max_retries:
+                logger.critical(
+                    "Background task '%s' crashed %d times, giving up: %s",
+                    name, retries, exc, exc_info=True,
+                )
+                return
+            delay = min(base_delay * (2 ** (retries - 1)), 300.0)  # max 5 min
+            logger.error(
+                "Background task '%s' crashed (attempt %d/%d), restarting in %.0fs: %s",
+                name, retries, max_retries, delay, exc,
+            )
+            await asyncio.sleep(delay)
+
+
+def _bg(coro_factory, name: str) -> asyncio.Task:
+    task = asyncio.create_task(
+        _restart_with_backoff(coro_factory, name),
+        name=name,
+    )
+    _track_bg_task(task)
+    return task
+
 
 async def _run_migrations() -> None:
     """Apply pending Alembic migrations programmatically at startup."""
@@ -248,6 +289,9 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot) -> None:
+    global _bg_restart_enabled
+    _bg_restart_enabled = True  # reset in case on_shutdown ran earlier in this process
+
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
@@ -293,11 +337,11 @@ async def on_startup(bot: Bot) -> None:
         except Exception as e:
             logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
 
-    _track_bg_task(asyncio.create_task(schedule_checker_loop(bot), name="schedule_checker_loop"))
-    _track_bg_task(asyncio.create_task(power_monitor_loop(bot), name="power_monitor_loop"))
-    _track_bg_task(asyncio.create_task(daily_ping_error_loop(bot), name="daily_ping_error_loop"))
-    _track_bg_task(asyncio.create_task(daily_flush_loop(bot), name="daily_flush_loop"))
-    _track_bg_task(asyncio.create_task(reminder_checker_loop(bot), name="reminder_checker_loop"))
+    _bg(lambda: power_monitor_loop(bot), "power_monitor_loop")
+    _bg(lambda: daily_ping_error_loop(bot), "daily_ping_error_loop")
+    _bg(lambda: schedule_checker_loop(bot), "schedule_checker_loop")
+    _bg(lambda: daily_flush_loop(bot), "daily_flush_loop")
+    _bg(lambda: reminder_checker_loop(bot), "reminder_checker_loop")
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
@@ -316,9 +360,18 @@ async def on_shutdown(bot: Bot) -> None:
     stop_scheduler()
     stop_power_monitor()
 
-    for task in _bg_tasks:
-        task.cancel()
-    await asyncio.gather(*_bg_tasks, return_exceptions=True)
+    global _bg_restart_enabled
+    _bg_restart_enabled = False
+
+    # Give tasks up to 10s to finish gracefully before cancelling
+    if _bg_tasks:
+        done, pending = await asyncio.wait(list(_bg_tasks), timeout=10)
+        if pending:
+            logger.warning("Graceful shutdown timeout: cancelling %d task(s)", len(pending))
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
     _bg_tasks.clear()
 
     shutdown_chart_executor()  # stop chart render threads

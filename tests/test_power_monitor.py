@@ -1107,7 +1107,7 @@ class TestCheckAllIps:
         bot_mock = AsyncMock()
         async with _check_all_ips_lock:
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 new_callable=AsyncMock,
             ) as mock_get_users:
                 await _check_all_ips(bot_mock)
@@ -1122,7 +1122,7 @@ class TestCheckAllIps:
 
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 AsyncMock(return_value=[]),
             ):
                 with patch(
@@ -1144,7 +1144,7 @@ class TestCheckAllIps:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 AsyncMock(return_value=[user1, user2, user3]),
             ):
                 with patch(
@@ -1168,7 +1168,7 @@ class TestCheckAllIps:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 AsyncMock(return_value=[user1]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)):
@@ -1191,7 +1191,7 @@ class TestCheckAllIps:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 AsyncMock(return_value=[user1]),
             ):
                 with patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)):
@@ -2497,7 +2497,7 @@ class TestCheckAllIpsException:
         mock_session = _make_mock_session()
         with _patch_pm_async_session(mock_session):
             with patch(
-                "bot.services.power_monitor.get_users_with_ip",
+                "bot.services.power_monitor.get_users_with_ip_cursor",
                 AsyncMock(side_effect=RuntimeError("DB down")),
             ):
                 with patch("bot.services.power_monitor.sentry_sdk") as mock_sentry:

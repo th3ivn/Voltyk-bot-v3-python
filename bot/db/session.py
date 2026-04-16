@@ -55,7 +55,17 @@ def _prepare_database_url(url: str) -> tuple[str, dict]:
 _clean_url, _connect_args = _prepare_database_url(settings.DATABASE_URL)
 
 # Prevent runaway queries from holding connections indefinitely
-_connect_args.setdefault("command_timeout", 30)
+_connect_args.setdefault("command_timeout", settings.DB_COMMAND_TIMEOUT)
+
+# PostgreSQL server-side timeouts
+_connect_args.setdefault("server_settings", {})
+_connect_args["server_settings"].setdefault(
+    "statement_timeout", str(settings.DB_STATEMENT_TIMEOUT_MS)
+)
+_connect_args["server_settings"].setdefault(
+    "idle_in_transaction_session_timeout", str(settings.DB_IDLE_TX_TIMEOUT_MS)
+)
+
 
 engine = create_async_engine(
     _clean_url,

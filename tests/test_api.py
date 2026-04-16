@@ -1,7 +1,6 @@
 """Tests for bot/services/api.py — pure parsing functions."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 

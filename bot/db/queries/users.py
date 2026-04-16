@@ -30,6 +30,7 @@ __all__ = [
     "get_all_active_users",
     "get_active_users_paginated",
     "get_users_with_ip",
+    "get_users_with_ip_cursor",
     "get_users_with_channel",
     "get_user_by_channel_id",
     "count_active_users",
@@ -255,6 +256,31 @@ async def get_users_with_ip(session: AsyncSession) -> list[User]:
             User.router_ip.isnot(None),
             User.router_ip != "",
         )
+    )
+    return list(result.scalars().all())
+
+
+async def get_users_with_ip_cursor(
+    session: AsyncSession,
+    limit: int = 500,
+    after_id: int = 0,
+) -> list[User]:
+    """Cursor-based version of get_users_with_ip.
+
+    Returns active users with a non-empty router_ip where id > after_id.
+    Pass ``after_id=batch[-1].id`` to get the next page.
+    """
+    result = await session.execute(
+        select(User)
+        .options(*_USER_WITH_RELATIONS)
+        .where(
+            User.is_active.is_(True),
+            User.router_ip.isnot(None),
+            User.router_ip != "",
+            User.id > after_id,
+        )
+        .order_by(User.id)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
