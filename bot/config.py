@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     CHANNEL_GUARD_RETRY_ATTEMPTS: int = 3
     CHANNEL_GUARD_RETRY_BASE_DELAY_MS: int = 1000
 
+    DB_STATEMENT_TIMEOUT_MS: int = 30000   # PostgreSQL statement_timeout (ms)
+    DB_IDLE_TX_TIMEOUT_MS: int = 60000     # idle_in_transaction_session_timeout (ms)
+    DB_COMMAND_TIMEOUT: int = 60           # asyncpg command_timeout (seconds)
+
     # Set to False to skip automatic Alembic migrations on startup.
     # Useful when migrations are run as a separate init-container step.
     AUTO_MIGRATE: bool = True

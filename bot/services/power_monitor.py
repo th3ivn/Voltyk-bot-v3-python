@@ -25,7 +25,7 @@ from bot.db.queries import (
     get_recent_user_power_states,
     get_setting,
     get_user_by_telegram_id,
-    get_users_with_ip,
+    get_users_with_ip_cursor,
     update_ping_error_alert_time,
     upsert_user_power_state,
 )
@@ -645,14 +645,31 @@ async def _check_all_ips(bot: Bot) -> None:
 
     async with _check_all_ips_lock:
         try:
-            async with async_session() as session:
-                users = await get_users_with_ip(session)
+            # Cursor-based pagination: load users in batches to avoid loading
+            # the entire table into memory at once.
+            _BATCH = 500
+            active_ids: set[str] = set()
+            ip_groups: dict[str, list] = {}
+            total_users = 0
+            after_id = 0
 
-            if not users:
+            while True:
+                async with async_session() as session:
+                    batch = await get_users_with_ip_cursor(session, limit=_BATCH, after_id=after_id)
+                if not batch:
+                    break
+                for user in batch:
+                    active_ids.add(str(user.telegram_id))
+                    ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
+                total_users += len(batch)
+                if len(batch) < _BATCH:
+                    break
+                after_id = batch[-1].id
+
+            if not ip_groups:
                 return
 
             # Evict _user_states entries for users no longer in the active set.
-            active_ids = {str(u.telegram_id) for u in users}
             async with _user_states_lock:
                 stale_ids = [tid for tid in _user_states if tid not in active_ids]
                 evicted_states = []
@@ -666,13 +683,9 @@ async def _check_all_ips(bot: Bot) -> None:
                 logger.debug("Evicted %d stale _user_states entries", len(stale_ids))
 
             # Group users by router IP so each unique IP is pinged only once.
-            ip_groups: dict[str, list] = {}
-            for user in users:
-                ip_groups.setdefault(user.router_ip, []).append(user)  # type: ignore[arg-type]
-
             logger.debug(
                 "Checking %d unique IPs (%d users, max %d concurrent)",
-                len(ip_groups), len(users), settings.POWER_MAX_CONCURRENT_PINGS,
+                len(ip_groups), total_users, settings.POWER_MAX_CONCURRENT_PINGS,
             )
 
             semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
