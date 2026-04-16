@@ -24,9 +24,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -361,7 +358,6 @@ class TestMenuNavigation:
         user = _make_user(last_menu_message_id=None, channel_config=cc)
         cb = _make_callback()
         cb.message.photo = None
-        edited_msg = MagicMock(message_id=500)
 
         with (
             patch("bot.handlers.menu.navigation.get_user_by_telegram_id", AsyncMock(return_value=user)),
@@ -582,7 +578,7 @@ class TestSendSchedulePhoto:
         cb.message.edit_text.assert_awaited_once()
 
     async def test_send_schedule_photo_no_image_edit_fallback(self):
-        from bot.handlers.menu.schedule import _send_schedule_photo, MSG_NOT_MODIFIED
+        from bot.handlers.menu.schedule import _send_schedule_photo
 
         user = _make_user()
         cb = _make_callback()
@@ -604,7 +600,7 @@ class TestSendSchedulePhoto:
         cb.message.answer.assert_awaited_once()
 
     async def test_send_schedule_photo_no_image_edit_not_modified(self):
-        from bot.handlers.menu.schedule import _send_schedule_photo, MSG_NOT_MODIFIED
+        from bot.handlers.menu.schedule import MSG_NOT_MODIFIED, _send_schedule_photo
 
         user = _make_user()
         cb = _make_callback()
@@ -1156,6 +1152,68 @@ class TestMenuTimer:
 
         cb.answer.assert_awaited_with("⏰ Timer text", show_alert=True)
 
+
+class TestTimerCallback:
+    """timer_callback — lines 36-56 of bot/handlers/menu/timer.py."""
+
+    def _make_session_with_user(self, user):
+        session = AsyncMock()
+        scalars = MagicMock()
+        scalars.first.return_value = user
+        result = MagicMock()
+        result.scalars.return_value = scalars
+        session.execute = AsyncMock(return_value=result)
+        return session
+
+    async def test_invalid_id_answers_empty(self):
+        """data='timer_abc' → ValueError → callback.answer() with no text."""
+        from bot.handlers.menu.timer import timer_callback
+
+        cb = _make_callback(data="timer_abc")
+        await timer_callback(cb, AsyncMock())
+        cb.answer.assert_awaited_once_with()
+
+    async def test_user_not_found_answers_error(self):
+        """Valid id but user not in DB → callback.answer('❌ Користувач не знайдений')."""
+        from bot.handlers.menu.timer import timer_callback
+
+        cb = _make_callback(data="timer_99")
+        session = self._make_session_with_user(None)
+        await timer_callback(cb, session)
+        cb.answer.assert_awaited_with("❌ Користувач не знайдений")
+
+    async def test_no_schedule_data_answers_warning(self):
+        """User found but fetch_schedule_data returns None → ⚠️ answer."""
+        from bot.handlers.menu.timer import timer_callback
+
+        cb = _make_callback(data="timer_1")
+        user = _make_user()
+        session = self._make_session_with_user(user)
+
+        with patch("bot.handlers.menu.timer.fetch_schedule_data", AsyncMock(return_value=None)):
+            await timer_callback(cb, session)
+
+        cb.answer.assert_awaited_with("⚠️ Дані тимчасово недоступні")
+
+    async def test_happy_path_answers_with_timer_text(self):
+        """User + data found → callback.answer(text, show_alert=True)."""
+        from bot.handlers.menu.timer import timer_callback
+
+        cb = _make_callback(data="timer_1")
+        user = _make_user()
+        session = self._make_session_with_user(user)
+
+        with (
+            patch("bot.handlers.menu.timer.fetch_schedule_data", AsyncMock(return_value={"data": True})),
+            patch("bot.handlers.menu.timer.parse_schedule_for_queue", return_value={}),
+            patch("bot.handlers.menu.timer.find_next_event", return_value=None),
+            patch("bot.handlers.menu.timer.format_timer_popup", return_value="⏰ popup"),
+        ):
+            await timer_callback(cb, session)
+
+        cb.answer.assert_awaited_with("⏰ popup", show_alert=True)
+
+
 # ---------------------------------------------------------------------------
 # settings/channel.py
 # ---------------------------------------------------------------------------
@@ -1562,6 +1620,7 @@ class TestSettingsRegion:
 class TestRegisterAllHandlers:
     def test_register_all_handlers(self):
         from aiogram import Dispatcher
+
         from bot.handlers import register_all_handlers
 
         dp = MagicMock(spec=Dispatcher)

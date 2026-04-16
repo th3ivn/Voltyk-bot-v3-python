@@ -4,8 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from bot.formatter.schedule import (
     _format_duration_from_ms,
     _total_str,
@@ -209,3 +207,34 @@ class TestFormatScheduleMessage:
         msg = format_schedule_message("kyiv", "1.1", schedule_data)
         assert "10:00" in msg
         assert "14:00" in msg
+
+    def test_tomorrow_cancelled_with_removed_events(self):
+        """Lines 109, 125-130, 134: tomorrowCancelled header + removed_tomorrow loop
+        + 'Відключень не заплановано' when no active tomorrow events remain."""
+        now = _kyiv_now()
+        tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        removed_event = {
+            "start": f"{tomorrow_str}T10:00:00+03:00",
+            "end": f"{tomorrow_str}T12:00:00+03:00",
+        }
+        schedule_data = {"hasData": True, "events": []}
+        changes = {"removed": [removed_event]}
+        update_type = {"tomorrowCancelled": True}
+
+        msg = format_schedule_message("kyiv", "1.1", schedule_data, changes=changes, update_type=update_type)
+
+        assert "Скасовано" in msg          # line 109 tomorrowCancelled header
+        assert "❌" in msg                 # lines 125-130 removed_tomorrow loop
+        assert "скасовано" in msg          # lines 125-130 loop body
+        assert "Відключень не заплановано" in msg  # line 134 else branch
+
+    def test_today_updated_combined_with_tomorrow_change(self):
+        """Line 145: todayUpdated + tomorrowAppeared → short 'на сьогодні:' header."""
+        events = _today_events() + _tomorrow_events()
+        schedule_data = {"hasData": True, "events": events}
+        update_type = {"todayUpdated": True, "tomorrowAppeared": True}
+
+        msg = format_schedule_message("kyiv", "1.1", schedule_data, update_type=update_type)
+
+        # Line 145 branch produces the short header without the full date string
+        assert "на сьогодні:" in msg
