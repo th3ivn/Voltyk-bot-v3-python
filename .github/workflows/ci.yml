@@ -142,4 +142,14 @@ jobs:
         run: alembic upgrade head
 
       - name: Check alembic heads (no unmerged branches)
-        run: alembic heads --verbose
+        env:
+          DATABASE_URL: postgresql+asyncpg://voltyk:voltyk@localhost:5432/voltyk_test
+          BOT_TOKEN: "0:test"
+        run: |
+          HEAD_COUNT=$(alembic heads 2>/dev/null | grep -c "(head)" || true)
+          if [ "$HEAD_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 Alembic head, found $HEAD_COUNT. Merge divergent migration branches before merging this PR."
+            alembic heads --verbose
+            exit 1
+          fi
+          echo "Alembic head count: $HEAD_COUNT ✓"
