@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
+from unittest.mock import AsyncMock, MagicMock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,6 +45,14 @@ def _rows_result(rows):
     result = MagicMock()
     result.all.return_value = rows
     return result
+
+
+def _compile_sql(session_mock) -> str:
+    """Compile the SQLAlchemy statement passed to session.execute into a SQL string."""
+    from sqlalchemy.dialects import postgresql
+
+    stmt = session_mock.execute.call_args[0][0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})).lower()
 
 
 def _make_user(**kwargs) -> SimpleNamespace:
@@ -402,3 +409,115 @@ class TestGetRecentUsers:
         result = await get_recent_users(session)
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_active_power_users_by_region_queue_cursor
+# ---------------------------------------------------------------------------
+
+
+class TestGetActivePowerUsersByRegionQueueCursor:
+    """Tests for get_active_power_users_by_region_queue_cursor() — cursor pagination."""
+
+    async def test_returns_users_for_region_queue(self):
+        """Returns active users matching region/queue — both values appear in compiled SQL."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        users = [_make_user(id=1, region="kyiv", queue="1"), _make_user(id=2, region="kyiv", queue="1")]
+        session.execute.return_value = _scalars_all(users)
+
+        result = await get_active_power_users_by_region_queue_cursor(session, region="kyiv", queue="1")
+
+        assert result == users
+        session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "kyiv" in sql, f"Expected region 'kyiv' in SQL WHERE clause, got: {sql}"
+        assert "queue" in sql, f"Expected 'queue' column reference in SQL, got: {sql}"
+
+    async def test_returns_empty_when_no_users(self):
+        """No users matching criteria → empty list."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        session.execute.return_value = _scalars_all([])
+
+        result = await get_active_power_users_by_region_queue_cursor(session, region="lviv", queue="2")
+
+        assert result == []
+
+    async def test_respects_after_id(self):
+        """after_id predicate `id > after_id` is present in the compiled SQL."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        users = [_make_user(id=10)]
+        session.execute.return_value = _scalars_all(users)
+
+        result = await get_active_power_users_by_region_queue_cursor(
+            session, region="kyiv", queue="1", after_id=5
+        )
+
+        assert result == users
+        session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "id >" in sql, f"Expected 'id >' predicate in SQL, got: {sql}"
+        assert "5" in sql, f"Expected literal after_id value 5 in SQL, got: {sql}"
+
+    async def test_respects_limit(self):
+        """LIMIT clause appears in the compiled SQL with the requested value."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        users = [_make_user(id=i) for i in range(1, 4)]
+        session.execute.return_value = _scalars_all(users)
+
+        result = await get_active_power_users_by_region_queue_cursor(
+            session, region="kyiv", queue="1", limit=3
+        )
+
+        assert len(result) == 3
+        sql = _compile_sql(session)
+        assert "limit" in sql, f"Expected LIMIT clause in SQL, got: {sql}"
+        assert "3" in sql, f"Expected literal limit value 3 in SQL, got: {sql}"
+
+    async def test_returns_list_type(self):
+        """Return value is always a list."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        session.execute.return_value = _scalars_all([])
+
+        result = await get_active_power_users_by_region_queue_cursor(session, region="x", queue="y")
+
+        assert isinstance(result, list)
+
+    async def test_cursor_second_page(self):
+        """after_id=last batch id yields next page correctly."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        page2 = [_make_user(id=501)]
+        session.execute.return_value = _scalars_all(page2)
+
+        result = await get_active_power_users_by_region_queue_cursor(
+            session, region="kyiv", queue="1", limit=500, after_id=500
+        )
+
+        assert result == page2
+
+    async def test_different_regions_independent(self):
+        """Two calls with different regions hit execute twice independently."""
+        from bot.db.queries.users import get_active_power_users_by_region_queue_cursor
+
+        session = _make_session()
+        kyiv_users = [_make_user(id=1, region="kyiv", queue="1")]
+        lviv_users = [_make_user(id=2, region="lviv", queue="1")]
+        session.execute.side_effect = [_scalars_all(kyiv_users), _scalars_all(lviv_users)]
+
+        r1 = await get_active_power_users_by_region_queue_cursor(session, region="kyiv", queue="1")
+        r2 = await get_active_power_users_by_region_queue_cursor(session, region="lviv", queue="1")
+
+        assert r1 == kyiv_users
+        assert r2 == lviv_users
+        assert session.execute.call_count == 2

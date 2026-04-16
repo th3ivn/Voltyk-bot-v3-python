@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call
-
+from unittest.mock import AsyncMock, MagicMock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -27,6 +26,14 @@ def _make_scalars_result(items):
     return result
 
 
+def _compile_sql(session_mock) -> str:
+    """Compile the SQLAlchemy statement passed to session.execute into a SQL string."""
+    from sqlalchemy.dialects import postgresql
+
+    stmt = session_mock.execute.call_args[0][0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})).lower()
+
+
 # ---------------------------------------------------------------------------
 # change_power_state_and_get_duration
 # ---------------------------------------------------------------------------
@@ -35,8 +42,9 @@ def _make_scalars_result(items):
 class TestChangePowerStateAndGetDuration:
     async def test_returns_dict_when_row_found(self):
         """Lines 34-66: SQL executed, row found → dict returned."""
-        from bot.db.queries.power import change_power_state_and_get_duration
         from datetime import datetime, timezone
+
+        from bot.db.queries.power import change_power_state_and_get_duration
 
         session = _make_session()
         ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
@@ -333,3 +341,93 @@ class TestUpdatePingErrorAlertTime:
         await update_ping_error_alert_time(session, telegram_id="456")
 
         session.execute.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# get_active_ping_error_alerts_cursor
+# ---------------------------------------------------------------------------
+
+
+class TestGetActivePingErrorAlertsCursor:
+    """Tests for get_active_ping_error_alerts_cursor() — cursor-based pagination."""
+
+    async def test_returns_active_alerts_first_page(self):
+        """Default after_id=0 returns first page of active alerts."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        alerts = [
+            SimpleNamespace(id=1, telegram_id="111", is_active=True),
+            SimpleNamespace(id=2, telegram_id="222", is_active=True),
+        ]
+        session.execute.return_value = _make_scalars_result(alerts)
+
+        result = await get_active_ping_error_alerts_cursor(session)
+
+        assert result == alerts
+        session.execute.assert_called_once()
+
+    async def test_returns_empty_when_no_alerts(self):
+        """Empty table → empty list."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        session.execute.return_value = _make_scalars_result([])
+
+        result = await get_active_ping_error_alerts_cursor(session)
+
+        assert result == []
+
+    async def test_respects_after_id(self):
+        """Passing after_id filters to alerts with id > after_id — verified in compiled SQL."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        alerts = [SimpleNamespace(id=10, telegram_id="999", is_active=True)]
+        session.execute.return_value = _make_scalars_result(alerts)
+
+        result = await get_active_ping_error_alerts_cursor(session, after_id=5)
+
+        assert result == alerts
+        session.execute.assert_called_once()
+        sql = _compile_sql(session)
+        assert "id >" in sql, f"Expected 'id >' predicate in SQL, got: {sql}"
+        assert "5" in sql, f"Expected literal after_id value 5 in SQL, got: {sql}"
+
+    async def test_respects_limit(self):
+        """LIMIT clause appears in the compiled SQL with the requested value."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        alerts = [SimpleNamespace(id=i, telegram_id=str(i), is_active=True) for i in range(1, 4)]
+        session.execute.return_value = _make_scalars_result(alerts)
+
+        result = await get_active_ping_error_alerts_cursor(session, limit=3, after_id=0)
+
+        assert len(result) == 3
+        sql = _compile_sql(session)
+        assert "limit" in sql, f"Expected LIMIT clause in SQL, got: {sql}"
+        assert "3" in sql, f"Expected literal limit value 3 in SQL, got: {sql}"
+
+    async def test_returns_list_type(self):
+        """Return value is always a list, never a lazy object."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        session.execute.return_value = _make_scalars_result([])
+
+        result = await get_active_ping_error_alerts_cursor(session)
+
+        assert isinstance(result, list)
+
+    async def test_cursor_pagination_second_page(self):
+        """after_id set to last id of previous batch yields next page."""
+        from bot.db.queries.power import get_active_ping_error_alerts_cursor
+
+        session = _make_session()
+        page2 = [SimpleNamespace(id=6, telegram_id="666", is_active=True)]
+        session.execute.return_value = _make_scalars_result(page2)
+
+        result = await get_active_ping_error_alerts_cursor(session, limit=500, after_id=5)
+
+        assert result == page2
