@@ -289,6 +289,9 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot) -> None:
+    global _bg_restart_enabled
+    _bg_restart_enabled = True  # reset in case on_shutdown ran earlier in this process
+
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,

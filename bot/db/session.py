@@ -66,10 +66,6 @@ _connect_args["server_settings"].setdefault(
     "idle_in_transaction_session_timeout", str(settings.DB_IDLE_TX_TIMEOUT_MS)
 )
 
-# TCP keepalive — prevents silent disconnects through firewall/NAT timeouts
-_connect_args.setdefault("keepalives_idle", 60)
-_connect_args.setdefault("keepalives_interval", 10)
-_connect_args.setdefault("keepalives_count", 5)
 
 engine = create_async_engine(
     _clean_url,
