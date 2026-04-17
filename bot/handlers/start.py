@@ -203,8 +203,9 @@ async def wizard_notify_bot(callback: CallbackQuery, state: FSMContext, session:
         data["queue"],
     )
 
-    if data.get("mode") == "new":
+    if data.get("mode") == "new" and not data.get("_registration_counted"):
         USER_REGISTRATIONS_TOTAL.inc()
+        await state.update_data(_registration_counted=True)
 
     await state.set_state(WizardSG.bot_notifications)
     ns = user.notification_settings
@@ -359,8 +360,9 @@ async def wizard_notify_channel(callback: CallbackQuery, state: FSMContext, sess
         data["queue"],
     )
 
-    if data.get("mode") == "new":
+    if data.get("mode") == "new" and not data.get("_registration_counted"):
         USER_REGISTRATIONS_TOTAL.inc()
+        await state.update_data(_registration_counted=True)
 
     await state.set_state(WizardSG.channel_setup)
 

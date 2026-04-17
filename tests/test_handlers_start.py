@@ -586,7 +586,7 @@ class TestWizardNotifyBot:
         state.clear.assert_awaited_once()
 
     async def test_new_mode_increments_registration_metric(self):
-        """mode='new' in state → USER_REGISTRATIONS_TOTAL.inc() called."""
+        """mode='new' without _registration_counted → inc() called once, flag set."""
         from bot.handlers.start import wizard_notify_bot
 
         cb = _make_callback(data="wizard_notify_bot")
@@ -602,6 +602,27 @@ class TestWizardNotifyBot:
             await wizard_notify_bot(cb, state, session)
 
         mock_counter.inc.assert_called_once()
+        state.update_data.assert_awaited()
+
+    async def test_already_counted_does_not_increment_again(self):
+        """_registration_counted=True → inc() not called a second time."""
+        from bot.handlers.start import wizard_notify_bot
+
+        cb = _make_callback(data="wizard_notify_bot")
+        state = _make_state(
+            data={"region": "kyiv", "queue": "1.1", "mode": "new", "_registration_counted": True}
+        )
+        session = AsyncMock()
+        user = _make_user()
+
+        with (
+            patch("bot.handlers.start.create_or_update_user", AsyncMock(return_value=user)),
+            patch("bot.handlers.start.get_wizard_bot_notification_keyboard", return_value=MagicMock()),
+            patch("bot.handlers.start.USER_REGISTRATIONS_TOTAL") as mock_counter,
+        ):
+            await wizard_notify_bot(cb, state, session)
+
+        mock_counter.inc.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
