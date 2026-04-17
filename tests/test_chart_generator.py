@@ -25,10 +25,6 @@ def _make_telegram_api_error():
 
 def _make_schedule_data(*, today_events=None, tomorrow_events=None, dtek_updated_at=None):
     """Build a minimal schedule_data dict for chart tests."""
-    now = datetime.now(KYIV_TZ)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow_start = today_start + timedelta(days=1)
-
     events = []
     if today_events is not None:
         events.extend(today_events)

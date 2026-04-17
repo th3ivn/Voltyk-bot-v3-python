@@ -1405,11 +1405,8 @@ class TestRestartPendingDebounceTasks:
         from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
-        # 400s ago, with 300s debounce → 0s remaining
-        old_time = datetime.now(KYIV_TZ).replace(
-            second=datetime.now(KYIV_TZ).second
-        )
         from datetime import timedelta
+        # 400s ago, with 300s debounce → 0s remaining
         pending_at = datetime.now(KYIV_TZ) - timedelta(seconds=400)
         pm._user_states["333"] = {
             "current_state": "off",
@@ -1580,7 +1577,6 @@ class TestPowerMonitorLoop:
         call_count = {"n": 0}
 
         mock_session = _make_mock_session()
-        mock_session2 = _make_mock_session()
 
         async def _check_side_effect(b):
             call_count["n"] += 1
@@ -1599,7 +1595,7 @@ class TestPowerMonitorLoop:
             patch("bot.services.power_monitor._check_all_ips", side_effect=_check_side_effect),
             patch("bot.services.power_monitor._get_check_interval", side_effect=_interval_mock),
             patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
-            patch("bot.services.power_monitor.sentry_sdk") as mock_sentry,
+            patch("bot.services.power_monitor.sentry_sdk"),
         ):
             await power_monitor_loop(bot)
 

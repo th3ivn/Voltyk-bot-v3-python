@@ -8,12 +8,22 @@ import pytest
 import structlog
 from aiogram.types import MessageEntity
 
+from bot.utils.branding import (
+    _DESC_MAX,
+    _TITLE_MAX,
+    CHANNEL_DESCRIPTION_BASE,
+    CHANNEL_NAME_PREFIX,
+    build_channel_description,
+    build_channel_title,
+    get_channel_welcome_message,
+)
 from bot.utils.html_to_entities import (
     _utf16_len,
     append_timestamp,
     html_to_entities,
     to_aiogram_entities,
 )
+from bot.utils.logger import get_logger, setup_logging
 
 # ===========================================================================
 # _utf16_len
@@ -321,17 +331,6 @@ class TestToAiogramEntities:
 # ===========================================================================
 
 
-from bot.utils.branding import (
-    _DESC_MAX,
-    _TITLE_MAX,
-    CHANNEL_DESCRIPTION_BASE,
-    CHANNEL_NAME_PREFIX,
-    build_channel_description,
-    build_channel_title,
-    get_channel_welcome_message,
-)
-
-
 class TestBuildChannelTitle:
     """Tests for build_channel_title()."""
 
@@ -447,9 +446,6 @@ class TestGetChannelWelcomeMessage:
 # ===========================================================================
 
 
-from bot.utils.logger import get_logger, setup_logging
-
-
 class TestGetLogger:
     """Tests for get_logger()."""
 
@@ -460,13 +456,13 @@ class TestGetLogger:
     def test_get_logger_name(self):
         # structlog bound loggers expose _logger or similar; verify the name
         # via the underlying stdlib logger
-        logger = get_logger("test.named")
+        _logger = get_logger("test.named")
         stdlib_logger = logging.getLogger("test.named")
         assert stdlib_logger.name == "test.named"
 
     def test_get_logger_different_names_independent(self):
-        logger_a = get_logger("module.a")
-        logger_b = get_logger("module.b")
+        _logger_a = get_logger("module.a")
+        _logger_b = get_logger("module.b")
         assert logging.getLogger("module.a") is not logging.getLogger("module.b")
 
 
