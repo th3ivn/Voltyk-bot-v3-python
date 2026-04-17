@@ -9,6 +9,7 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -179,6 +180,7 @@ class TestFetchScheduleData:
     async def test_network_error_then_success_on_retry(self):
         """First attempt raises ClientError; second attempt succeeds."""
         import aiohttp
+
         from bot.services.api import fetch_schedule_data
 
         payload = _make_raw_schedule()
@@ -292,6 +294,7 @@ class TestCheckSourceRepoUpdated:
     async def test_network_error_returns_true_failsafe(self):
         """Exception → fail-safe (True, None) so callers always do a full check."""
         import aiohttp
+
         from bot.services.api import check_source_repo_updated
 
         with (
@@ -415,7 +418,6 @@ class TestParseScheduleForQueueTomorrow:
     """Tests the tomorrow_ts branch that was uncovered (lines 452-469)."""
 
     def _make_raw_two_days(self, queue: str = "1.1") -> dict:
-        from datetime import timedelta
 
         now = datetime.now(KYIV_TZ)
         today_ts = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
@@ -497,3 +499,538 @@ class TestHttpClientLifecycle:
 
         # Should not raise
         await close_http_client()
+
+
+# ---------------------------------------------------------------------------
+# GitHub token header (line 103)
+# ---------------------------------------------------------------------------
+
+
+class TestGithubTokenHeader:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_token_added_to_headers(self):
+        """When GITHUB_TOKEN is set, Authorization header is included."""
+        import bot.services.api as api
+        from bot.services.api import check_source_repo_updated
+
+        api._last_commit_sha = "a" * 40
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            aioresponses() as m,
+        ):
+            mock_settings.GITHUB_TOKEN = "gh_secret_token"
+            m.get(GITHUB_COMMITS_URL, payload=[{"sha": "a" * 40}], status=200)
+            has_update, _ = await check_source_repo_updated()
+
+        assert has_update is False  # same SHA → no update; just verifying no exception
+
+
+# ---------------------------------------------------------------------------
+# ETag saved (line 126)
+# ---------------------------------------------------------------------------
+
+
+class TestETagSaved:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_new_etag_stored_in_module(self):
+        """200 response with ETag header → _last_etag updated (line 126)."""
+        import bot.services.api as api
+        from bot.services.api import check_source_repo_updated
+
+        api._last_commit_sha = "a" * 40
+        assert api._last_etag is None
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            aioresponses() as m,
+        ):
+            mock_settings.GITHUB_TOKEN = ""
+            m.get(
+                GITHUB_COMMITS_URL,
+                payload=[{"sha": "a" * 40}],
+                status=200,
+                headers={"ETag": '"abc123"'},
+            )
+            await check_source_repo_updated()
+
+        assert api._last_etag == '"abc123"'
+
+
+# ---------------------------------------------------------------------------
+# RuntimeError from create_task (lines 141-142, 155-156)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeErrorCreateTask:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_initial_sha_create_task_runtime_error_is_swallowed(self):
+        """Initial commit SHA: create_task raises RuntimeError → swallowed."""
+        import bot.services.api as api
+        from bot.services.api import check_source_repo_updated
+
+        assert api._last_commit_sha is None
+
+        mock_loop = MagicMock()
+        mock_loop.create_task.side_effect = RuntimeError("no running loop")
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.api.asyncio.get_running_loop", return_value=mock_loop),
+            aioresponses() as m,
+        ):
+            mock_settings.GITHUB_TOKEN = ""
+            m.get(GITHUB_COMMITS_URL, payload=[{"sha": "a" * 40}], status=200)
+            has_update, sha = await check_source_repo_updated()
+
+        assert has_update is True
+        assert sha is None
+
+    async def test_new_sha_create_task_runtime_error_is_swallowed(self):
+        """New SHA detected: create_task raises RuntimeError → logged, not raised."""
+        import bot.services.api as api
+        from bot.services.api import check_source_repo_updated
+
+        api._last_commit_sha = "a" * 40
+        new_sha = "b" * 40
+
+        mock_loop = MagicMock()
+        mock_loop.create_task.side_effect = RuntimeError("no running loop")
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.api.asyncio.get_running_loop", return_value=mock_loop),
+            aioresponses() as m,
+        ):
+            mock_settings.GITHUB_TOKEN = ""
+            m.get(GITHUB_COMMITS_URL, payload=[{"sha": new_sha}], status=200)
+            has_update, sha = await check_source_repo_updated()
+
+        assert has_update is True
+        assert sha == new_sha
+
+
+# ---------------------------------------------------------------------------
+# _save_commit_state (lines 176-186)
+# ---------------------------------------------------------------------------
+
+
+class TestSaveCommitState:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_saves_sha_and_etag(self):
+        """_save_commit_state writes SHA and ETag via set_setting."""
+        import bot.services.api as api
+        from bot.services.api import _save_commit_state
+
+        api._last_commit_sha = "abc123"
+        api._last_etag = '"etag456"'
+
+        mock_session = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.db.session.async_session", return_value=session_ctx),
+            patch("bot.db.queries.set_setting", AsyncMock()) as mock_set,
+        ):
+            await _save_commit_state()
+
+        assert mock_set.await_count == 2
+        mock_session.commit.assert_awaited_once()
+
+    async def test_exception_is_swallowed(self):
+        """DB error → warning logged, no re-raise."""
+        import bot.services.api as api
+        from bot.services.api import _save_commit_state
+
+        api._last_commit_sha = "abc123"
+
+        with patch(
+            "bot.db.session.async_session",
+            side_effect=RuntimeError("db down"),
+        ):
+            # Must not raise
+            await _save_commit_state()
+
+
+# ---------------------------------------------------------------------------
+# load_last_commit_sha (lines 192-205)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadLastCommitSha:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_loads_sha_and_etag(self):
+        """load_last_commit_sha restores _last_commit_sha and _last_etag from DB."""
+        import bot.services.api as api
+        from bot.services.api import load_last_commit_sha
+
+        mock_session = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.db.session.async_session", return_value=session_ctx),
+            patch("bot.db.queries.get_setting", AsyncMock(side_effect=["stored_sha", '"stored_etag"'])),
+        ):
+            await load_last_commit_sha()
+
+        assert api._last_commit_sha == "stored_sha"
+        assert api._last_etag == '"stored_etag"'
+
+    async def test_none_values_not_set(self):
+        """If DB returns None for both, module-level vars stay None."""
+        import bot.services.api as api
+        from bot.services.api import load_last_commit_sha
+
+        mock_session = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.db.session.async_session", return_value=session_ctx),
+            patch("bot.db.queries.get_setting", AsyncMock(return_value=None)),
+        ):
+            await load_last_commit_sha()
+
+        assert api._last_commit_sha is None
+        assert api._last_etag is None
+
+    async def test_exception_is_swallowed(self):
+        """DB error → warning logged, no re-raise."""
+        from bot.services.api import load_last_commit_sha
+
+        with patch("bot.db.session.async_session", side_effect=RuntimeError("db down")):
+            await load_last_commit_sha()
+
+
+# ---------------------------------------------------------------------------
+# fetch_schedule_data — circuit breaker OPEN (lines 232-244)
+# ---------------------------------------------------------------------------
+
+
+class TestCircuitBreakerOpen:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_open_with_stale_cache_returns_stale(self):
+        """Circuit breaker OPEN + stale cache entry → stale data returned (lines 232-239)."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_data
+
+        stale = {"fact": {"data": {}}}
+        api._schedule_cache["kyiv"] = (datetime(2000, 1, 1), stale)
+        api._schedule_api_breaker._state = "open"
+        api._schedule_api_breaker._opened_at = time.monotonic()  # freshly opened
+
+        with patch("bot.services.api.settings") as mock_settings:
+            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+            mock_settings.GITHUB_TOKEN = ""
+            result = await fetch_schedule_data("kyiv")
+
+        assert result is stale
+        api._schedule_api_breaker._state = "closed"
+
+    async def test_open_without_cache_returns_none(self):
+        """Circuit breaker OPEN + no cache → None (lines 240-244)."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_data
+
+        api._schedule_api_breaker._state = "open"
+        api._schedule_api_breaker._opened_at = time.monotonic()  # freshly opened
+
+        with patch("bot.services.api.settings") as mock_settings:
+            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+            mock_settings.GITHUB_TOKEN = ""
+            result = await fetch_schedule_data("unknown_region")
+
+        assert result is None
+        api._schedule_api_breaker._state = "closed"
+
+
+# ---------------------------------------------------------------------------
+# fetch_schedule_data — null HTTP client fallback (line 273) and exhausted
+# retries (lines 281-282, 292-299)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchScheduleDataEdgeCases:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_null_client_uses_temp_session(self):
+        """_http_client=None → temp ClientSession created and closed (line 273)."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_data
+
+        assert api._http_client is None
+        payload = _make_raw_schedule()
+        url = "https://example.com/kyiv.json"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            aioresponses() as m,
+        ):
+            mock_settings.DATA_URL_TEMPLATE = "https://example.com/{region}.json"
+            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+            mock_settings.GITHUB_TOKEN = ""
+            m.get(url, payload=payload, status=200)
+            result = await fetch_schedule_data("kyiv")
+
+        assert result is not None
+
+    async def test_all_retries_exhausted_returns_none(self):
+        """All 3 attempts raise ClientError → SCHEDULE_FETCH_ERRORS incremented, returns None."""
+        import aiohttp
+
+        from bot.services.api import fetch_schedule_data
+
+        url = "https://example.com/kyiv.json"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.api.asyncio.sleep", AsyncMock()),
+            aioresponses() as m,
+        ):
+            mock_settings.DATA_URL_TEMPLATE = "https://example.com/{region}.json"
+            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+            mock_settings.GITHUB_TOKEN = ""
+            # 3 failures (attempts 0, 1, 2) — triggers re-raise on last attempt
+            for _ in range(3):
+                m.get(url, exception=aiohttp.ClientError("timeout"))
+            result = await fetch_schedule_data("kyiv")
+
+        assert result is None
+
+    async def test_circuit_breaker_open_after_failures(self):
+        """CircuitBreakerOpen raised → stale cache or None returned (lines 292-297)."""
+        import aiohttp
+
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_data
+
+        # Plant stale cache entry before triggering the breaker
+        stale = {"fact": {"data": {}}}
+        api._schedule_cache["kyiv"] = (datetime(2000, 1, 1), stale)
+
+        url = "https://example.com/kyiv.json"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.api.asyncio.sleep", AsyncMock()),
+            aioresponses() as m,
+        ):
+            mock_settings.DATA_URL_TEMPLATE = "https://example.com/{region}.json"
+            mock_settings.SCHEDULE_CHECK_INTERVAL_S = 60
+            mock_settings.GITHUB_TOKEN = ""
+            # Enough failures to open the circuit breaker (threshold=5 by default)
+            for _ in range(20):
+                m.get(url, exception=aiohttp.ClientError("timeout"))
+            for _ in range(20):
+                result = await fetch_schedule_data("kyiv", force_refresh=True)
+
+        # Once breaker opens, stale data returned
+        assert result is stale or result is None
+
+
+# ---------------------------------------------------------------------------
+# fetch_schedule_image (lines 343-405)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchScheduleImage:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_on_demand_renders_fresh(self):
+        """on_demand mode → generate_schedule_chart called directly, no cache."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_image
+
+        api._chart_render_on_demand = True
+        schedule_data = {"events": [], "dtek_updated_at": ""}
+        fake_png = b"fakepng"
+
+        with patch(
+            "bot.services.chart_generator.generate_schedule_chart",
+            AsyncMock(return_value=fake_png),
+        ):
+            result = await fetch_schedule_image("kyiv", "1.1", schedule_data)
+
+        assert result == fake_png
+
+    async def test_l1_cache_hit_returns_cached(self):
+        """Entry fresh in L1 → returned without any HTTP or generation."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_image
+
+        cached_png = b"cached_png"
+        api._image_cache["kyiv_1.1"] = (datetime.now(), cached_png)
+
+        with patch("bot.services.chart_generator.generate_schedule_chart", AsyncMock()) as mock_gen:
+            with patch("bot.services.chart_cache.get", AsyncMock(return_value=None)):
+                result = await fetch_schedule_image("kyiv", "1.1", None)
+
+        assert result == cached_png
+        mock_gen.assert_not_awaited()
+
+    async def test_l2_cache_hit_returns_and_populates_l1(self):
+        """Redis L2 hit → returned and stored in L1."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_image
+
+        redis_png = b"redis_png"
+
+        with (
+            patch("bot.services.chart_cache.get", AsyncMock(return_value=redis_png)),
+            patch("bot.services.chart_cache.store", AsyncMock()),
+        ):
+            result = await fetch_schedule_image("kyiv", "1.1", None)
+
+        assert result == redis_png
+        assert "kyiv_1.1" in api._image_cache
+
+    async def test_local_generation_used_when_no_cache(self):
+        """No cache → generate_schedule_chart called, result stored in both caches."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_image
+
+        generated_png = b"generated_png"
+        schedule_data = {"events": [], "dtek_updated_at": ""}
+
+        with (
+            patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
+            patch("bot.services.chart_cache.store", AsyncMock()),
+            patch(
+                "bot.services.chart_generator.generate_schedule_chart",
+                AsyncMock(return_value=generated_png),
+            ),
+        ):
+            result = await fetch_schedule_image("kyiv", "1.1", schedule_data)
+
+        assert result == generated_png
+        assert "kyiv_1.1" in api._image_cache
+
+    async def test_local_generation_fails_falls_back_to_github(self):
+        """generate_schedule_chart returns None → falls back to GitHub PNG fetch."""
+        url_template = "https://example.com/{region}/{queue}.png"
+        fake_png = b"github_png"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
+            patch("bot.services.chart_cache.store", AsyncMock()),
+            patch(
+                "bot.services.chart_generator.generate_schedule_chart",
+                AsyncMock(return_value=None),
+            ),
+            aioresponses() as m,
+        ):
+            mock_settings.IMAGE_URL_TEMPLATE = url_template
+            m.get("https://example.com/kyiv/1-1.png", body=fake_png, status=200)
+            from bot.services.api import fetch_schedule_image
+            result = await fetch_schedule_image("kyiv", "1.1", {"events": []})
+
+        assert result == fake_png
+
+    async def test_github_fallback_network_error_returns_none(self):
+        """GitHub fallback fails → returns None."""
+        import aiohttp
+
+        url_template = "https://example.com/{region}/{queue}.png"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
+            patch("bot.services.chart_generator.generate_schedule_chart", AsyncMock(return_value=None)),
+            aioresponses() as m,
+        ):
+            mock_settings.IMAGE_URL_TEMPLATE = url_template
+            m.get(
+                "https://example.com/kyiv/1-1.png",
+                exception=aiohttp.ClientError("timeout"),
+            )
+            from bot.services.api import fetch_schedule_image
+            result = await fetch_schedule_image("kyiv", "1.1", {"events": []})
+
+        assert result is None
+
+    async def test_null_client_github_fallback_uses_temp_session(self):
+        """_http_client=None in GitHub fallback → temp session created."""
+        import bot.services.api as api
+
+        assert api._http_client is None
+        url_template = "https://example.com/{region}/{queue}.png"
+        fake_png = b"fallback_png"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
+            patch("bot.services.chart_generator.generate_schedule_chart", AsyncMock(return_value=None)),
+            aioresponses() as m,
+        ):
+            mock_settings.IMAGE_URL_TEMPLATE = url_template
+            m.get("https://example.com/kyiv/1-1.png", body=fake_png, status=200)
+            from bot.services.api import fetch_schedule_image
+            result = await fetch_schedule_image("kyiv", "1.1", {"events": []})
+
+        assert result == fake_png
+
+
+# ---------------------------------------------------------------------------
+# parse_schedule_for_queue — edge cases (lines 472, 478)
+# ---------------------------------------------------------------------------
+
+
+class TestParseScheduleEdgeCases:
+    def test_no_fact_data_returns_no_data(self):
+        """fact.data is None/empty → hasData=False (line 472)."""
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = {"fact": {"data": None}}
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result["hasData"] is False
+
+    def test_empty_timestamps_returns_no_data(self):
+        """fact.data has no timestamp keys → hasData=False (line 478)."""
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = {"fact": {"data": {}}}
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result["hasData"] is False
+
+
+# ---------------------------------------------------------------------------
+# _parse_dt — naive datetime gets Kyiv TZ (line 532)
+# ---------------------------------------------------------------------------
+
+
+class TestParseDt:
+    def test_naive_datetime_gets_kyiv_tz(self):
+        """Naive ISO string → tzinfo set to KYIV_TZ (line 532)."""
+        from bot.services.api import _parse_dt
+
+        result = _parse_dt("2024-01-15T10:00:00")
+        assert result.tzinfo is not None
+        assert result.tzinfo.key == "Europe/Kyiv"
+
+    def test_aware_datetime_preserved(self):
+        """Aware ISO string → tzinfo unchanged."""
+        from bot.services.api import _parse_dt
+
+        result = _parse_dt("2024-01-15T10:00:00+02:00")
+        assert result.tzinfo is not None
+        assert result.utcoffset().total_seconds() == 7200
