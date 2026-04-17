@@ -17,7 +17,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -535,3 +534,344 @@ class TestIpCancel:
 
         cb.answer.assert_awaited_once()
         state.clear.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _show_settings — no user branch (lines 66-67)
+# ---------------------------------------------------------------------------
+
+
+class TestShowSettingsNoUser:
+    async def test_no_user_shows_start_error(self):
+        """ip_cancel_to_settings with no user → edit_text with /start message."""
+        from bot.handlers.settings.ip import ip_cancel_to_settings
+
+        cb = _make_callback(data="ip_cancel_to_settings")
+        state = _make_state()
+        session = AsyncMock()
+
+        with patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=None)):
+            await ip_cancel_to_settings(cb, state, session)
+
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "/start" in args[0]
+
+
+# ---------------------------------------------------------------------------
+# _show_management_screen — no user / no ip / offline (lines 83-87, 106)
+# ---------------------------------------------------------------------------
+
+
+class TestShowManagementScreen:
+    async def test_no_user_shows_error(self):
+        """ip_cancel_to_management with no user → edit_text with /start error."""
+        from bot.handlers.settings.ip import ip_cancel_to_management
+
+        cb = _make_callback(data="ip_cancel_to_management")
+        session = AsyncMock()
+
+        with patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=None)):
+            await ip_cancel_to_management(cb, session)
+
+        cb.answer.assert_awaited_once()
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "/start" in args[0]
+
+    async def test_no_router_ip_shows_error(self):
+        """ip_cancel_to_management with user but no router_ip → edit_text error."""
+        from bot.handlers.settings.ip import ip_cancel_to_management
+
+        cb = _make_callback(data="ip_cancel_to_management")
+        session = AsyncMock()
+        user = _make_user(router_ip=None)
+
+        with patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await ip_cancel_to_management(cb, session)
+
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "не налаштована" in args[0]
+
+    async def test_offline_ping_shows_red_status(self):
+        """ip_cancel_to_management with ping=False → status text contains Офлайн."""
+        from bot.handlers.settings.ip import ip_cancel_to_management
+
+        cb = _make_callback(data="ip_cancel_to_management")
+        session = AsyncMock()
+        user = _make_user(router_ip="10.0.0.1")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.ip.check_router_http", AsyncMock(return_value=False)),
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.ip.get_ip_management_keyboard", return_value=MagicMock()),
+        ):
+            await ip_cancel_to_management(cb, session)
+
+        last_call_text = mock_edit.call_args_list[-1][0][1]
+        assert "Офлайн" in last_call_text
+
+
+# ---------------------------------------------------------------------------
+# settings_ip — exception handler (lines 144-146)
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsIpException:
+    async def test_inner_exception_shows_error(self):
+        """If _show_management_screen raises, error message shown."""
+        from bot.handlers.settings.ip import settings_ip
+
+        cb = _make_callback(data="settings_ip")
+        state = _make_state()
+        session = AsyncMock()
+        user = _make_user(router_ip="1.2.3.4")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.ip.check_router_http", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()),
+            patch("bot.handlers.settings.ip.get_ip_management_keyboard", return_value=MagicMock()),
+        ):
+            await settings_ip(cb, state, session)
+
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "Виникла помилка" in args[0]
+
+
+# ---------------------------------------------------------------------------
+# ip_change — exception handler (lines 168-173)
+# ---------------------------------------------------------------------------
+
+
+class TestIpChangeException:
+    async def test_db_exception_shows_error_message(self):
+        """get_user_by_telegram_id raises → outer except catches and shows error."""
+        from bot.handlers.settings.ip import ip_change
+
+        cb = _make_callback(data="ip_change")
+        session = AsyncMock()
+
+        with patch(
+            "bot.handlers.settings.ip.get_user_by_telegram_id",
+            AsyncMock(side_effect=RuntimeError("db error")),
+        ):
+            await ip_change(cb, session)
+
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "Виникла помилка" in args[0]
+
+    async def test_notify_exception_is_swallowed(self):
+        """If error notify itself raises, inner except swallows it (lines 172-173)."""
+        from bot.handlers.settings.ip import ip_change
+
+        cb = _make_callback(data="ip_change")
+        cb.message.edit_text = AsyncMock(side_effect=RuntimeError("tg error"))
+        session = AsyncMock()
+
+        with patch(
+            "bot.handlers.settings.ip.get_user_by_telegram_id",
+            AsyncMock(side_effect=RuntimeError("db error")),
+        ):
+            # Must not raise — inner except swallows the notification failure
+            await ip_change(cb, session)
+
+
+# ---------------------------------------------------------------------------
+# ip_delete_confirm — exception handler (lines 201-206)
+# ---------------------------------------------------------------------------
+
+
+class TestIpDeleteConfirmException:
+    async def test_db_exception_shows_error_message(self):
+        """DB error → outer except shows error."""
+        from bot.handlers.settings.ip import ip_delete_confirm
+
+        cb = _make_callback(data="ip_delete_confirm")
+        session = AsyncMock()
+
+        with patch(
+            "bot.handlers.settings.ip.get_user_by_telegram_id",
+            AsyncMock(side_effect=RuntimeError("db error")),
+        ):
+            await ip_delete_confirm(cb, session)
+
+        cb.message.edit_text.assert_awaited_once()
+        args, _ = cb.message.edit_text.call_args
+        assert "Виникла помилка" in args[0]
+
+    async def test_notify_exception_is_swallowed(self):
+        """If error notify itself raises, inner except swallows it."""
+        from bot.handlers.settings.ip import ip_delete_confirm
+
+        cb = _make_callback(data="ip_delete_confirm")
+        cb.message.edit_text = AsyncMock(side_effect=RuntimeError("tg error"))
+        session = AsyncMock()
+
+        with patch(
+            "bot.handlers.settings.ip.get_user_by_telegram_id",
+            AsyncMock(side_effect=RuntimeError("db error")),
+        ):
+            await ip_delete_confirm(cb, session)
+
+
+# ---------------------------------------------------------------------------
+# ip_delete_execute — deactivate exception swallow (lines 221-222)
+# ---------------------------------------------------------------------------
+
+
+class TestIpDeleteExecuteDeactivateException:
+    async def test_deactivate_exception_is_swallowed(self):
+        """deactivate_ping_error_alert raises → exception swallowed, IP still deleted."""
+        from bot.handlers.settings.ip import ip_delete_execute
+
+        cb = _make_callback(data="ip_delete_execute")
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        user = _make_user(router_ip="192.168.1.1", telegram_id="111")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch(
+                "bot.handlers.settings.ip.deactivate_ping_error_alert",
+                AsyncMock(side_effect=RuntimeError("db error")),
+            ),
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.ip.get_ip_deleted_keyboard", return_value=MagicMock()),
+        ):
+            await ip_delete_execute(cb, session)
+
+        assert user.router_ip is None
+        mock_edit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# ip_input — upsert exception swallow (lines 343-344)
+# ---------------------------------------------------------------------------
+
+
+class TestIpInputUpsertException:
+    async def test_upsert_exception_is_swallowed(self):
+        """upsert_ping_error_alert raises → exception swallowed, IP still saved."""
+        from bot.handlers.settings.ip import ip_input
+
+        msg = _make_message(text="10.0.0.1")
+        state = _make_state()
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        user = _make_user(router_ip=None)
+
+        with (
+            patch("bot.handlers.settings.ip.is_valid_ip_or_domain", return_value={"valid": True, "address": "10.0.0.1"}),
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.ip.check_router_http", AsyncMock(return_value=False)),
+            patch(
+                "bot.handlers.settings.ip.upsert_ping_error_alert",
+                AsyncMock(side_effect=RuntimeError("db error")),
+            ),
+            patch("bot.handlers.settings.ip.get_ip_saved_fail_keyboard", return_value=MagicMock()),
+            patch("bot.handlers.settings.ip.app_settings") as mock_settings,
+        ):
+            mock_settings.SUPPORT_CHANNEL_URL = None
+            await ip_input(msg, state, session)
+
+        assert user.router_ip == "10.0.0.1"
+        state.clear.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Legacy aliases
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyAliases:
+    async def test_ip_delete_do_delegates(self):
+        """ip_delete_do calls ip_delete_execute."""
+        from bot.handlers.settings.ip import ip_delete_do
+
+        cb = _make_callback(data="ip_delete_do")
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        user = _make_user(router_ip="1.2.3.4")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.ip.deactivate_ping_error_alert", AsyncMock()),
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()),
+            patch("bot.handlers.settings.ip.get_ip_deleted_keyboard", return_value=MagicMock()),
+        ):
+            await ip_delete_do(cb, session)
+
+        assert user.router_ip is None
+
+    async def test_ip_change_do_shows_input_screen(self):
+        """ip_change_do → transitions to input screen."""
+        from bot.handlers.settings.ip import ip_change_do
+
+        cb = _make_callback(data="ip_change_do")
+        state = _make_state()
+
+        with (
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.ip.get_ip_monitoring_keyboard_no_ip", return_value=MagicMock()),
+        ):
+            await ip_change_do(cb, state)
+
+        cb.answer.assert_awaited_once()
+        mock_edit.assert_awaited_once()
+
+    async def test_ip_instruction_shows_input_screen(self):
+        """ip_instruction → shows instruction screen."""
+        from bot.handlers.settings.ip import ip_instruction
+
+        cb = _make_callback(data="ip_instruction")
+        state = _make_state()
+
+        with (
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.ip.get_ip_monitoring_keyboard_no_ip", return_value=MagicMock()),
+        ):
+            await ip_instruction(cb, state)
+
+        cb.answer.assert_awaited_once()
+        mock_edit.assert_awaited_once()
+
+    async def test_ip_setup_shows_input_screen(self):
+        """ip_setup → shows instruction screen."""
+        from bot.handlers.settings.ip import ip_setup
+
+        cb = _make_callback(data="ip_setup")
+        state = _make_state()
+
+        with (
+            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.ip.get_ip_monitoring_keyboard_no_ip", return_value=MagicMock()),
+        ):
+            await ip_setup(cb, state)
+
+        cb.answer.assert_awaited_once()
+        mock_edit.assert_awaited_once()
+
+    async def test_ip_delete_nulls_ip_and_shows_deleted(self):
+        """ip_delete → nulls router_ip and shows deleted screen."""
+        from bot.handlers.settings.ip import ip_delete
+
+        cb = _make_callback(data="ip_delete")
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        user = _make_user(router_ip="5.6.7.8", telegram_id="999")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.ip.deactivate_ping_error_alert", AsyncMock()),
+            patch("bot.handlers.settings.ip.get_ip_deleted_keyboard", return_value=MagicMock()),
+        ):
+            await ip_delete(cb, session)
+
+        assert user.router_ip is None
+        session.flush.assert_awaited_once()
+        cb.message.edit_text.assert_awaited_once()
