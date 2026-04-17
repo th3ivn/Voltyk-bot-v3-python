@@ -31,6 +31,8 @@ dev = [
     "pytest-cov>=5.0",
     "aioresponses>=0.7",
     "ruff>=0.3",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
 ]
 
 [tool.setuptools.packages.find]
@@ -55,5 +57,12 @@ omit = ["bot/__main__.py", "bot/app.py"]
 
 [tool.coverage.report]
 show_missing = true
-# Raised from 18% → 30% — enforces no regression; increase as more tests are added
-fail_under = 30
+# Raised to 99 — we have 100% coverage; prevents silent regression
+fail_under = 99
+
+[tool.bandit]
+# B101: assert used — fine for type narrowing in handlers
+# B104: hardcoded bind 0.0.0.0 — required for container/webhook server
+# B110: try-except-pass — intentional in async background task cleanup
+# B112: try-except-continue — intentional for skipping malformed schedule events
+skips = ["B101", "B104", "B110", "B112"]

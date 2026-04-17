@@ -139,7 +139,7 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                                 _save_commit_state(), name="save_commit_state"
                             )
                         except RuntimeError:
-                            pass
+                            logger.debug("No running event loop at initial SHA save; will persist on next update")
                         return True, None
                     if new_sha != _last_commit_sha:
                         logger.info("New commit detected: %s -> %s", _last_commit_sha[:8], new_sha[:8])
