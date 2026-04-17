@@ -6,6 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
+import bot.services.chart_cache as chart_cache
+from bot.services.chart_cache import CHART_TTL_S, CHART_VERSION
+
 # ===========================================================================
 # bot/config.py — Settings
 # ===========================================================================
@@ -187,9 +190,6 @@ class TestSettingsSyncDatabaseUrl:
 # ===========================================================================
 # bot/services/chart_cache.py — Redis chart cache
 # ===========================================================================
-
-import bot.services.chart_cache as chart_cache
-from bot.services.chart_cache import CHART_TTL_S, CHART_VERSION
 
 
 class TestChartCacheKey:

@@ -2293,9 +2293,6 @@ class TestCheckUserPowerMoreBranches:
         }
 
         # First execute call raises (persist pending); second for debounce
-        call_count = [0]
-        original_execute = _make_mock_session().execute
-
         mock_session = _make_mock_session()
         mock_session.execute.side_effect = RuntimeError("DB write failed")
 

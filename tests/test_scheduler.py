@@ -1767,7 +1767,6 @@ class TestFlushPendingNotificationsBranches:
         bot_mock = AsyncMock()
         mock_session = _make_mock_session()
         sched = _make_sched(events=[])
-        users = [_make_user()]
         notify_mock = AsyncMock()
 
         with _patch_async_session(mock_session), \
@@ -2944,8 +2943,10 @@ class TestSendReminderMore:
         from bot.services.scheduler import _send_reminder
 
         bot = AsyncMock()
-        bot_msg = MagicMock(); bot_msg.message_id = 11
-        ch_msg = MagicMock(); ch_msg.message_id = 22
+        bot_msg = MagicMock()
+        bot_msg.message_id = 11
+        ch_msg = MagicMock()
+        ch_msg.message_id = 22
         bot.send_message.side_effect = [bot_msg, ch_msg]
 
         user = _make_user()
@@ -2978,7 +2979,8 @@ class TestSendReminderMore:
         from bot.services.scheduler import _send_reminder
 
         bot = AsyncMock()
-        bot_msg = MagicMock(); bot_msg.message_id = 11
+        bot_msg = MagicMock()
+        bot_msg.message_id = 11
         call_count = [0]
 
         async def _send_or_forbidden(*args, **kwargs):
@@ -3017,7 +3019,8 @@ class TestSendReminderMore:
         from bot.services.scheduler import _send_reminder
 
         bot = AsyncMock()
-        bot_msg = MagicMock(); bot_msg.message_id = 11
+        bot_msg = MagicMock()
+        bot_msg.message_id = 11
         call_count = [0]
 
         async def _send_or_error(*args, **kwargs):
@@ -3056,7 +3059,8 @@ class TestSendReminderMore:
         from bot.services.scheduler import _send_reminder
 
         bot = AsyncMock()
-        mock_msg = MagicMock(); mock_msg.message_id = 11
+        mock_msg = MagicMock()
+        mock_msg.message_id = 11
         bot.send_message.return_value = mock_msg
         user = _make_user()
         mock_session = _make_mock_session()
