@@ -3167,12 +3167,11 @@ class TestSendNotificationsForPairPagination:
         bot_mock = AsyncMock()
         _DB_BATCH = 1000
         fake_users = [_make_user(telegram_id=str(i + 20000), id=i + 20000) for i in range(_DB_BATCH)]
-
-        call_count = {"n": 0}
+        seen_after_ids = []
 
         async def _cursor_side_effect(session, region, queue, limit, after_id):
-            call_count["n"] += 1
-            return fake_users if call_count["n"] == 1 else []
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
 
         sched = _make_sched()
         update_type = {"todayUpdated": True}
@@ -3187,7 +3186,9 @@ class TestSendNotificationsForPairPagination:
                 bot_mock, "kyiv", "1.1", sched, update_type, changes
             )
 
-        assert call_count["n"] == 2
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id
         assert total == _DB_BATCH
 
     async def test_partial_last_batch_breaks_on_size(self):
@@ -3198,14 +3199,11 @@ class TestSendNotificationsForPairPagination:
         _DB_BATCH = 1000
         full_batch = [_make_user(telegram_id=str(i + 21000), id=i + 21000) for i in range(_DB_BATCH)]
         partial_batch = [_make_user(telegram_id="99999", id=99999)]
-
-        call_count = {"n": 0}
+        seen_after_ids = []
 
         async def _cursor_side_effect(session, region, queue, limit, after_id):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return full_batch
-            return partial_batch
+            seen_after_ids.append(after_id)
+            return full_batch if after_id == 0 else partial_batch
 
         sched = _make_sched()
         update_type = {"todayUpdated": True}
@@ -3220,7 +3218,9 @@ class TestSendNotificationsForPairPagination:
                 bot_mock, "kyiv", "1.1", sched, update_type, changes
             )
 
-        assert call_count["n"] == 2
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == full_batch[-1].id
         assert total == _DB_BATCH + 1
 
 
@@ -3234,12 +3234,11 @@ class TestCatchUpMissedRemindersPagination:
 
         _DB_BATCH = 1000
         fake_users = [_make_user(telegram_id=str(i + 30000), id=i + 30000) for i in range(_DB_BATCH)]
-
-        call_count = {"n": 0}
+        seen_after_ids = []
 
         async def _cursor_side_effect(session, region, queue, limit, after_id):
-            call_count["n"] += 1
-            return fake_users if call_count["n"] == 1 else []
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
 
         bot_mock = AsyncMock()
         next_ev = {
@@ -3266,7 +3265,9 @@ class TestCatchUpMissedRemindersPagination:
              patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
             await catch_up_missed_reminders(bot_mock)
 
-        assert call_count["n"] == 2
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id
 
 
 # ─── _check_and_send_reminders: cursor pagination (line 1051) ────────────
@@ -3279,12 +3280,11 @@ class TestCheckAndSendRemindersPagination:
 
         _DB_BATCH = 1000
         fake_users = [_make_user(telegram_id=str(i + 40000), id=i + 40000) for i in range(_DB_BATCH)]
-
-        call_count = {"n": 0}
+        seen_after_ids = []
 
         async def _cursor_side_effect(session, region, queue, limit, after_id):
-            call_count["n"] += 1
-            return fake_users if call_count["n"] == 1 else []
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
 
         bot_mock = AsyncMock()
         next_ev = {
@@ -3314,4 +3314,6 @@ class TestCheckAndSendRemindersPagination:
              patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
             await _check_and_send_reminders(bot_mock)
 
-        assert call_count["n"] == 2
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id
