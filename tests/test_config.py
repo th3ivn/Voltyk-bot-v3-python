@@ -95,3 +95,23 @@ class TestWebhookSecretValidation:
             WEBHOOK_SECRET="",
         )
         assert s.USE_WEBHOOK is False
+
+
+class TestDefaultCredentialWarnings:
+    """model_validator: warnings when default DB/Redis URLs are used (lines 111, 115)."""
+
+    def test_database_url_default_logs_warning(self):
+        """Line 111: DATABASE_URL equals hardcoded default → warning logged."""
+        from unittest.mock import patch
+
+        from bot.config import Settings
+
+        with patch("bot.config.logger") as mock_log:
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk",
+                REDIS_URL="redis://custom:6379/0",
+            )
+
+        calls = [str(c) for c in mock_log.warning.call_args_list]
+        assert any("DATABASE_URL" in c for c in calls)

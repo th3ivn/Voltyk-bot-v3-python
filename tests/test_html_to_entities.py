@@ -178,3 +178,18 @@ class TestToAiogramEntities:
         raw = [{"type": "custom_emoji", "offset": 0, "length": 2, "custom_emoji_id": "123"}]
         result = to_aiogram_entities(raw)
         assert result[0].custom_emoji_id == "123"
+
+
+class TestHtmlToEntitiesMalformedEntity:
+    """Lines 94-95: & followed by ; that is ≥8 chars away → treated as literal &."""
+
+    def test_ampersand_with_no_semicolon_within_8_chars(self):
+        """& followed by a long word then ; → & is a literal character."""
+        text, entities = html_to_entities("&abcdefgh;")
+        assert "&" in text
+        assert entities == []
+
+    def test_ampersand_without_any_semicolon(self):
+        """& with no ; at all → treated as literal character."""
+        text, entities = html_to_entities("AT&T")
+        assert "&" in text

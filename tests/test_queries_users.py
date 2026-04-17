@@ -521,3 +521,91 @@ class TestGetActivePowerUsersByRegionQueueCursor:
         assert r1 == kyiv_users
         assert r2 == lviv_users
         assert session.execute.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# get_active_users_by_region_cursor — lines 168-177
+# ---------------------------------------------------------------------------
+
+
+class TestGetActiveUsersByRegionCursor:
+    async def test_returns_users_for_region(self):
+        """Lines 168-177: basic call returns list of users."""
+        from bot.db.queries.users import get_active_users_by_region_cursor
+
+        session = _make_session()
+        users = [_make_user(id=1, region="kyiv")]
+        session.execute.return_value = _scalars_all(users)
+
+        result = await get_active_users_by_region_cursor(session, region="kyiv")
+
+        assert result == users
+
+    async def test_with_queue_filter(self):
+        """Line 170: queue parameter appended to conditions."""
+        from bot.db.queries.users import get_active_users_by_region_cursor
+
+        session = _make_session()
+        session.execute.return_value = _scalars_all([])
+
+        result = await get_active_users_by_region_cursor(session, region="kyiv", queue="1.1")
+
+        assert result == []
+        sql = _compile_sql(session)
+        assert "queue" in sql
+
+    async def test_cursor_after_id(self):
+        """Line 168: after_id used in WHERE clause for second page."""
+        from bot.db.queries.users import get_active_users_by_region_cursor
+
+        session = _make_session()
+        page2 = [_make_user(id=1001)]
+        session.execute.return_value = _scalars_all(page2)
+
+        result = await get_active_users_by_region_cursor(
+            session, region="kyiv", limit=1000, after_id=1000
+        )
+
+        assert result == page2
+
+
+# ---------------------------------------------------------------------------
+# get_users_with_ip_cursor — lines 274-286
+# ---------------------------------------------------------------------------
+
+
+class TestGetUsersWithIpCursor:
+    async def test_returns_users_with_ip(self):
+        """Lines 274-286: returns list of users with router_ip set."""
+        from bot.db.queries.users import get_users_with_ip_cursor
+
+        session = _make_session()
+        users = [_make_user(id=1)]
+        session.execute.return_value = _scalars_all(users)
+
+        result = await get_users_with_ip_cursor(session)
+
+        assert result == users
+
+    async def test_empty_result(self):
+        """Lines 274-286: returns empty list when no users have router_ip."""
+        from bot.db.queries.users import get_users_with_ip_cursor
+
+        session = _make_session()
+        session.execute.return_value = _scalars_all([])
+
+        result = await get_users_with_ip_cursor(session, limit=500, after_id=0)
+
+        assert result == []
+
+    async def test_cursor_after_id(self):
+        """Line 281: after_id used in WHERE clause for pagination."""
+        from bot.db.queries.users import get_users_with_ip_cursor
+
+        session = _make_session()
+        page2 = [_make_user(id=501)]
+        session.execute.return_value = _scalars_all(page2)
+
+        result = await get_users_with_ip_cursor(session, limit=500, after_id=500)
+
+        assert result == page2
