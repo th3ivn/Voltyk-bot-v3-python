@@ -171,7 +171,14 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --strict
+        # Scan project deps in an isolated venv so system-level packages
+        # (pip, setuptools, wheel) installed by the GitHub Actions runner
+        # do not produce false-positive CVE findings.
+        run: |
+          python -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install pip-audit -q
+          /tmp/audit-venv/bin/pip install -e . -q
+          /tmp/audit-venv/bin/pip-audit
 
       - name: Static security analysis (bandit)
         # -ll: report only HIGH and MEDIUM severity issues
