@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Simple mock ORM objects (avoid importing SQLAlchemy models in unit tests)
 # ---------------------------------------------------------------------------

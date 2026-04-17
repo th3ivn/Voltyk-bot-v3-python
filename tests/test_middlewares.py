@@ -1,13 +1,11 @@
 """Tests for bot/middlewares/db.py, maintenance.py, and throttle.py."""
 from __future__ import annotations
 
-import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,7 +42,6 @@ class TestDbSessionMiddleware:
     """Tests for bot/middlewares/db.py — DbSessionMiddleware."""
 
     def setup_method(self):
-        import bot.middlewares.db  # ensure module is loaded before patching
 
         self.session = _make_mock_session()
         self.patcher = patch(
@@ -250,7 +247,6 @@ class TestThrottleMiddleware:
     """Tests for bot/middlewares/throttle.py — ThrottleMiddleware."""
 
     def setup_method(self):
-        import bot.middlewares.throttle  # ensure module is loaded
 
         from bot.middlewares.throttle import ThrottleMiddleware
 

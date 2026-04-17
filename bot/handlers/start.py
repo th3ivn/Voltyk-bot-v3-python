@@ -20,6 +20,7 @@ from bot.keyboards.inline import (
 )
 from bot.states.fsm import WizardSG
 from bot.utils.logger import get_logger
+from bot.utils.metrics import USER_REGISTRATIONS_TOTAL
 
 logger = get_logger(__name__)
 router = Router(name="start")
@@ -202,6 +203,10 @@ async def wizard_notify_bot(callback: CallbackQuery, state: FSMContext, session:
         data["queue"],
     )
 
+    if data.get("mode") == "new" and not data.get("_registration_counted"):
+        USER_REGISTRATIONS_TOTAL.inc()
+        await state.update_data(_registration_counted=True)
+
     await state.set_state(WizardSG.bot_notifications)
     ns = user.notification_settings
     if not ns:
@@ -354,6 +359,11 @@ async def wizard_notify_channel(callback: CallbackQuery, state: FSMContext, sess
         data["region"],
         data["queue"],
     )
+
+    if data.get("mode") == "new" and not data.get("_registration_counted"):
+        USER_REGISTRATIONS_TOTAL.inc()
+        await state.update_data(_registration_counted=True)
+
     await state.set_state(WizardSG.channel_setup)
 
     bot_me = await callback.bot.get_me()

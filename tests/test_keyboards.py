@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
-import pytest
+# ─── formatter ────────────────────────────────────────────────────────────
+from bot.formatter.template import format_template, get_current_datetime_for_template
 
 # ─── admin keyboards ──────────────────────────────────────────────────────
-
 from bot.keyboards.admin import (
     get_admin_analytics_keyboard,
     get_admin_intervals_keyboard,
@@ -33,7 +32,6 @@ from bot.keyboards.admin import (
 )
 
 # ─── channel keyboards ────────────────────────────────────────────────────
-
 from bot.keyboards.channel import (
     get_channel_connect_confirm_keyboard,
     get_channel_menu_keyboard,
@@ -42,7 +40,6 @@ from bot.keyboards.channel import (
 )
 
 # ─── common helpers ───────────────────────────────────────────────────────
-
 from bot.keyboards.common import (
     _btn,
     _nav_row,
@@ -53,7 +50,6 @@ from bot.keyboards.common import (
 )
 
 # ─── format keyboards ─────────────────────────────────────────────────────
-
 from bot.keyboards.format import (
     get_format_power_keyboard,
     get_format_schedule_keyboard,
@@ -62,7 +58,6 @@ from bot.keyboards.format import (
 )
 
 # ─── help keyboards ───────────────────────────────────────────────────────
-
 from bot.keyboards.help import (
     get_faq_keyboard,
     get_help_keyboard,
@@ -72,7 +67,6 @@ from bot.keyboards.help import (
 )
 
 # ─── ip keyboards ─────────────────────────────────────────────────────────
-
 from bot.keyboards.ip import (
     get_ip_change_confirm_keyboard,
     get_ip_delete_confirm_keyboard,
@@ -88,7 +82,6 @@ from bot.keyboards.ip import (
 )
 
 # ─── main_menu keyboards ──────────────────────────────────────────────────
-
 from bot.keyboards.main_menu import (
     get_main_menu,
     get_restoration_keyboard,
@@ -96,7 +89,6 @@ from bot.keyboards.main_menu import (
 )
 
 # ─── notifications keyboards ──────────────────────────────────────────────
-
 from bot.keyboards.notifications import (
     get_channel_notification_keyboard,
     get_notification_main_keyboard,
@@ -108,11 +100,9 @@ from bot.keyboards.notifications import (
 )
 
 # ─── schedule keyboard ────────────────────────────────────────────────────
-
 from bot.keyboards.schedule import get_schedule_view_keyboard
 
 # ─── settings keyboards ───────────────────────────────────────────────────
-
 from bot.keyboards.settings import (
     get_cleanup_keyboard,
     get_deactivate_confirm_keyboard,
@@ -122,7 +112,6 @@ from bot.keyboards.settings import (
 )
 
 # ─── wizard keyboards ─────────────────────────────────────────────────────
-
 from bot.keyboards.wizard import (
     get_confirm_keyboard,
     get_queue_keyboard,
@@ -131,11 +120,6 @@ from bot.keyboards.wizard import (
     get_wizard_channel_notification_keyboard,
     get_wizard_notify_target_keyboard,
 )
-
-# ─── formatter ────────────────────────────────────────────────────────────
-
-from bot.formatter.template import format_template, get_current_datetime_for_template
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1204,15 +1188,16 @@ class TestInlineReexports:
 
     def test_emoji_constants_available(self):
         from bot.keyboards.inline import (
-            E_ADMIN, E_ALERTS, E_BACK, E_BELL, E_BOT_NOTIF,
-            E_CHANNEL, E_HELP, E_MENU, E_SCHEDULE, E_SUCCESS,
+            E_ADMIN,
+            E_BACK,
+            E_MENU,
         )
         assert E_ADMIN is not None
         assert E_BACK is None  # E_BACK is explicitly None in common.py
         assert E_MENU is None  # E_MENU is explicitly None in common.py
 
     def test_common_helpers_accessible(self):
-        from bot.keyboards.inline import _btn, _url_btn, _nav_row
+        from bot.keyboards.inline import _btn, _nav_row, _url_btn
         assert callable(_btn)
         assert callable(_url_btn)
         assert callable(_nav_row)

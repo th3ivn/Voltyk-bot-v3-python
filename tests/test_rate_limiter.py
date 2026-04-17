@@ -14,7 +14,6 @@ import pytest
 
 from bot.utils.rate_limiter import TokenBucketRateLimiter, tg_rate_limiter
 
-
 # ===========================================================================
 # TokenBucketRateLimiter
 # ===========================================================================
@@ -164,3 +163,15 @@ class TestTgRateLimiterSingleton:
 
     def test_singleton_has_positive_rate(self):
         assert tg_rate_limiter._rate > 0
+
+    def test_make_limiter_falls_back_on_import_error(self):
+        """If settings import raises, _make_limiter() returns a 25 req/s limiter."""
+
+        from unittest.mock import patch
+
+        with patch.dict("sys.modules", {"bot.config": None}):
+            from bot.utils import rate_limiter as rl_mod
+            limiter = rl_mod._make_limiter()
+
+        assert isinstance(limiter, TokenBucketRateLimiter)
+        assert limiter._rate == 25.0

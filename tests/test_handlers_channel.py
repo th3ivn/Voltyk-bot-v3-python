@@ -23,7 +23,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1616,3 +1615,55 @@ class TestChannelTestHandler:
         cb.answer.assert_awaited_once()
         state.set_state.assert_awaited_once()
         cb.message.edit_text.assert_awaited_once()
+
+    # ── length validation (new) ──────────────────────────────────────────────
+
+    async def test_handle_schedule_caption_too_long(self):
+        from bot.handlers.channel.conversation import MAX_CHANNEL_TEXT_LEN, handle_schedule_caption
+
+        msg = _make_message(text="x" * (MAX_CHANNEL_TEXT_LEN + 1))
+        state = _make_state()
+        session = AsyncMock()
+        await handle_schedule_caption(msg, state, session)
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_period_format_too_long(self):
+        from bot.handlers.channel.conversation import MAX_CHANNEL_TEXT_LEN, handle_period_format
+
+        msg = _make_message(text="x" * (MAX_CHANNEL_TEXT_LEN + 1))
+        state = _make_state()
+        session = AsyncMock()
+        await handle_period_format(msg, state, session)
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_power_off_text_too_long(self):
+        from bot.handlers.channel.conversation import MAX_CHANNEL_TEXT_LEN, handle_power_off_text
+
+        msg = _make_message(text="x" * (MAX_CHANNEL_TEXT_LEN + 1))
+        state = _make_state()
+        session = AsyncMock()
+        await handle_power_off_text(msg, state, session)
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_handle_power_on_text_too_long(self):
+        from bot.handlers.channel.conversation import MAX_CHANNEL_TEXT_LEN, handle_power_on_text
+
+        msg = _make_message(text="x" * (MAX_CHANNEL_TEXT_LEN + 1))
+        state = _make_state()
+        session = AsyncMock()
+        await handle_power_on_text(msg, state, session)
+        msg.reply.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_channel_confirm_malformed_data(self):
+        """channel_confirm_: non-integer suffix → answer error, no DB call."""
+        from bot.handlers.channel.connect import channel_confirm
+
+        cb = _make_callback(data="channel_confirm_not_an_int")
+        state = _make_state()
+        session = AsyncMock()
+        await channel_confirm(cb, state, session)
+        cb.answer.assert_awaited_once_with("❌ Невідомий формат.", show_alert=True)

@@ -4,8 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from bot.formatter.timer import (
     format_next_event_message,
     format_timer_message,

@@ -1,14 +1,12 @@
 """Tests for bot/utils/helpers.py."""
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiogram.exceptions import TelegramRetryAfter
 
 from bot.utils.helpers import is_valid_ip_or_domain, retry_bot_call, safe_parse_callback_int
-
 
 # ─── is_valid_ip_or_domain ────────────────────────────────────────────────
 

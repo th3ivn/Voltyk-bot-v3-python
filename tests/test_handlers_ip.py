@@ -875,3 +875,26 @@ class TestLegacyAliases:
         assert user.router_ip is None
         session.flush.assert_awaited_once()
         cb.message.edit_text.assert_awaited_once()
+
+    async def test_ip_delete_deactivate_exception_is_logged(self):
+        """ip_delete: deactivate_ping_error_alert raises → warning logged, not re-raised (lines 390-391)."""
+        from bot.handlers.settings.ip import ip_delete
+
+        cb = _make_callback(data="ip_delete")
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        user = _make_user(router_ip="1.2.3.4", telegram_id="555")
+
+        with (
+            patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch(
+                "bot.handlers.settings.ip.deactivate_ping_error_alert",
+                AsyncMock(side_effect=RuntimeError("db error")),
+            ),
+            patch("bot.handlers.settings.ip.get_ip_deleted_keyboard", return_value=MagicMock()),
+            patch("bot.handlers.settings.ip.logger") as mock_logger,
+        ):
+            await ip_delete(cb, session)
+
+        mock_logger.warning.assert_called_once()
+        cb.message.edit_text.assert_awaited_once()

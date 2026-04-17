@@ -7,9 +7,7 @@ correct methods are called with the right arguments.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from bot.db.queries import (
     count_active_users,

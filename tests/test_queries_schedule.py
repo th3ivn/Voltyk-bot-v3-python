@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -78,6 +77,7 @@ class TestGetScheduleCheckTime:
     async def test_returns_current_time_when_no_record(self):
         """No record found → falls back to int(time.time())."""
         import time
+
         from bot.db.queries.schedule import get_schedule_check_time
 
         session = _make_session()
@@ -92,6 +92,7 @@ class TestGetScheduleCheckTime:
     async def test_returns_current_time_when_last_checked_at_is_none(self):
         """Record found but last_checked_at is None → fallback to time.time()."""
         import time
+
         from bot.db.queries.schedule import get_schedule_check_time
 
         session = _make_session()

@@ -1,10 +1,6 @@
 """Tests for bot/formatter/messages.py."""
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-import pytest
-
 from bot.formatter.messages import (
     build_channel_notification_message,
     build_notification_settings_message,
@@ -13,7 +9,6 @@ from bot.formatter.messages import (
     has_any_notification_enabled,
 )
 from tests.conftest import make_channel_config, make_notification_settings, make_user
-
 
 # ─── has_any_notification_enabled ────────────────────────────────────────
 

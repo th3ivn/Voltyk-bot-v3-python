@@ -49,6 +49,21 @@ try:
         "Number of TelegramRetryAfter responses received",
     )
 
+    USER_REGISTRATIONS_TOTAL = Counter(
+        "voltyk_user_registrations_total",
+        "Total new user registrations via /start",
+    )
+
+    USER_DEACTIVATIONS_TOTAL = Counter(
+        "voltyk_user_deactivations_total",
+        "Total user deactivations (user confirmed deactivate)",
+    )
+
+    USER_DELETIONS_TOTAL = Counter(
+        "voltyk_user_deletions_total",
+        "Total user data deletion requests confirmed",
+    )
+
     # ── Gauges ────────────────────────────────────────────────────────────
 
     USER_STATES_IN_MEMORY = Gauge(
@@ -113,6 +128,9 @@ except ImportError:
     SCHEDULE_FETCH_ERRORS = _noop  # type: ignore[assignment]
     CIRCUIT_BREAKER_TRIPS = _noop  # type: ignore[assignment]
     TELEGRAM_RETRY_AFTER_TOTAL = _noop  # type: ignore[assignment]
+    USER_REGISTRATIONS_TOTAL = _noop  # type: ignore[assignment]
+    USER_DEACTIVATIONS_TOTAL = _noop  # type: ignore[assignment]
+    USER_DELETIONS_TOTAL = _noop  # type: ignore[assignment]
     USER_STATES_IN_MEMORY = _noop  # type: ignore[assignment]
     DIRTY_STATES_COUNT = _noop  # type: ignore[assignment]
     DB_POOL_SIZE = _noop  # type: ignore[assignment]

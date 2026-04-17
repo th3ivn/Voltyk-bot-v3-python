@@ -11,6 +11,8 @@ from bot.states.fsm import ChannelConversationSG
 from bot.utils.branding import MAX_USER_DESC_LEN, MAX_USER_TITLE_LEN
 from bot.utils.logger import get_logger
 
+MAX_CHANNEL_TEXT_LEN = 256
+
 logger = get_logger(__name__)
 router = Router(name="channel_conversation")
 
@@ -147,13 +149,17 @@ async def handle_edit_description(message: Message, state: FSMContext, session: 
 async def handle_schedule_caption(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not message.text:
         return
+    text = message.text.strip()
+    if len(text) > MAX_CHANNEL_TEXT_LEN:
+        await message.reply(f"❌ Текст занадто довгий (максимум {MAX_CHANNEL_TEXT_LEN} символів).")
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user or not user.channel_config:
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
 
-    user.channel_config.schedule_caption = message.text.strip()
+    user.channel_config.schedule_caption = text
     await state.clear()
     await message.answer("✅ Шаблон підпису оновлено!")
 
@@ -162,13 +168,17 @@ async def handle_schedule_caption(message: Message, state: FSMContext, session: 
 async def handle_period_format(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not message.text:
         return
+    text = message.text.strip()
+    if len(text) > MAX_CHANNEL_TEXT_LEN:
+        await message.reply(f"❌ Текст занадто довгий (максимум {MAX_CHANNEL_TEXT_LEN} символів).")
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user or not user.channel_config:
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
 
-    user.channel_config.period_format = message.text.strip()
+    user.channel_config.period_format = text
     await state.clear()
     await message.answer("✅ Формат періодів оновлено!")
 
@@ -177,13 +187,17 @@ async def handle_period_format(message: Message, state: FSMContext, session: Asy
 async def handle_power_off_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not message.text:
         return
+    text = message.text.strip()
+    if len(text) > MAX_CHANNEL_TEXT_LEN:
+        await message.reply(f"❌ Текст занадто довгий (максимум {MAX_CHANNEL_TEXT_LEN} символів).")
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user or not user.channel_config:
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
 
-    user.channel_config.power_off_text = message.text.strip()
+    user.channel_config.power_off_text = text
     await state.clear()
     await message.answer("✅ Текст відключення оновлено!")
 
@@ -192,13 +206,17 @@ async def handle_power_off_text(message: Message, state: FSMContext, session: As
 async def handle_power_on_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not message.text:
         return
+    text = message.text.strip()
+    if len(text) > MAX_CHANNEL_TEXT_LEN:
+        await message.reply(f"❌ Текст занадто довгий (максимум {MAX_CHANNEL_TEXT_LEN} символів).")
+        return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if not user or not user.channel_config:
         await state.clear()
         await message.reply("❌ Помилка. Спробуйте /start")
         return
 
-    user.channel_config.power_on_text = message.text.strip()
+    user.channel_config.power_on_text = text
     await state.clear()
     await message.answer("✅ Текст включення оновлено!")
 

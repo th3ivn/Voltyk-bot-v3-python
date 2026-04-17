@@ -252,6 +252,7 @@ class TestCheckRouterHttp:
 
     async def test_returns_false_on_connection_error(self):
         import aiohttp
+
         from bot.services.power_monitor import check_router_http
 
         mock_connector = MagicMock()
@@ -272,6 +273,7 @@ class TestCheckRouterHttp:
 
     async def test_returns_false_on_timeout(self):
         import asyncio
+
         from bot.services.power_monitor import check_router_http
 
         mock_connector = MagicMock()
@@ -2092,7 +2094,6 @@ class TestCheckUserPowerMoreBranches:
 
     async def test_first_check_db_user_with_tracking_persists_state(self):
         """Lines 480-482: first check, no DB record, db_user found → state written."""
-        import bot.services.power_monitor as pm
         from bot.services.power_monitor import _check_user_power
 
         bot_mock = AsyncMock()
@@ -2311,7 +2312,7 @@ class TestCheckUserPowerMoreBranches:
     async def test_debounce_fetch_exception_uses_default(self):
         """Lines 565-567: _get_debounce_seconds raises → DEFAULT_DEBOUNCE_S used."""
         import bot.services.power_monitor as pm
-        from bot.services.power_monitor import _check_user_power, DEFAULT_DEBOUNCE_S
+        from bot.services.power_monitor import _check_user_power
 
         bot_mock = AsyncMock()
         user = _make_pm_user(telegram_id="2009")
@@ -2660,7 +2661,7 @@ class TestRestartPendingDebounceTasks:
     async def test_debounce_fetch_exception_uses_default(self):
         """Lines 789-791: _get_debounce_seconds raises → DEFAULT_DEBOUNCE_S used."""
         import bot.services.power_monitor as pm
-        from bot.services.power_monitor import _restart_pending_debounce_tasks, DEFAULT_DEBOUNCE_S
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         pm._user_states["pend_exc"] = {
             **_default_user_state(),
@@ -2685,9 +2686,10 @@ class TestRestartPendingDebounceTasks:
 
     async def test_pending_with_datetime_calculates_remaining(self):
         """Lines 802-807: pending_state_time is datetime → elapsed calculated."""
+        from zoneinfo import ZoneInfo
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import _restart_pending_debounce_tasks
-        from zoneinfo import ZoneInfo
 
         KYIV_TZ_local = ZoneInfo("Europe/Kyiv")
         # pending_state_time 10 minutes ago, debounce=300s → remaining ~240s
@@ -2817,9 +2819,10 @@ class TestRestartPendingDebounceTasks:
 
     async def test_confirm_restored_cancelled_silently(self):
         """Lines 842-843: CancelledError in _confirm_restored → caught silently."""
+        import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import _restart_pending_debounce_tasks
-        import asyncio
 
         pm._user_states["pend_cancel"] = {
             **_default_user_state(),
@@ -2911,9 +2914,9 @@ class TestPowerMonitorLoop:
 
     async def test_basic_loop_starts_and_stops(self):
         """Lines 857-906: loop runs one iteration then stops."""
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import power_monitor_loop
-        import asyncio
 
         bot_mock = AsyncMock()
         sleep_count = [0]
@@ -2937,9 +2940,10 @@ class TestPowerMonitorLoop:
 
     async def test_loop_initial_check_timeout(self):
         """Lines 870-873: initial asyncio.wait_for raises TimeoutError → logged."""
+        import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import power_monitor_loop
-        import asyncio
 
         bot_mock = AsyncMock()
 
@@ -3016,9 +3020,10 @@ class TestPowerMonitorLoop:
 
     async def test_loop_check_timeout(self):
         """Lines 894-895: loop iteration asyncio.wait_for timeout → logged."""
+        import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import power_monitor_loop
-        import asyncio
 
         bot_mock = AsyncMock()
         sleep_count = [0]
@@ -3086,9 +3091,9 @@ class TestPowerMonitorLoop:
 
     async def test_loop_periodic_save_triggered(self):
         """Lines 902-906: periodic save triggered when time threshold exceeded."""
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import power_monitor_loop
-        import asyncio
 
         bot_mock = AsyncMock()
 
@@ -3134,9 +3139,10 @@ class TestSaveStatesOnShutdownExceptions:
 
     async def test_connector_close_cancelled_error_reraises(self):
         """Lines 933-935: shield raises CancelledError → await close_task, reraise."""
+        import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import save_states_on_shutdown
-        import asyncio
 
         mock_connector = MagicMock()
         mock_connector.closed = False
@@ -3217,9 +3223,10 @@ class TestDailyPingErrorLoop:
 
     async def test_loop_cancelled_error_breaks(self):
         """Lines 952-953: asyncio.CancelledError in sleep → break."""
+        import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import daily_ping_error_loop
-        import asyncio
 
         bot_mock = AsyncMock()
         pm._running = True
@@ -3280,8 +3287,9 @@ class TestSendDailyPingErrorAlertsMoreBranches:
 
     async def test_naive_last_alert_at_adds_utc(self):
         """Line 976: naive last_alert_at → tzinfo added, elapsed checked."""
-        from bot.services.power_monitor import _send_daily_ping_error_alerts
         from datetime import timedelta
+
+        from bot.services.power_monitor import _send_daily_ping_error_alerts
 
         bot_mock = AsyncMock()
         # Naive datetime, only 1 hour ago → elapsed < 86400 → skip

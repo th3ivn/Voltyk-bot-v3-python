@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, PrivateAttr, field_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from bot.utils.logger import get_logger
@@ -102,6 +102,20 @@ class Settings(BaseSettings):
             except ValueError:
                 logger.warning("Skipping invalid ADMIN_ID value: %r", x)
         return result
+
+    @model_validator(mode="after")
+    def _warn_default_credentials(self) -> "Settings":
+        _default_db = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
+        _default_redis = "redis://localhost:6379/0"
+        if self.DATABASE_URL == _default_db:
+            logger.warning(
+                "DATABASE_URL uses hardcoded default credentials — set DATABASE_URL in .env for production"
+            )
+        if self.REDIS_URL == _default_redis:
+            logger.warning(
+                "REDIS_URL uses hardcoded default — set REDIS_URL in .env for production"
+            )
+        return self
 
     def model_post_init(self, __context: object) -> None:
         ids: set[int] = set(self.ADMIN_IDS)

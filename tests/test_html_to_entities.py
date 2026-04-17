@@ -1,8 +1,6 @@
 """Tests for bot/utils/html_to_entities.py."""
 from __future__ import annotations
 
-import pytest
-
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 
 
