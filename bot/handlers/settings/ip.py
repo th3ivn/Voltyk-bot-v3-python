@@ -218,8 +218,8 @@ async def ip_delete_execute(callback: CallbackQuery, session: AsyncSession) -> N
         await session.flush()
         try:
             await deactivate_ping_error_alert(session, str(user.telegram_id))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to deactivate ping alert for user %s: %s", user.telegram_id, exc)
     text = (
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено."
@@ -340,8 +340,8 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
         if user:
             try:
                 await upsert_ping_error_alert(session, str(user.telegram_id), result["address"])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to upsert ping alert for user %s: %s", user.telegram_id, exc)
 
     await state.clear()
     keyboard = get_ip_saved_success_keyboard() if is_alive else get_ip_saved_fail_keyboard(support_url=app_settings.SUPPORT_CHANNEL_URL or None)
@@ -387,8 +387,8 @@ async def ip_delete(callback: CallbackQuery, session: AsyncSession) -> None:
         await session.flush()
         try:
             await deactivate_ping_error_alert(session, str(user.telegram_id))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to deactivate ping alert for user %s: %s", user.telegram_id, exc)
     await callback.message.edit_text(
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено.",

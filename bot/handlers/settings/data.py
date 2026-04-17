@@ -10,6 +10,7 @@ from bot.keyboards.inline import (
     get_delete_data_confirm_keyboard,
     get_delete_data_final_keyboard,
 )
+from bot.utils.metrics import USER_DEACTIVATIONS_TOTAL, USER_DELETIONS_TOTAL
 
 router = Router(name="settings_data")
 
@@ -41,6 +42,7 @@ async def delete_data_step2(callback: CallbackQuery) -> None:
 async def confirm_delete_data(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await delete_user_data(session, callback.from_user.id)
+    USER_DELETIONS_TOTAL.inc()
     await callback.message.edit_text(
         "Добре, домовились 🙂 Я видалив усі дані та відключив канал.\n\n"
         "Якщо захочете повернутися — /start"
@@ -60,6 +62,7 @@ async def settings_deactivate(callback: CallbackQuery) -> None:
 async def confirm_deactivate(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await deactivate_user(session, callback.from_user.id)
+    USER_DEACTIVATIONS_TOTAL.inc()
     await callback.message.edit_text(
         "✅ Бот деактивовано. Використайте /start для повторної активації."
     )

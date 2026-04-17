@@ -21,6 +21,7 @@ from bot.keyboards.inline import (
 )
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.branding import CHANNEL_NAME_PREFIX
+from bot.utils.helpers import safe_parse_callback_int
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -74,7 +75,11 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
 
 @router.callback_query(F.data.startswith("channel_confirm_"))
 async def channel_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    channel_id = callback.data.replace("channel_confirm_", "")
+    channel_id_int = safe_parse_callback_int(callback.data, "channel_confirm_")
+    if channel_id_int is None:
+        await callback.answer("❌ Невідомий формат.", show_alert=True)
+        return
+    channel_id = str(channel_id_int)
     await callback.answer()
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)

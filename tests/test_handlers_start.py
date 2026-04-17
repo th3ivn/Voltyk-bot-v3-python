@@ -585,6 +585,24 @@ class TestWizardNotifyBot:
         assert "Помилка" in args[0]
         state.clear.assert_awaited_once()
 
+    async def test_new_mode_increments_registration_metric(self):
+        """mode='new' in state → USER_REGISTRATIONS_TOTAL.inc() called."""
+        from bot.handlers.start import wizard_notify_bot
+
+        cb = _make_callback(data="wizard_notify_bot")
+        state = _make_state(data={"region": "kyiv", "queue": "1.1", "mode": "new"})
+        session = AsyncMock()
+        user = _make_user()
+
+        with (
+            patch("bot.handlers.start.create_or_update_user", AsyncMock(return_value=user)),
+            patch("bot.handlers.start.get_wizard_bot_notification_keyboard", return_value=MagicMock()),
+            patch("bot.handlers.start.USER_REGISTRATIONS_TOTAL") as mock_counter,
+        ):
+            await wizard_notify_bot(cb, state, session)
+
+        mock_counter.inc.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # wizard_toggle_schedule
@@ -796,3 +814,21 @@ class TestWizardNotifyChannel:
         cb.message.edit_text.assert_awaited_once()
         args, _ = cb.message.edit_text.call_args
         assert "VoltykBot" in args[0]
+
+    async def test_new_mode_increments_registration_metric(self):
+        """mode='new' in state → USER_REGISTRATIONS_TOTAL.inc() called."""
+        from bot.handlers.start import wizard_notify_channel
+
+        cb = _make_callback(data="wizard_notify_channel")
+        cb.bot.get_me = AsyncMock(return_value=SimpleNamespace(username="VoltykBot"))
+        state = _make_state(data={"region": "kyiv", "queue": "1.1", "mode": "new"})
+        session = AsyncMock()
+
+        with (
+            patch("bot.handlers.start.create_or_update_user", AsyncMock()),
+            patch("bot.handlers.start.get_wizard_notify_target_keyboard", return_value=MagicMock()),
+            patch("bot.handlers.start.USER_REGISTRATIONS_TOTAL") as mock_counter,
+        ):
+            await wizard_notify_channel(cb, state, session)
+
+        mock_counter.inc.assert_called_once()
