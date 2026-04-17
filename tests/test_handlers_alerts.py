@@ -523,3 +523,323 @@ class TestNotifTargets:
 
         call_kwargs = mock_kb.call_args[1]
         assert call_kwargs.get("has_ip") is False
+
+
+# ---------------------------------------------------------------------------
+# notif_target_type
+# ---------------------------------------------------------------------------
+
+
+class TestNotifTargetType:
+    async def test_shows_target_selector_for_schedule(self):
+        """notif_target_type_schedule → shows selector with current schedule target."""
+        from bot.handlers.settings.alerts import notif_target_type
+
+        cb = _make_callback(data="notif_target_type_schedule")
+        session = AsyncMock()
+        user = _make_user()
+        user.notification_settings.notify_schedule_target = "channel"
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_text", AsyncMock()) as mock_edit,
+            patch(
+                "bot.handlers.settings.alerts.get_notification_target_select_keyboard",
+                return_value=MagicMock(),
+            ) as mock_kb,
+        ):
+            await notif_target_type(cb, session)
+
+        cb.answer.assert_awaited_once()
+        mock_edit.assert_awaited_once()
+        mock_kb.assert_called_once_with("schedule", "channel")
+
+    async def test_no_user_or_ns_returns_silently(self):
+        """No user → returns without editing message."""
+        from bot.handlers.settings.alerts import notif_target_type
+
+        cb = _make_callback(data="notif_target_type_remind")
+        session = AsyncMock()
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=None)),
+            patch("bot.handlers.settings.alerts.safe_edit_text", AsyncMock()) as mock_edit,
+        ):
+            await notif_target_type(cb, session)
+
+        mock_edit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# notif_target_set
+# ---------------------------------------------------------------------------
+
+
+class TestNotifTargetSet:
+    async def test_sets_schedule_target(self):
+        """notif_target_set_schedule_channel → sets notify_schedule_target='channel'."""
+        from bot.handlers.settings.alerts import notif_target_set
+
+        cb = _make_callback(data="notif_target_set_schedule_channel")
+        session = AsyncMock()
+        user = _make_user()
+        user.notification_settings.notify_schedule_target = "bot"
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_reply_markup", AsyncMock()),
+            patch(
+                "bot.handlers.settings.alerts.get_notification_target_select_keyboard",
+                return_value=MagicMock(),
+            ),
+        ):
+            await notif_target_set(cb, session)
+
+        assert user.notification_settings.notify_schedule_target == "channel"
+        cb.answer.assert_awaited_once_with("✅ Збережено")
+
+    async def test_invalid_target_value_returns_early(self):
+        """target_value not in allowed set → answer and return without DB change."""
+        from bot.handlers.settings.alerts import notif_target_set
+
+        cb = _make_callback(data="notif_target_set_schedule_evil")
+        session = AsyncMock()
+
+        with patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock()) as mock_get:
+            await notif_target_set(cb, session)
+
+        mock_get.assert_not_awaited()
+        cb.answer.assert_awaited_once()
+
+    async def test_malformed_data_no_underscore_returns_early(self):
+        """Data without exactly 2 parts after prefix → early return."""
+        from bot.handlers.settings.alerts import notif_target_set
+
+        cb = _make_callback(data="notif_target_set_onlyonepart")
+        session = AsyncMock()
+
+        with patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock()) as mock_get:
+            await notif_target_set(cb, session)
+
+        mock_get.assert_not_awaited()
+        cb.answer.assert_awaited_once()
+
+    async def test_no_user_or_ns_returns_early(self):
+        """User not found → answer and return."""
+        from bot.handlers.settings.alerts import notif_target_set
+
+        cb = _make_callback(data="notif_target_set_power_bot")
+        session = AsyncMock()
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=None)),
+            patch("bot.handlers.settings.alerts.safe_edit_reply_markup", AsyncMock()) as mock_edit,
+        ):
+            await notif_target_set(cb, session)
+
+        mock_edit.assert_not_awaited()
+        cb.answer.assert_awaited_once()
+
+    async def test_sets_both_target(self):
+        """target_value='both' is a valid allowed destination."""
+        from bot.handlers.settings.alerts import notif_target_set
+
+        cb = _make_callback(data="notif_target_set_remind_both")
+        session = AsyncMock()
+        user = _make_user()
+        user.notification_settings.notify_remind_target = "bot"
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_reply_markup", AsyncMock()),
+            patch(
+                "bot.handlers.settings.alerts.get_notification_target_select_keyboard",
+                return_value=MagicMock(),
+            ),
+        ):
+            await notif_target_set(cb, session)
+
+        assert user.notification_settings.notify_remind_target == "both"
+
+
+# ---------------------------------------------------------------------------
+# alert_toggle
+# ---------------------------------------------------------------------------
+
+
+class TestAlertToggle:
+    async def test_disables_all_when_any_enabled(self):
+        """At least one field True → all set to False."""
+        from bot.handlers.settings.alerts import alert_toggle
+
+        cb = _make_callback(data="alert_toggle")
+        session = AsyncMock()
+        user = _make_user()
+        user.notification_settings.notify_schedule_changes = True
+        user.notification_settings.notify_remind_off = False
+        user.notification_settings.notify_fact_off = False
+
+        with patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await alert_toggle(cb, session)
+
+        ns = user.notification_settings
+        assert ns.notify_schedule_changes is False
+        assert ns.notify_remind_off is False
+        assert ns.notify_fact_off is False
+        assert ns.notify_remind_on is False
+        assert ns.notify_fact_on is False
+        cb.answer.assert_awaited_once_with("✅ Збережено")
+
+    async def test_enables_all_when_all_disabled(self):
+        """All fields False → all set to True."""
+        from bot.handlers.settings.alerts import alert_toggle
+
+        cb = _make_callback(data="alert_toggle")
+        session = AsyncMock()
+        user = _make_user()
+        ns = user.notification_settings
+        ns.notify_schedule_changes = False
+        ns.notify_remind_off = False
+        ns.notify_fact_off = False
+        ns.notify_remind_on = False
+        ns.notify_fact_on = False
+
+        with patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)):
+            await alert_toggle(cb, session)
+
+        assert ns.notify_schedule_changes is True
+        assert ns.notify_remind_off is True
+        assert ns.notify_fact_off is True
+
+    async def test_no_user_still_answers(self):
+        """No user → answer is still called (no crash)."""
+        from bot.handlers.settings.alerts import alert_toggle
+
+        cb = _make_callback(data="alert_toggle")
+        session = AsyncMock()
+
+        with patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=None)):
+            await alert_toggle(cb, session)
+
+        cb.answer.assert_awaited_once_with("✅ Збережено")
+
+
+# ---------------------------------------------------------------------------
+# ch_notif_handler
+# ---------------------------------------------------------------------------
+
+
+def _make_cc_with_all(**overrides) -> SimpleNamespace:
+    defaults = dict(
+        ch_notify_schedule=True,
+        ch_notify_remind_off=False,
+        ch_notify_fact_off=False,
+        ch_notify_remind_on=False,
+        ch_notify_fact_on=False,
+        ch_remind_15m=False,
+        ch_remind_30m=False,
+        ch_remind_1h=False,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+class TestChNotifHandler:
+    async def _run(self, action: str, user: SimpleNamespace) -> None:
+        from bot.handlers.settings.alerts import ch_notif_handler
+
+        cb = _make_callback(data=f"ch_notif_{action}")
+        session = AsyncMock()
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_text", AsyncMock()),
+            patch("bot.handlers.settings.alerts.build_channel_notification_message", return_value="text"),
+            patch("bot.handlers.settings.alerts.get_channel_notification_keyboard", return_value=MagicMock()),
+        ):
+            await ch_notif_handler(cb, session)
+
+        return cb
+
+    async def test_toggle_schedule(self):
+        """ch_notif_toggle_schedule → flips ch_notify_schedule."""
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all(ch_notify_schedule=True)
+
+        await self._run("toggle_schedule", user)
+
+        assert user.channel_config.ch_notify_schedule is False
+
+    async def test_toggle_fact(self):
+        """ch_notif_toggle_fact → flips both ch_notify_fact_off and ch_notify_fact_on."""
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all(ch_notify_fact_off=False, ch_notify_fact_on=False)
+
+        await self._run("toggle_fact", user)
+
+        assert user.channel_config.ch_notify_fact_off is True
+        assert user.channel_config.ch_notify_fact_on is True
+
+    async def test_time_15m(self):
+        """ch_notif_time_15 → toggles ch_remind_15m."""
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all(ch_remind_15m=False)
+
+        await self._run("time_15", user)
+
+        assert user.channel_config.ch_remind_15m is True
+
+    async def test_time_30m(self):
+        """ch_notif_time_30 → toggles ch_remind_30m."""
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all(ch_remind_30m=False)
+
+        await self._run("time_30", user)
+
+        assert user.channel_config.ch_remind_30m is True
+
+    async def test_time_60m(self):
+        """ch_notif_time_60 → toggles ch_remind_1h."""
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all(ch_remind_1h=False)
+
+        await self._run("time_60", user)
+
+        assert user.channel_config.ch_remind_1h is True
+
+    async def test_time_invalid_suffix_returns_early(self):
+        """Non-integer time suffix → answer and return without editing."""
+        from bot.handlers.settings.alerts import ch_notif_handler
+
+        cb = _make_callback(data="ch_notif_time_abc")
+        session = AsyncMock()
+        user = _make_user(with_channel=True)
+        user.channel_config = _make_cc_with_all()
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_text", AsyncMock()) as mock_edit,
+            patch("bot.handlers.settings.alerts.build_channel_notification_message", return_value="text"),
+            patch("bot.handlers.settings.alerts.get_channel_notification_keyboard", return_value=MagicMock()),
+        ):
+            await ch_notif_handler(cb, session)
+
+        mock_edit.assert_not_awaited()
+        cb.answer.assert_awaited_once()
+
+    async def test_no_channel_config_returns_early(self):
+        """User without channel_config → early return."""
+        from bot.handlers.settings.alerts import ch_notif_handler
+
+        cb = _make_callback(data="ch_notif_toggle_schedule")
+        session = AsyncMock()
+        user = _make_user(with_channel=False)
+
+        with (
+            patch("bot.handlers.settings.alerts.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.settings.alerts.safe_edit_text", AsyncMock()) as mock_edit,
+        ):
+            await ch_notif_handler(cb, session)
+
+        mock_edit.assert_not_awaited()
+        cb.answer.assert_awaited_once()
