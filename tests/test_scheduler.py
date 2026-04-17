@@ -3154,3 +3154,166 @@ class TestFlushPendingNotificationsPurgeExceptions:
              patch("bot.services.scheduler.cleanup_old_reminders",
                    new_callable=AsyncMock, side_effect=RuntimeError("reminders db gone")):
             await flush_pending_notifications(bot_mock)  # no raise
+
+
+# ─── _send_notifications_for_pair: cursor pagination (lines 104-112) ─────
+
+
+class TestSendNotificationsForPairPagination:
+    async def test_full_batch_advances_cursor_then_empty_breaks(self):
+        """Lines 104-112: first batch = _DB_SCAN_BATCH_SIZE → after_id set; empty next → break."""
+        from bot.services.scheduler import _send_notifications_for_pair
+
+        bot_mock = AsyncMock()
+        _DB_BATCH = 1000
+        fake_users = [_make_user(telegram_id=str(i + 20000), id=i + 20000) for i in range(_DB_BATCH)]
+        seen_after_ids = []
+
+        async def _cursor_side_effect(session, region, queue, limit, after_id):
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
+
+        sched = _make_sched()
+        update_type = {"todayUpdated": True}
+        changes = {"added": [], "removed": []}
+
+        with _patch_async_session(_make_mock_session()), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
+                   side_effect=_cursor_side_effect), \
+             patch("bot.services.scheduler._send_notifications_to_users",
+                   new_callable=AsyncMock):
+            total = await _send_notifications_for_pair(
+                bot_mock, "kyiv", "1.1", sched, update_type, changes
+            )
+
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id
+        assert total == _DB_BATCH
+
+    async def test_partial_last_batch_breaks_on_size(self):
+        """Line 109: second batch is partial (< _DB_SCAN_BATCH_SIZE) → break fires."""
+        from bot.services.scheduler import _send_notifications_for_pair
+
+        bot_mock = AsyncMock()
+        _DB_BATCH = 1000
+        full_batch = [_make_user(telegram_id=str(i + 21000), id=i + 21000) for i in range(_DB_BATCH)]
+        partial_batch = [_make_user(telegram_id="99999", id=99999)]
+        seen_after_ids = []
+
+        async def _cursor_side_effect(session, region, queue, limit, after_id):
+            seen_after_ids.append(after_id)
+            return full_batch if after_id == 0 else partial_batch
+
+        sched = _make_sched()
+        update_type = {"todayUpdated": True}
+        changes = {"added": [], "removed": []}
+
+        with _patch_async_session(_make_mock_session()), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
+                   side_effect=_cursor_side_effect), \
+             patch("bot.services.scheduler._send_notifications_to_users",
+                   new_callable=AsyncMock):
+            total = await _send_notifications_for_pair(
+                bot_mock, "kyiv", "1.1", sched, update_type, changes
+            )
+
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == full_batch[-1].id
+        assert total == _DB_BATCH + 1
+
+
+# ─── catch_up_missed_reminders: cursor pagination (line 627) ─────────────
+
+
+class TestCatchUpMissedRemindersPagination:
+    async def test_full_user_batch_advances_cursor(self):
+        """Line 627: full user batch → _after_id set for second page."""
+        from bot.services.scheduler import catch_up_missed_reminders
+
+        _DB_BATCH = 1000
+        fake_users = [_make_user(telegram_id=str(i + 30000), id=i + 30000) for i in range(_DB_BATCH)]
+        seen_after_ids = []
+
+        async def _cursor_side_effect(session, region, queue, limit, after_id):
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
+
+        bot_mock = AsyncMock()
+        next_ev = {
+            "type": "power_off",
+            "time": "2026-04-07T10:00:00",
+            "endTime": "2026-04-07T12:00:00",
+            "minutes": 15,
+            "isPossible": False,
+        }
+
+        with _patch_async_session(_make_mock_session()), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value={}), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
+                   side_effect=_cursor_side_effect), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder",
+                   new_callable=AsyncMock, return_value=False), \
+             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
+            await catch_up_missed_reminders(bot_mock)
+
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id
+
+
+# ─── _check_and_send_reminders: cursor pagination (line 1051) ────────────
+
+
+class TestCheckAndSendRemindersPagination:
+    async def test_full_user_batch_advances_cursor(self):
+        """Line 1051: full user batch → _after_id set for second page."""
+        from bot.services.scheduler import _check_and_send_reminders
+
+        _DB_BATCH = 1000
+        fake_users = [_make_user(telegram_id=str(i + 40000), id=i + 40000) for i in range(_DB_BATCH)]
+        seen_after_ids = []
+
+        async def _cursor_side_effect(session, region, queue, limit, after_id):
+            seen_after_ids.append(after_id)
+            return fake_users if after_id == 0 else []
+
+        bot_mock = AsyncMock()
+        next_ev = {
+            "type": "power_off",
+            "time": "2026-04-07T10:00:00",
+            "endTime": "2026-04-07T12:00:00",
+            "minutes": 15,
+            "isPossible": False,
+        }
+
+        with _patch_async_session(_make_mock_session()), \
+             patch("bot.services.scheduler._is_quiet_hours", return_value=False), \
+             patch("bot.services.scheduler.get_active_reminder_anchors",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data",
+                   new_callable=AsyncMock, return_value={"r": "d"}), \
+             patch("bot.services.scheduler.parse_schedule_for_queue", return_value={}), \
+             patch("bot.services.scheduler.find_next_event", return_value=next_ev), \
+             patch("bot.services.scheduler.get_active_users_by_region_cursor",
+                   side_effect=_cursor_side_effect), \
+             patch("bot.services.scheduler.check_reminders_sent_batch",
+                   new_callable=AsyncMock, return_value=set()), \
+             patch("bot.services.scheduler._send_reminder",
+                   new_callable=AsyncMock, return_value=False), \
+             patch("bot.services.scheduler.mark_reminder_sent", new_callable=AsyncMock):
+            await _check_and_send_reminders(bot_mock)
+
+        assert len(seen_after_ids) == 2
+        assert seen_after_ids[0] == 0
+        assert seen_after_ids[1] == fake_users[-1].id

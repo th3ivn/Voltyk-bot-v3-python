@@ -250,3 +250,28 @@ class TestSafeParseCallbackInt:
 
     def test_none_data(self):
         assert safe_parse_callback_int(None, "prefix_") is None
+
+
+# ─── retry_bot_call: unreachable branch ──────────────────────────────────
+
+
+class TestRetryBotCallUnreachable:
+    async def test_raises_runtime_error_when_loop_never_executes(self):
+        """Line 49: range(max_retries+1) is empty when max_retries=-1."""
+        async def coro():
+            return "ok"
+
+        with pytest.raises(RuntimeError, match="unreachable"):
+            await retry_bot_call(lambda: coro(), max_retries=-1)
+
+
+# ─── is_valid_ip_or_domain: ValueError branch ─────────────────────────────
+
+
+class TestIsValidIpValueErrorBranch:
+    def test_ipv4address_valueerror_falls_through_to_valid(self):
+        """Lines 91-92: if IPv4Address raises ValueError, address is still valid."""
+        with patch("bot.utils.helpers.ipaddress.IPv4Address", side_effect=ValueError("mocked")):
+            result = is_valid_ip_or_domain("192.168.1.1")
+        assert result["valid"] is True
+        assert result["type"] == "ip"

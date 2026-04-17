@@ -2301,3 +2301,181 @@ class TestUpdatePowerNotificationsOnScheduleChange:
 
         # No edit when schedule line is None
         bot.edit_message_text.assert_not_called()
+
+
+# ─── Cursor pagination coverage ───────────────────────────────────────────
+
+
+class TestCheckAllIpsPagination:
+    """Line 668: after_id is set when a full batch is returned."""
+
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+
+    async def test_full_batch_advances_cursor(self):
+        from bot.services.power_monitor import _check_all_ips
+
+        bot = AsyncMock()
+        _BATCH = 500
+        fake_users = [
+            SimpleNamespace(id=i, telegram_id=str(i + 90000), router_ip="8.8.8.8")
+            for i in range(_BATCH)
+        ]
+
+        call_count = {"n": 0}
+
+        async def _cursor_side_effect(session, limit, after_id):
+            call_count["n"] += 1
+            return fake_users if call_count["n"] == 1 else []
+
+        with (
+            _patch_pm_async_session(_make_mock_session()),
+            patch(
+                "bot.services.power_monitor.get_users_with_ip_cursor",
+                side_effect=_cursor_side_effect,
+            ),
+            patch("bot.services.power_monitor.check_router_http", AsyncMock(return_value=True)),
+            patch("bot.services.power_monitor._check_user_power", AsyncMock()),
+        ):
+            await _check_all_ips(bot)
+
+        assert call_count["n"] == 2
+
+
+class TestSaveAllUserStatesEmptySnapshot:
+    """Line 756: dirty TIDs absent from _user_states → snapshot empty → early return."""
+
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+        pm._dirty_states.clear()
+
+    async def test_empty_snapshot_skips_batch_upsert(self):
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _save_all_user_states
+
+        ghost_tid = "ghost_snap_test_88888"
+        pm._dirty_states.add(ghost_tid)
+
+        batch_mock = AsyncMock()
+        with patch("bot.services.power_monitor.batch_upsert_user_power_states", batch_mock):
+            await _save_all_user_states()
+
+        batch_mock.assert_not_called()
+        pm._dirty_states.discard(ghost_tid)
+
+
+class TestSendDailyPingErrorAlertsPagination:
+    """Lines 1035, 1098: empty first page and full-batch pagination."""
+
+    async def test_empty_first_page_breaks_immediately(self):
+        """Line 1035: first alerts page is empty → break."""
+        from bot.services.power_monitor import _send_daily_ping_error_alerts
+
+        bot = AsyncMock()
+        with patch(
+            "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
+            AsyncMock(return_value=[]),
+        ), _patch_pm_async_session(_make_mock_session()):
+            await _send_daily_ping_error_alerts(bot)
+
+        bot.send_message.assert_not_called()
+
+    async def test_full_batch_advances_cursor(self):
+        """Line 1098: full batch (500 alerts) → after_id advanced for second page."""
+        from datetime import timedelta
+
+        from bot.services.power_monitor import _send_daily_ping_error_alerts
+
+        _BATCH = 500
+        # Set last_alert_at to within 24h so the 24h-check `continue` fires for all
+        # alerts — this avoids real HTTP calls to check_router_http.
+        recent_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        fake_alerts = [
+            SimpleNamespace(
+                id=i,
+                telegram_id=str(i + 70000),
+                last_alert_at=recent_at,
+                router_ip="1.2.3.4",
+                router_last_online_at=None,
+            )
+            for i in range(_BATCH)
+        ]
+
+        call_count = {"n": 0}
+
+        async def _cursor_side_effect(session, limit, after_id):
+            call_count["n"] += 1
+            return fake_alerts if call_count["n"] == 1 else []
+
+        bot = AsyncMock()
+        with (
+            _patch_pm_async_session(_make_mock_session()),
+            patch(
+                "bot.services.power_monitor.get_active_ping_error_alerts_cursor",
+                side_effect=_cursor_side_effect,
+            ),
+        ):
+            await _send_daily_ping_error_alerts(bot)
+
+        assert call_count["n"] == 2
+
+
+class TestUpdatePowerNotificationsPagination:
+    """Lines 1135, 1304: empty users page and full-batch pagination."""
+
+    async def test_empty_first_page_breaks_immediately(self):
+        """Line 1135: first users page is empty → break."""
+        from bot.services.power_monitor import update_power_notifications_on_schedule_change
+
+        bot = AsyncMock()
+        with (
+            _patch_pm_async_session(_make_mock_session()),
+            patch("bot.services.power_monitor.fetch_schedule_data", return_value={"d": "x"}),
+            patch("bot.services.power_monitor.parse_schedule_for_queue", return_value={}),
+            patch("bot.services.power_monitor.find_next_event", return_value=None),
+            patch(
+                "bot.services.power_monitor.get_active_power_users_by_region_queue_cursor",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            await update_power_notifications_on_schedule_change(bot, "kyiv", "1.1")
+
+        bot.edit_message_text.assert_not_called()
+
+    async def test_full_batch_advances_cursor(self):
+        """Line 1304: full batch (500 users) → after_id advanced."""
+        from bot.services.power_monitor import update_power_notifications_on_schedule_change
+
+        _BATCH = 500
+        fake_users = [
+            SimpleNamespace(
+                id=i,
+                telegram_id=str(i + 60000),
+                power_tracking=None,
+                channel_config=None,
+            )
+            for i in range(_BATCH)
+        ]
+
+        call_count = {"n": 0}
+
+        async def _cursor_side_effect(session, region, queue, limit, after_id):
+            call_count["n"] += 1
+            return fake_users if call_count["n"] == 1 else []
+
+        bot = AsyncMock()
+        with (
+            _patch_pm_async_session(_make_mock_session()),
+            patch("bot.services.power_monitor.fetch_schedule_data", return_value={"d": "x"}),
+            patch("bot.services.power_monitor.parse_schedule_for_queue", return_value={}),
+            patch("bot.services.power_monitor.find_next_event", return_value=None),
+            patch(
+                "bot.services.power_monitor.get_active_power_users_by_region_queue_cursor",
+                side_effect=_cursor_side_effect,
+            ),
+        ):
+            await update_power_notifications_on_schedule_change(bot, "kyiv", "1.1")
+
+        assert call_count["n"] == 2

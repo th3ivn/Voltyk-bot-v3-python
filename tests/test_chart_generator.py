@@ -386,6 +386,17 @@ class TestBuildSvg:
         )
         assert "url(#bdg)" in svg
 
+    def test_badge_width_scaling_applied_when_combined_too_wide(self):
+        """Lines 402-404: left_bw + right_bw > TABLE_W-16 triggers proportional scaling."""
+        # Use a dtek_updated_at that doesn't match strptime → raw 60-char left_txt
+        data = _make_schedule_data(dtek_updated_at="A" * 60)
+        svg = self._build(
+            region="kyiv",
+            queue="X" * 60,
+            schedule_data=data,
+        )
+        assert svg.endswith("</svg>")
+
     def test_different_regions(self):
         for region in ("kyiv", "kyiv-region", "dnipro", "odesa"):
             svg = self._build(region=region)

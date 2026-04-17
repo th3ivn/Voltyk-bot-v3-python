@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from bot.services.api import (
@@ -361,3 +362,114 @@ class TestCalculateScheduleHash:
         hash1 = calculate_schedule_hash([e1, e2])
         hash2 = calculate_schedule_hash([e2, e1])
         assert hash1 != hash2
+
+
+# ─── parse_schedule_for_queue: empty timestamps (line 478) ───────────────
+
+
+class TestParseScheduleEmptyTimestamps:
+    def test_truthy_fact_data_with_no_keys_returns_no_data(self):
+        """Line 478: fact.data is truthy but has no keys → timestamps=[] → hasData=False."""
+
+        class _TruthyEmptyDict(dict):
+            def __bool__(self):
+                return True
+
+            def keys(self):
+                return iter([])
+
+        raw = {"fact": {"data": _TruthyEmptyDict()}}
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result["hasData"] is False
+        assert result["events"] == []
+        assert result["queue"] == "1.1"
+
+
+# ─── fetch_schedule_data: CircuitBreakerOpen (lines 293-297) ─────────────
+
+
+class TestFetchScheduleCircuitBreaker:
+    async def test_circuit_open_returns_stale_cache(self):
+        """Lines 293-296: CircuitBreakerOpen → return stale entry from cache."""
+        import bot.services.api as api_mod
+        from bot.utils.circuit_breaker import CircuitBreakerOpen
+
+        stale = {"stale": True}
+        async with api_mod._schedule_cache_lock:
+            api_mod._schedule_cache["cb_test_region"] = (
+                datetime.now() - timedelta(hours=1),
+                stale,
+            )
+        try:
+            with patch.object(
+                api_mod._schedule_api_breaker,
+                "call",
+                side_effect=CircuitBreakerOpen("schedule_api", 60.0),
+            ):
+                result = await api_mod.fetch_schedule_data("cb_test_region", force_refresh=True)
+
+            assert result == stale
+        finally:
+            async with api_mod._schedule_cache_lock:
+                api_mod._schedule_cache.pop("cb_test_region", None)
+
+    async def test_circuit_open_no_cache_returns_none(self):
+        """Line 297: CircuitBreakerOpen with no cache entry → return None."""
+        import bot.services.api as api_mod
+        from bot.utils.circuit_breaker import CircuitBreakerOpen
+
+        async with api_mod._schedule_cache_lock:
+            api_mod._schedule_cache.pop("cb_empty_region", None)
+
+        with patch.object(
+            api_mod._schedule_api_breaker,
+            "call",
+            side_effect=CircuitBreakerOpen("schedule_api", 60.0),
+        ):
+            result = await api_mod.fetch_schedule_data("cb_empty_region", force_refresh=True)
+
+        assert result is None
+
+
+# ─── fetch_schedule_data: cache eviction (line 273) ──────────────────────
+
+
+class TestFetchScheduleCacheEviction:
+    async def test_oldest_entry_evicted_when_cache_full(self):
+        """Line 273: when _schedule_cache has MAX_CACHE_SIZE entries, popitem evicts oldest."""
+        import bot.services.api as api_mod
+        from bot.services.api import MAX_CACHE_SIZE
+
+        old_ts = datetime.now() - timedelta(hours=1)
+        async with api_mod._schedule_cache_lock:
+            api_mod._schedule_cache.clear()
+            for i in range(MAX_CACHE_SIZE):
+                api_mod._schedule_cache[f"evict_r_{i}"] = (old_ts, {"idx": i})
+
+        assert len(api_mod._schedule_cache) == MAX_CACHE_SIZE
+        first_key = next(iter(api_mod._schedule_cache))
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value={"data": "new"})
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_http = MagicMock()
+        mock_http.get = MagicMock(return_value=mock_resp)
+
+        try:
+            with patch("bot.services.api._http_client", mock_http):
+                result = await api_mod.fetch_schedule_data("evict_new_region", force_refresh=True)
+
+            async with api_mod._schedule_cache_lock:
+                assert len(api_mod._schedule_cache) == MAX_CACHE_SIZE
+                assert first_key not in api_mod._schedule_cache
+                assert "evict_new_region" in api_mod._schedule_cache
+
+            assert result == {"data": "new"}
+        finally:
+            async with api_mod._schedule_cache_lock:
+                for i in range(MAX_CACHE_SIZE):
+                    api_mod._schedule_cache.pop(f"evict_r_{i}", None)
+                api_mod._schedule_cache.pop("evict_new_region", None)
