@@ -2029,6 +2029,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_yesterday_json_parse_fails(self):
         """Invalid JSON in yesterday snapshot is caught (305-306)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2049,6 +2050,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_today_unchanged_when_tomorrow_appeared_and_today_matched(self):
         """todayUnchanged set when tomorrowAppeared + comparison succeeded + no todayUpdated (314)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2077,6 +2079,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_snapshot_today_json_parse_fails(self):
         """Invalid schedule_data in snapshot when computing today changes is caught (324-325)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2102,6 +2105,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_snapshot_tomorrow_cancelled(self):
         """tomorrow_hash was set but now None → tomorrowCancelled (331-332)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2128,6 +2132,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_snapshot_tomorrow_updated(self):
         """tomorrow_hash changed to new non-None value → tomorrowUpdated (334-346)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2153,6 +2158,7 @@ class TestCheckSingleQueueMoreBranches(TestCheckSingleQueueBranches):
     async def test_snapshot_tomorrow_update_json_parse_fails(self):
         """Invalid schedule_data when computing tomorrow changes is caught (347-348)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()
@@ -2401,6 +2407,7 @@ class TestDailyFlushLoop:
     async def test_target_adjusted_when_past_six_am(self):
         """now >= 06:00 → target pushed to next day (651-652)."""
         from datetime import datetime as real_dt
+
         import bot.services.scheduler as sched_mod
         from bot.services.scheduler import daily_flush_loop
 
@@ -2423,6 +2430,7 @@ class TestDailyFlushLoop:
     async def test_flushes_once_and_catch_up_then_exits(self):
         """Flush and catch-up called once; loop exits when _running=False (646-677)."""
         from datetime import datetime as real_dt
+
         import bot.services.scheduler as sched_mod
         from bot.services.scheduler import daily_flush_loop
 
@@ -2456,6 +2464,7 @@ class TestDailyFlushLoop:
     async def test_flush_retries_on_exception_and_catch_up_exception_caught(self):
         """Flush retries on error; catch_up error caught (667-671, 679-680)."""
         from datetime import datetime as real_dt
+
         import bot.services.scheduler as sched_mod
         from bot.services.scheduler import daily_flush_loop
 
@@ -3077,6 +3086,7 @@ class TestCheckSingleQueueTomorrowMerge(TestCheckSingleQueueBranches):
     async def test_snapshot_tomorrow_updated_merges_added_events(self):
         """tomorrowUpdated + added tomorrow events merged into changes dict (342-345)."""
         from contextlib import ExitStack
+
         from bot.services.scheduler import _check_single_queue
 
         bot_mock = AsyncMock()

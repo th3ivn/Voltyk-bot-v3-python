@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-
 # ===========================================================================
 # AdminFilter & OwnerFilter
 # ===========================================================================
@@ -207,9 +206,9 @@ class TestStandardQueues:
         assert STANDARD_QUEUES[-1] == "6.2"
 
     def test_all_entries_match_expected_pattern(self):
-        from bot.constants.regions import STANDARD_QUEUES
-
         import re
+
+        from bot.constants.regions import STANDARD_QUEUES
 
         pattern = re.compile(r"^[1-6]\.[12]$")
         for entry in STANDARD_QUEUES:

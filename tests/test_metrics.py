@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import sys
-import importlib
 from types import ModuleType
-from unittest.mock import patch
-
 
 # ---------------------------------------------------------------------------
 # Helpers

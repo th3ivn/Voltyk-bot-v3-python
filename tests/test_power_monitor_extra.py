@@ -12,10 +12,9 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-import pytest
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -765,7 +764,6 @@ class TestCheckUserPowerExtra:
     async def test_first_check_no_db_record_writes_initial_state(self):
         """Lines 480-484: First check without DB record → writes power_state to DB."""
         from bot.services.power_monitor import _check_user_power
-        import bot.services.power_monitor as pm
 
         bot = AsyncMock()
         user = _make_pm_user(power_tracking=None)
@@ -800,8 +798,8 @@ class TestCheckUserPowerExtra:
 
     async def test_flapping_clears_pending_with_db_clear(self):
         """Lines 513-517: Flapping clears pending state from DB."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -842,8 +840,8 @@ class TestCheckUserPowerExtra:
 
     async def test_flapping_clear_pending_db_exception_handled(self):
         """Lines 516-517: DB exception clearing pending state → logged."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -874,8 +872,8 @@ class TestCheckUserPowerExtra:
 
     async def test_new_state_cancels_previous_debounce(self):
         """Lines 528-529: Previous debounce task cancelled on new state change."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -923,8 +921,8 @@ class TestCheckUserPowerExtra:
 
     async def test_switch_count_incremented_when_pending_exists(self):
         """Lines 539-540: switch_count incremented when already pending different state."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -968,8 +966,8 @@ class TestCheckUserPowerExtra:
 
     async def test_persist_pending_state_db_exception_handled(self):
         """Lines 558-559: DB exception persisting pending state → logged."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -1011,8 +1009,8 @@ class TestCheckUserPowerExtra:
 
     async def test_debounce_seconds_fetch_exception_uses_default(self):
         """Lines 565-567: _get_debounce_seconds raises → uses DEFAULT_DEBOUNCE_S."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -1066,8 +1064,8 @@ class TestCheckUserPowerExtra:
 
     async def test_debounce_zero_uses_min_stabilization(self):
         """Lines 569-570: debounce_s=0 → uses POWER_MIN_STABILIZATION_S."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -1128,8 +1126,8 @@ class TestConfirmStateDebounce:
 
     async def test_confirm_state_triggers_handle_power_state_change(self):
         """Lines 579-595: After debounce sleep, confirms state and calls handler."""
-        from bot.services.power_monitor import _check_user_power
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
 
         bot = AsyncMock()
         user = _make_pm_user()
@@ -1315,8 +1313,8 @@ class TestSaveAllUserStatesExtra:
 
     async def test_invalid_last_notification_iso_handled(self):
         """Lines 718-719: Invalid ISO string for last_notification → None."""
-        from bot.services.power_monitor import _save_all_user_states
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _save_all_user_states
 
         pm._user_states["111222333"] = {
             "current_state": "on",
@@ -1352,8 +1350,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_no_pending_states_does_nothing(self):
         """Lines 785-851: No pending states → nothing started."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         pm._user_states["111"] = {
@@ -1376,8 +1374,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_pending_state_creates_debounce_task(self):
         """Lines 797-851: Pending state with no task → creates new task."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         pending_at = datetime.now(KYIV_TZ)
@@ -1403,8 +1401,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_pending_state_elapsed_time_reduces_remaining(self):
         """Lines 802-807: elapsed time computed from pending_state_time."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         # 400s ago, with 300s debounce → 0s remaining
@@ -1436,8 +1434,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_debounce_seconds_fetch_error_uses_default(self):
         """Lines 789-791: debounce fetch error → uses DEFAULT_DEBOUNCE_S."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         pm._user_states["444"] = {
@@ -1458,8 +1456,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_pending_state_no_time_uses_full_debounce(self):
         """Line 800: pending_state_time is None → full debounce_s."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         pm._user_states["555"] = {
@@ -1485,8 +1483,8 @@ class TestRestartPendingDebounceTasks:
 
     async def test_existing_task_skipped(self):
         """Line 798: pending state with existing task → not recreated."""
-        from bot.services.power_monitor import _restart_pending_debounce_tasks
         import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _restart_pending_debounce_tasks
 
         bot = AsyncMock()
         existing_task = MagicMock()
@@ -2198,8 +2196,9 @@ class TestUpdatePowerNotificationsOnScheduleChange:
 
     async def test_with_power_changed_at_duration(self):
         """Lines 1111-1120: power_changed_at present → formats duration_text and time_str."""
-        from bot.services.power_monitor import update_power_notifications_on_schedule_change
         from datetime import timedelta
+
+        from bot.services.power_monitor import update_power_notifications_on_schedule_change
 
         bot = AsyncMock()
         bot.edit_message_text = AsyncMock()
@@ -2235,8 +2234,9 @@ class TestUpdatePowerNotificationsOnScheduleChange:
 
     async def test_channel_with_naive_power_changed_at(self):
         """Line 1185: Channel path with naive power_changed_at → adds UTC tzinfo."""
-        from bot.services.power_monitor import update_power_notifications_on_schedule_change
         from datetime import timedelta
+
+        from bot.services.power_monitor import update_power_notifications_on_schedule_change
 
         bot = AsyncMock()
         bot.edit_message_text = AsyncMock()

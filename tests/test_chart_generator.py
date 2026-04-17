@@ -78,8 +78,9 @@ class TestParseDt:
         assert dt.tzinfo is not None
 
     def test_from_datetime_object(self):
-        from bot.services.chart_generator import _parse_dt
         import datetime as dt_mod
+
+        from bot.services.chart_generator import _parse_dt
         obj = dt_mod.datetime(2024, 3, 15, 10, 30, tzinfo=ZoneInfo("UTC"))
         result = _parse_dt(obj)
         assert result.tzinfo is not None
@@ -97,7 +98,7 @@ class TestDayLabel:
         assert _day_label(dt) == "25 грудня"
 
     def test_all_months(self):
-        from bot.services.chart_generator import _day_label, MONTHS_UK
+        from bot.services.chart_generator import MONTHS_UK, _day_label
         for month_idx in range(1, 13):
             dt = datetime(2024, month_idx, 5, tzinfo=KYIV_TZ)
             label = _day_label(dt)
@@ -437,6 +438,7 @@ class TestGenerateScheduleChart:
 
     async def test_timeout_returns_none(self):
         import asyncio
+
         from bot.services.chart_generator import generate_schedule_chart
 
         async def _slow(*_args, **_kwargs):

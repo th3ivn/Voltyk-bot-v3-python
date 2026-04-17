@@ -4,8 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from bot.services.api import (
     _add_or_extend,
     _hour_to_datetime,

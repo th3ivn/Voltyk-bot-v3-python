@@ -324,8 +324,8 @@ class TestScheduleCheck:
 
     async def test_cooldown_active_answers_wait(self):
         """Lines 124-127: elapsed < cooldown → answer 'wait N sec'."""
-        from bot.handlers.menu.schedule import schedule_check
         import bot.handlers.menu.schedule as m
+        from bot.handlers.menu.schedule import schedule_check
 
         cb = _make_callback(user_id=200)
         session = _make_session()
@@ -366,8 +366,8 @@ class TestScheduleCheck:
 
     async def test_periodic_cleanup_runs(self):
         """Lines 115-120: now - _last_check_cleanup_at > interval → cleanup stale entries."""
-        from bot.handlers.menu.schedule import schedule_check
         import bot.handlers.menu.schedule as m
+        from bot.handlers.menu.schedule import schedule_check
 
         cb = _make_callback(user_id=202)
         session = _make_session()
@@ -476,8 +476,8 @@ class TestScheduleCheck:
 
     async def test_cap_eviction_stale_entries_logged(self):
         """Lines 135-142: at cap with stale entries → batch-evict + debug log."""
-        from bot.handlers.menu.schedule import schedule_check, _USER_LAST_CHECK_MAX_SIZE
         import bot.handlers.menu.schedule as m
+        from bot.handlers.menu.schedule import _USER_LAST_CHECK_MAX_SIZE, schedule_check
 
         cb = _make_callback(user_id=99998)
         session = _make_session()
@@ -513,8 +513,8 @@ class TestScheduleCheck:
 
     async def test_cap_eviction_force_oldest_when_no_stale(self):
         """Lines 144-151: at cap, no stale entries → force-evict oldest 10%."""
-        from bot.handlers.menu.schedule import schedule_check, _USER_LAST_CHECK_MAX_SIZE
         import bot.handlers.menu.schedule as m
+        from bot.handlers.menu.schedule import _USER_LAST_CHECK_MAX_SIZE, schedule_check
 
         cb = _make_callback(user_id=99999)
         session = _make_session()

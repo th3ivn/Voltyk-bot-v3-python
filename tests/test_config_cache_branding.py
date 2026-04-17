@@ -6,9 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-import pytest
-
-
 # ===========================================================================
 # bot/config.py — Settings
 # ===========================================================================

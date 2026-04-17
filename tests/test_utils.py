@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +14,6 @@ from bot.utils.html_to_entities import (
     html_to_entities,
     to_aiogram_entities,
 )
-
 
 # ===========================================================================
 # _utf16_len
@@ -324,10 +322,10 @@ class TestToAiogramEntities:
 
 
 from bot.utils.branding import (
-    CHANNEL_DESCRIPTION_BASE,
-    CHANNEL_NAME_PREFIX,
     _DESC_MAX,
     _TITLE_MAX,
+    CHANNEL_DESCRIPTION_BASE,
+    CHANNEL_NAME_PREFIX,
     build_channel_description,
     build_channel_title,
     get_channel_welcome_message,
