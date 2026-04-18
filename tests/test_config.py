@@ -97,6 +97,82 @@ class TestWebhookSecretValidation:
         assert s.USE_WEBHOOK is False
 
 
+class TestBotTokenValidation:
+    """field_validator 'validate_bot_token' edge cases."""
+
+    def test_empty_string_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="BOT_TOKEN"):
+            Settings(BOT_TOKEN="", DATABASE_URL="postgresql+asyncpg://u:p@localhost/db")
+
+    def test_whitespace_only_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="BOT_TOKEN"):
+            Settings(BOT_TOKEN="   ", DATABASE_URL="postgresql+asyncpg://u:p@localhost/db")
+
+    def test_missing_colon_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="BOT_TOKEN"):
+            Settings(BOT_TOKEN="invalidtoken", DATABASE_URL="postgresql+asyncpg://u:p@localhost/db")
+
+    def test_valid_token_accepted(self):
+        from bot.config import Settings
+
+        s = Settings(BOT_TOKEN="123456:ABCDEFabcdef", DATABASE_URL="postgresql+asyncpg://u:p@localhost/db")
+        assert s.BOT_TOKEN == "123456:ABCDEFabcdef"
+
+
+class TestTimezoneValidation:
+    """model_post_init ZoneInfo validation."""
+
+    def test_invalid_tz_raises_value_error(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises((ValidationError, ValueError), match="Invalid timezone"):
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+                TZ="Not/AReal/Timezone",
+            )
+
+    def test_valid_tz_accepted(self):
+        from bot.config import Settings
+
+        s = Settings(
+            BOT_TOKEN="test:token",
+            DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+            TZ="Europe/Kyiv",
+        )
+        assert str(s.timezone) == "Europe/Kyiv"
+
+
+class TestWebhookSecretWhitespace:
+    """Module-level guard handles whitespace-only WEBHOOK_SECRET."""
+
+    def test_whitespace_only_secret_raises(self, monkeypatch):
+        import sys
+
+        monkeypatch.setenv("BOT_TOKEN", "test:token")
+        monkeypatch.setenv("USE_WEBHOOK", "true")
+        monkeypatch.setenv("WEBHOOK_SECRET", "   ")
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+
+        with pytest.raises(ValueError, match="WEBHOOK_SECRET is required"):
+            importlib.import_module("bot.config")
+
+
 class TestDefaultCredentialWarnings:
     """model_validator: warnings when default DB/Redis URLs are used (lines 111, 115)."""
 

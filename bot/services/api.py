@@ -17,6 +17,11 @@ from bot.utils.metrics import SCHEDULE_FETCH_DURATION, SCHEDULE_FETCH_ERRORS
 
 logger = get_logger(__name__)
 
+# Maximum response sizes — guards against bloated/malicious payloads causing OOM.
+_MAX_JSON_RESPONSE = 5 * 1024 * 1024   # 5 MB (schedule JSON)
+_MAX_COMMIT_RESPONSE = 512 * 1024       # 512 KB (GitHub commits list)
+_MAX_IMAGE_RESPONSE = 15 * 1024 * 1024  # 15 MB (pre-rendered PNG chart)
+
 # Circuit breaker for the upstream schedule data source.
 # Opens after 5 consecutive fetch failures; re-probes after 60 s.
 _schedule_api_breaker = CircuitBreaker(
@@ -124,7 +129,11 @@ async def _check_source_repo_updated_inner() -> tuple[bool, str | None]:
                 new_etag = resp.headers.get("ETag")
                 if new_etag:
                     _last_etag = new_etag
-                commits = await resp.json(content_type=None)
+                raw = await resp.content.read(_MAX_COMMIT_RESPONSE + 1)
+                if len(raw) > _MAX_COMMIT_RESPONSE:
+                    logger.warning("GitHub commits response too large (%d bytes), skipping", len(raw))
+                    return True, None
+                commits = json.loads(raw)
                 if commits and isinstance(commits, list):
                     first = commits[0]
                     if not isinstance(first, dict) or "sha" not in first:
@@ -266,7 +275,11 @@ async def fetch_schedule_data(
                     headers=req_headers,
                 ) as resp:
                     if resp.status == 200:
-                        fetched = await resp.json(content_type=None)
+                        raw = await resp.content.read(_MAX_JSON_RESPONSE + 1)
+                        if len(raw) > _MAX_JSON_RESPONSE:
+                            logger.warning("Schedule response too large (%d bytes) for %s", len(raw), region)
+                            return None
+                        fetched = json.loads(raw)
                         SCHEDULE_FETCH_DURATION.observe(time.monotonic() - _t0)
                         async with _schedule_cache_lock:
                             if len(_schedule_cache) >= MAX_CACHE_SIZE:
@@ -392,7 +405,10 @@ async def fetch_schedule_image(
                 headers={"User-Agent": "SvitloCheck-Bot/4.0"},
             ) as resp:
                 if resp.status == 200:
-                    data = await resp.read()
+                    data = await resp.content.read(_MAX_IMAGE_RESPONSE + 1)
+                    if len(data) > _MAX_IMAGE_RESPONSE:
+                        logger.warning("Image response too large (%d bytes) for %s/%s", len(data), region, queue)
+                        return None
                     await chart_cache.store(region, queue, data)
                     await _l1_store_async(cache_key, now, data)
                     return data

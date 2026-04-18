@@ -379,3 +379,128 @@ class TestThrottleMiddleware:
 
         # After eviction, dict should be at or below _MAX_ENTRIES + 1 (the new entry)
         assert len(middleware._last_call) <= throttle_mod._MAX_ENTRIES + 1
+
+
+# ===========================================================================
+# persist_maintenance_mode / load_maintenance_mode
+# ===========================================================================
+
+
+class TestPersistLoadMaintenanceMode:
+    """Tests for maintenance.py:64-95 — persist/load DB functions.
+
+    async_session, set_setting, get_setting are local imports inside the
+    functions, so we patch them at their source module.
+    """
+
+    def _make_session_cm(self) -> MagicMock:
+        """Return a MagicMock usable as `async with session_factory() as s:`."""
+        mock_session = AsyncMock()
+        mock_session.commit = AsyncMock()
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_session)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        session_factory = MagicMock(return_value=cm)
+        return session_factory
+
+    async def test_persist_maintenance_mode_success(self):
+        """persist_maintenance_mode() sets in-memory state and writes to DB."""
+        from bot.middlewares.maintenance import persist_maintenance_mode, is_maintenance_mode
+
+        session_factory = self._make_session_cm()
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.db.queries.set_setting", new_callable=AsyncMock) as mock_set,
+        ):
+            await persist_maintenance_mode(True, "test msg")
+
+        assert is_maintenance_mode() is True
+        assert mock_set.await_count == 2
+
+    async def test_persist_without_message_preserves_db_message(self):
+        """persist_maintenance_mode(enabled, message=None) does NOT overwrite maintenance_message in DB."""
+        from bot.middlewares.maintenance import persist_maintenance_mode
+
+        session_factory = self._make_session_cm()
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.db.queries.set_setting", new_callable=AsyncMock) as mock_set,
+        ):
+            await persist_maintenance_mode(True)  # no message → only enabled flag written
+
+        # Only maintenance_enabled should be written — message preserved in DB as-is
+        assert mock_set.await_count == 1
+        key_written = mock_set.call_args[0][1]
+        assert key_written == "maintenance_enabled"
+
+    async def test_persist_maintenance_mode_db_failure_logs_warning(self):
+        """persist_maintenance_mode() logs warning if DB write fails."""
+        from bot.middlewares.maintenance import persist_maintenance_mode
+
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(side_effect=Exception("db down"))
+        cm.__aexit__ = AsyncMock(return_value=False)
+        session_factory = MagicMock(return_value=cm)
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.middlewares.maintenance.logger") as mock_logger,
+        ):
+            await persist_maintenance_mode(False)
+
+        mock_logger.warning.assert_called()
+
+    async def test_load_maintenance_mode_restores_enabled(self):
+        """load_maintenance_mode() reads DB and sets enabled=True + message."""
+        from bot.middlewares.maintenance import load_maintenance_mode, is_maintenance_mode, get_maintenance_message
+
+        session_factory = self._make_session_cm()
+
+        async def fake_get_setting(session, key):
+            return "1" if key == "maintenance_enabled" else "restored msg"
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.db.queries.get_setting", side_effect=fake_get_setting),
+        ):
+            await load_maintenance_mode()
+
+        assert is_maintenance_mode() is True
+        assert get_maintenance_message() == "restored msg"
+
+    async def test_load_maintenance_mode_restores_disabled(self):
+        """load_maintenance_mode() with enabled=0 → maintenance stays off."""
+        from bot.middlewares.maintenance import load_maintenance_mode, is_maintenance_mode, set_maintenance_mode
+
+        set_maintenance_mode(False)
+        session_factory = self._make_session_cm()
+
+        async def fake_get_setting(session, key):
+            return "0" if key == "maintenance_enabled" else ""
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.db.queries.get_setting", side_effect=fake_get_setting),
+        ):
+            await load_maintenance_mode()
+
+        assert is_maintenance_mode() is False
+
+    async def test_load_maintenance_mode_db_failure_logs_warning(self):
+        """load_maintenance_mode() logs warning if DB read fails."""
+        from bot.middlewares.maintenance import load_maintenance_mode
+
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(side_effect=Exception("db error"))
+        cm.__aexit__ = AsyncMock(return_value=False)
+        session_factory = MagicMock(return_value=cm)
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.middlewares.maintenance.logger") as mock_logger,
+        ):
+            await load_maintenance_mode()
+
+        mock_logger.warning.assert_called()

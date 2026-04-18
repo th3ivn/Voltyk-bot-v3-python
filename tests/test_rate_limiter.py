@@ -175,3 +175,23 @@ class TestTgRateLimiterSingleton:
 
         assert isinstance(limiter, TokenBucketRateLimiter)
         assert limiter._rate == 25.0
+
+    async def test_metrics_observe_exception_is_swallowed(self):
+        """rate_limiter.py:70-71: if TELEGRAM_RATE_LIMIT_WAIT_SECONDS.observe() raises, it's swallowed."""
+        limiter = TokenBucketRateLimiter(rate=10.0)
+        limiter._tokens = 0.0
+        loop = asyncio.get_running_loop()
+        limiter._last_refill = loop.time()
+
+        from unittest.mock import patch, MagicMock
+        mock_metric = MagicMock()
+        mock_metric.observe.side_effect = RuntimeError("metric failure")
+
+        with (
+            patch("bot.utils.metrics.TELEGRAM_RATE_LIMIT_WAIT_SECONDS", mock_metric),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            # Should not raise despite metric error
+            await limiter.acquire()
+
+        mock_metric.observe.assert_called_once()

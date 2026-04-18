@@ -476,6 +476,7 @@ class TestSetupLogging:
     def _make_mock_settings(self, environment: str) -> MagicMock:
         mock_settings = MagicMock()
         mock_settings.ENVIRONMENT = environment
+        mock_settings.LOG_LEVEL = "INFO"
         return mock_settings
 
     def test_setup_logging_sets_root_level_to_info(self):

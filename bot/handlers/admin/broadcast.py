@@ -13,13 +13,13 @@ from bot.db.session import async_session
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
 from bot.utils.logger import get_logger
+from bot.utils.rate_limiter import tg_rate_limiter
 
 logger = get_logger(__name__)
 router = Router(name="admin_broadcast")
 
 BROADCAST_HEADER = '📢 <b>Повідомлення від адміністрації:</b>\n\n'
 _BROADCAST_MAX_TEXT_LEN = 4096 - len(BROADCAST_HEADER)
-_SEND_DELAY_S = 1.0 / settings.TELEGRAM_RATE_LIMIT_PER_SEC
 _PROGRESS_EVERY = 1000
 
 # ─── Active broadcast state ─────────────────────────────────────────────
@@ -200,7 +200,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                         logger.warning("Broadcast failed for user %s: %s", telegram_id, e)
                         failed += 1
                         break
-                await asyncio.sleep(_SEND_DELAY_S)
+                await tg_rate_limiter.acquire()
 
                 if sent > 0 and sent % _PROGRESS_EVERY == 0:
                     try:

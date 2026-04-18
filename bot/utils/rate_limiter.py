@@ -64,6 +64,11 @@ class TokenBucketRateLimiter:
 
             if self._tokens < 1.0:
                 wait = (1.0 - self._tokens) / self._rate
+                try:
+                    from bot.utils.metrics import TELEGRAM_RATE_LIMIT_WAIT_SECONDS
+                    TELEGRAM_RATE_LIMIT_WAIT_SECONDS.observe(wait)
+                except Exception:
+                    pass
                 await asyncio.sleep(wait)
                 self._tokens = 0.0
                 self._last_refill = loop.time()

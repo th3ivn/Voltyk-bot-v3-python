@@ -449,9 +449,11 @@ class TestFetchScheduleCacheEviction:
         assert len(api_mod._schedule_cache) == MAX_CACHE_SIZE
         first_key = next(iter(api_mod._schedule_cache))
 
+        import json as _json
         mock_resp = MagicMock()
         mock_resp.status = 200
-        mock_resp.json = AsyncMock(return_value={"data": "new"})
+        mock_resp.content = MagicMock()
+        mock_resp.content.read = AsyncMock(return_value=_json.dumps({"data": "new"}).encode())
         mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
         mock_resp.__aexit__ = AsyncMock(return_value=False)
 
@@ -473,3 +475,72 @@ class TestFetchScheduleCacheEviction:
                 for i in range(MAX_CACHE_SIZE):
                     api_mod._schedule_cache.pop(f"evict_r_{i}", None)
                 api_mod._schedule_cache.pop("evict_new_region", None)
+
+
+# ─── Response size limits ─────────────────────────────────────────────────
+
+
+class TestResponseSizeLimits:
+    """Tests for _MAX_COMMIT_RESPONSE, _MAX_JSON_RESPONSE, _MAX_IMAGE_RESPONSE guards."""
+
+    async def test_github_commits_too_large_returns_true_none(self):
+        """api.py:134-135: oversized GitHub commits response → (True, None)."""
+        import bot.services.api as api_mod
+
+        oversized = b"x" * (api_mod._MAX_COMMIT_RESPONSE + 2)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.content = MagicMock()
+        mock_resp.content.read = AsyncMock(return_value=oversized)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_http = MagicMock()
+        mock_http.get = MagicMock(return_value=mock_resp)
+
+        with patch("bot.services.api._http_client", mock_http):
+            result = await api_mod.check_source_repo_updated()
+
+        assert result == (True, None)
+
+    async def test_schedule_json_too_large_returns_none(self):
+        """api.py:280-281: oversized schedule JSON response → None."""
+        import bot.services.api as api_mod
+
+        oversized = b"x" * (api_mod._MAX_JSON_RESPONSE + 2)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.content = MagicMock()
+        mock_resp.content.read = AsyncMock(return_value=oversized)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_http = MagicMock()
+        mock_http.get = MagicMock(return_value=mock_resp)
+
+        with patch("bot.services.api._http_client", mock_http):
+            result = await api_mod.fetch_schedule_data("size_test_region", force_refresh=True)
+
+        assert result is None
+
+    async def test_image_too_large_returns_none(self):
+        """api.py:410-411: oversized image response → None."""
+        import bot.services.api as api_mod
+
+        oversized = b"x" * (api_mod._MAX_IMAGE_RESPONSE + 2)
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.content = MagicMock()
+        mock_resp.content.read = AsyncMock(return_value=oversized)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_http = MagicMock()
+        mock_http.get = MagicMock(return_value=mock_resp)
+
+        with (
+            patch("bot.services.api._http_client", mock_http),
+            patch("bot.services.chart_cache.get", new_callable=AsyncMock, return_value=None),
+        ):
+            # Pass schedule_data=None to skip local generation and reach GitHub fallback
+            result = await api_mod.fetch_schedule_image("size_img_region_unique_xz", "1.1", None)
+
+        assert result is None

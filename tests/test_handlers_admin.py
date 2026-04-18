@@ -1133,14 +1133,14 @@ class TestMaintenanceToggle:
         with (
             patch("bot.handlers.admin.maintenance.settings") as ms,
             patch("bot.handlers.admin.maintenance.is_maintenance_mode", return_value=True),
-            patch("bot.handlers.admin.maintenance.set_maintenance_mode") as mock_set,
+            patch("bot.handlers.admin.maintenance.persist_maintenance_mode", new_callable=AsyncMock) as mock_persist,
             patch("bot.handlers.admin.maintenance.get_maintenance_message", return_value="msg"),
             patch("bot.handlers.admin.maintenance.get_maintenance_keyboard", return_value=MagicMock()),
         ):
             ms.is_admin.return_value = True
             await maintenance_toggle(cb)
 
-        mock_set.assert_called_once_with(False)
+        mock_persist.assert_awaited_once_with(False)
         text = cb.message.edit_text.call_args[0][0]
         assert "🔴 Вимкнено" in text
 
@@ -1151,14 +1151,14 @@ class TestMaintenanceToggle:
         with (
             patch("bot.handlers.admin.maintenance.settings") as ms,
             patch("bot.handlers.admin.maintenance.is_maintenance_mode", return_value=False),
-            patch("bot.handlers.admin.maintenance.set_maintenance_mode") as mock_set,
+            patch("bot.handlers.admin.maintenance.persist_maintenance_mode", new_callable=AsyncMock) as mock_persist,
             patch("bot.handlers.admin.maintenance.get_maintenance_message", return_value="msg"),
             patch("bot.handlers.admin.maintenance.get_maintenance_keyboard", return_value=MagicMock()),
         ):
             ms.is_admin.return_value = True
             await maintenance_toggle(cb)
 
-        mock_set.assert_called_once_with(True)
+        mock_persist.assert_awaited_once_with(True)
         text = cb.message.edit_text.call_args[0][0]
         assert "🟢 Увімкнено" in text
 
@@ -1221,14 +1221,14 @@ class TestMaintenanceMessageInput:
         state = _make_state()
         with (
             patch("bot.handlers.admin.maintenance.settings") as ms,
-            patch("bot.handlers.admin.maintenance.set_maintenance_mode") as mock_set,
+            patch("bot.handlers.admin.maintenance.persist_maintenance_mode", new_callable=AsyncMock) as mock_persist,
             patch("bot.handlers.admin.maintenance.is_maintenance_mode", return_value=False),
             patch("bot.handlers.admin.maintenance.get_maintenance_keyboard", return_value=MagicMock()),
         ):
             ms.is_admin.return_value = True
             await maintenance_message_input(msg, state)
 
-        mock_set.assert_called_once()
+        mock_persist.assert_awaited_once()
         state.clear.assert_awaited_once()
         msg.answer.assert_awaited_once()
 

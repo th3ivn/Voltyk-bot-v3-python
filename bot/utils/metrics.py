@@ -100,6 +100,23 @@ try:
         buckets=[1, 5, 15, 30, 60, 120, 300],
     )
 
+    TELEGRAM_RATE_LIMIT_WAIT_SECONDS = Histogram(
+        "voltyk_telegram_rate_limit_wait_seconds",
+        "Time spent waiting for a rate-limiter token before Telegram API call",
+        buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+    )
+
+    DB_SESSION_DURATION_SECONDS = Histogram(
+        "voltyk_db_session_duration_seconds",
+        "Total duration of a DB session (handler + commit/rollback) in middleware",
+        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0],
+    )
+
+    ACTIVE_DB_SESSIONS = Gauge(
+        "voltyk_active_db_sessions",
+        "Number of currently open DB sessions managed by DbSessionMiddleware",
+    )
+
     PROMETHEUS_AVAILABLE = True
 
     def metrics_response() -> tuple[bytes, str]:
@@ -137,6 +154,9 @@ except ImportError:
     DB_POOL_CHECKED_OUT = _noop  # type: ignore[assignment]
     SCHEDULE_FETCH_DURATION = _noop  # type: ignore[assignment]
     NOTIFICATION_BLAST_DURATION = _noop  # type: ignore[assignment]
+    TELEGRAM_RATE_LIMIT_WAIT_SECONDS = _noop  # type: ignore[assignment]
+    DB_SESSION_DURATION_SECONDS = _noop  # type: ignore[assignment]
+    ACTIVE_DB_SESSIONS = _noop  # type: ignore[assignment]
 
     def metrics_response() -> tuple[bytes, str]:  # type: ignore[misc]
         return b"# prometheus_client not installed\n", "text/plain"
