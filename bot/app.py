@@ -129,8 +129,6 @@ async def _run_migrations() -> None:
 
 async def _health_handler(_request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
-    import os
-
     from sqlalchemy import text
 
     db_status = "ok"
@@ -164,7 +162,6 @@ async def _health_handler(_request: web.Request) -> web.Response:
     try:
         import resource
         mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        # Linux reports in KB; macOS in bytes
         memory_mb = mem // 1024 if os.uname().sysname != "Darwin" else mem // (1024 * 1024)
     except Exception:
         pass
