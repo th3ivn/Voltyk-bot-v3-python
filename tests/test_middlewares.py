@@ -418,6 +418,23 @@ class TestPersistLoadMaintenanceMode:
         assert is_maintenance_mode() is True
         assert mock_set.await_count == 2
 
+    async def test_persist_without_message_preserves_db_message(self):
+        """persist_maintenance_mode(enabled, message=None) does NOT overwrite maintenance_message in DB."""
+        from bot.middlewares.maintenance import persist_maintenance_mode
+
+        session_factory = self._make_session_cm()
+
+        with (
+            patch("bot.db.session.async_session", session_factory),
+            patch("bot.db.queries.set_setting", new_callable=AsyncMock) as mock_set,
+        ):
+            await persist_maintenance_mode(True)  # no message → only enabled flag written
+
+        # Only maintenance_enabled should be written — message preserved in DB as-is
+        assert mock_set.await_count == 1
+        key_written = mock_set.call_args[0][1]
+        assert key_written == "maintenance_enabled"
+
     async def test_persist_maintenance_mode_db_failure_logs_warning(self):
         """persist_maintenance_mode() logs warning if DB write fails."""
         from bot.middlewares.maintenance import persist_maintenance_mode

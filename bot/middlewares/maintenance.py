@@ -70,7 +70,8 @@ async def persist_maintenance_mode(enabled: bool, message: str | None = None) ->
     try:
         async with async_session() as session:
             await set_setting(session, "maintenance_enabled", "1" if enabled else "0")
-            await set_setting(session, "maintenance_message", message or "")
+            if message is not None:
+                await set_setting(session, "maintenance_message", message)
             await session.commit()
         logger.info("Maintenance mode persisted: enabled=%s", enabled)
     except Exception as e:
