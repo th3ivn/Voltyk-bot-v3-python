@@ -74,7 +74,7 @@ jobs:
           # pipeline because set +e means the shell never falls through to
           # || true (which would reset PIPESTATUS to (0,)).
           set +e
-          pytest --cov=bot --cov-report=term-missing --cov-fail-under=30 2>&1 | tee /tmp/pytest-output.txt
+          pytest --cov=bot --cov-report=term-missing --cov-fail-under=99 2>&1 | tee /tmp/pytest-output.txt
           PYTEST_EXIT="${PIPESTATUS[0]}"
           set -e
 
@@ -153,3 +153,36 @@ jobs:
             exit 1
           fi
           echo "Alembic head count: $HEAD_COUNT ✓"
+
+  security:
+    name: Security audit (pip-audit + bandit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Dependency vulnerability scan (pip-audit)
+        # Scan project deps in an isolated venv so system-level packages
+        # installed by the GitHub Actions runner do not produce false-positive
+        # CVE findings.  Upgrade pip inside the venv first so pip itself does
+        # not show stale CVEs from the runner's bundled pip 24.x.
+        run: |
+          python -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install --upgrade pip -q
+          /tmp/audit-venv/bin/pip install pip-audit -q
+          /tmp/audit-venv/bin/pip install -e . -q
+          /tmp/audit-venv/bin/pip-audit
+
+      - name: Static security analysis (bandit)
+        # -ll: report only HIGH and MEDIUM severity issues
+        # pyproject.toml [tool.bandit] skips known-safe patterns (B101/B104/B110/B112)
+        run: bandit -r bot/ -ll -c pyproject.toml

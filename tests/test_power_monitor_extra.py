@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
+import pytest
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -1632,6 +1633,120 @@ class TestSaveStatesOnShutdown:
         with patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock):
             # Should not raise
             await save_states_on_shutdown()
+
+    async def test_cancelled_error_waits_with_timeout_then_reraises(self):
+        """CancelledError path: asyncio.shield raises CancelledError → wait_for with 5s timeout."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        async def _shield_raises(*args, **kwargs):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
+            patch("bot.services.power_monitor.asyncio.shield", side_effect=_shield_raises),
+            patch("bot.services.power_monitor.asyncio.wait_for", new_callable=AsyncMock) as mock_wf,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await save_states_on_shutdown()
+
+        mock_wf.assert_called_once()
+        _, kwargs = mock_wf.call_args
+        assert kwargs.get("timeout") == 5.0
+
+    async def test_cancelled_error_wait_for_times_out_logs_and_reraises(self):
+        """Lines 995-996: wait_for raises TimeoutError → logged, CancelledError re-raised."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        async def _shield_raises(*args, **kwargs):
+            raise asyncio.CancelledError()
+
+        async def _wait_for_times_out(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        with (
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
+            patch("bot.services.power_monitor.asyncio.shield", side_effect=_shield_raises),
+            patch("bot.services.power_monitor.asyncio.wait_for", side_effect=_wait_for_times_out),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await save_states_on_shutdown()
+
+    async def test_cancelled_error_task_already_done_no_wait_for(self):
+        """CancelledError path: close_task already done → wait_for NOT called, result consumed."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        async def _shield_raises(task, *args, **kwargs):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            raise asyncio.CancelledError()
+
+        with (
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
+            patch("bot.services.power_monitor.asyncio.shield", side_effect=_shield_raises),
+            patch("bot.services.power_monitor.asyncio.wait_for", new_callable=AsyncMock) as mock_wf,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await save_states_on_shutdown()
+
+        mock_wf.assert_not_called()
+
+    async def test_cancelled_error_task_done_with_exception_logs_and_reraises(self):
+        """CancelledError else-branch: done task that raised → exception consumed via await, logged."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock(side_effect=OSError("connection reset"))
+        pm._http_connector = mock_connector
+
+        async def _shield_raises(task, *args, **kwargs):
+            # Let the task run to completion (raises OSError inside)
+            try:
+                await task
+            except OSError:
+                pass
+            raise asyncio.CancelledError()
+
+        with (
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
+            patch("bot.services.power_monitor.asyncio.shield", side_effect=_shield_raises),
+            patch("bot.services.power_monitor.asyncio.wait_for", new_callable=AsyncMock) as mock_wf,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await save_states_on_shutdown()
+
+        # wait_for not called because task was already done
+        mock_wf.assert_not_called()
 
 
 # ─── daily_ping_error_loop ────────────────────────────────────────────────
