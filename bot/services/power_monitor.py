@@ -994,6 +994,13 @@ async def save_states_on_shutdown() -> None:
                     await asyncio.wait_for(close_task, timeout=5.0)
                 except (asyncio.TimeoutError, Exception) as e:
                     logger.debug("HTTP connector close timed out or failed on shutdown: %s", e)
+            else:
+                # Task already finished — retrieve result/exception to prevent
+                # "Task exception was never retrieved" warning from asyncio.
+                try:
+                    await close_task
+                except Exception as e:
+                    logger.debug("HTTP connector close failed during shutdown: %s", e)
             raise
         except Exception as e:
             logger.debug("Error closing HTTP connector: %s", e)

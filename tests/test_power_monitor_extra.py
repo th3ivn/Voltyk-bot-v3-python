@@ -1688,7 +1688,7 @@ class TestSaveStatesOnShutdown:
                 await save_states_on_shutdown()
 
     async def test_cancelled_error_task_already_done_no_wait_for(self):
-        """CancelledError path: close_task already done → wait_for NOT called."""
+        """CancelledError path: close_task already done → wait_for NOT called, result consumed."""
         import asyncio
 
         import bot.services.power_monitor as pm
@@ -1715,6 +1715,37 @@ class TestSaveStatesOnShutdown:
             with pytest.raises(asyncio.CancelledError):
                 await save_states_on_shutdown()
 
+        mock_wf.assert_not_called()
+
+    async def test_cancelled_error_task_done_with_exception_logs_and_reraises(self):
+        """CancelledError else-branch: done task that raised → exception consumed via await, logged."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock(side_effect=OSError("connection reset"))
+        pm._http_connector = mock_connector
+
+        async def _shield_raises(task, *args, **kwargs):
+            # Let the task run to completion (raises OSError inside)
+            try:
+                await task
+            except OSError:
+                pass
+            raise asyncio.CancelledError()
+
+        with (
+            patch("bot.services.power_monitor._save_all_user_states", new_callable=AsyncMock),
+            patch("bot.services.power_monitor.asyncio.shield", side_effect=_shield_raises),
+            patch("bot.services.power_monitor.asyncio.wait_for", new_callable=AsyncMock) as mock_wf,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await save_states_on_shutdown()
+
+        # wait_for not called because task was already done
         mock_wf.assert_not_called()
 
 
