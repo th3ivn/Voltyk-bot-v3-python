@@ -84,6 +84,7 @@ class Settings(BaseSettings):
 
     SENTRY_DSN: str = ""
     ENVIRONMENT: str = "production"
+    LOG_LEVEL: str = "INFO"
 
     @field_validator("BOT_TOKEN")
     @classmethod

@@ -514,7 +514,14 @@ async def flush_pending_notifications(bot: Bot) -> None:
                     )
 
                 # No overnight changes (or pending row was already consumed) — send daily planned
-                data = await fetch_schedule_data(region, force_refresh=True)
+                try:
+                    data = await asyncio.wait_for(
+                        fetch_schedule_data(region, force_refresh=True),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("Schedule fetch timed out for %s/%s during 06:00 flush", region, queue)
+                    continue
                 if not data:
                     continue
                 sched = parse_schedule_for_queue(data, queue)

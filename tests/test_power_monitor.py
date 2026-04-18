@@ -4219,3 +4219,93 @@ class TestUpdatePowerNotificationsOnScheduleChange:
 
         # edit_message_text called for the channel (with default time_str="" and duration_text="—")
         bot_mock.edit_message_text.assert_called_once()
+
+
+# ─── Timeout branches (lines 622, 674-675) ─────────────────────────────────
+
+
+class TestCheckAllIpsCursorTimeout:
+    """power_monitor.py:674-675: cursor query TimeoutError → logs and returns."""
+
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+
+    def teardown_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+
+    async def test_cursor_timeout_aborts_ping_cycle(self):
+        import asyncio
+        from bot.services.power_monitor import _check_all_ips
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        async def _timeout_cursor(session, limit, after_id):
+            raise asyncio.TimeoutError()
+
+        check_mock = AsyncMock()
+
+        with _patch_pm_async_session(mock_session), \
+             patch("bot.services.power_monitor.get_users_with_ip_cursor", _timeout_cursor), \
+             patch("bot.services.power_monitor._check_user_power", check_mock), \
+             patch("bot.services.power_monitor.logger") as mock_logger:
+            await _check_all_ips(bot_mock)
+
+        check_mock.assert_not_called()
+        mock_logger.error.assert_called()
+
+
+class TestDebounceConfirmTimeout:
+    """power_monitor.py:622: _handle_power_state_change timeout → logs error."""
+
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+
+    def teardown_method(self):
+        import bot.services.power_monitor as pm
+        for state in list(pm._user_states.values()):
+            task = state.get("debounce_task")
+            if task and not task.done():
+                task.cancel()
+        pm._user_states.clear()
+
+    async def test_handle_state_change_timeout_logged(self):
+        import asyncio
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import _check_user_power
+
+        bot_mock = AsyncMock()
+        user = _make_pm_user(telegram_id="timeout_user_42")
+
+        pm._user_states["timeout_user_42"] = {
+            **_default_user_state(),
+            "current_state": "on",
+            "is_first_check": False,
+        }
+
+        mock_session = _make_mock_session()
+        mock_session.execute.return_value.scalars.return_value.first.return_value = None
+
+        async def _immediate_sleep(_):
+            pass
+
+        async def _timeout_handler(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        with _patch_pm_async_session(mock_session), \
+             patch("bot.services.power_monitor.get_setting", AsyncMock(return_value="0")), \
+             patch("asyncio.sleep", side_effect=_immediate_sleep), \
+             patch("bot.services.power_monitor._handle_power_state_change", _timeout_handler), \
+             patch("bot.services.power_monitor.logger") as mock_logger:
+            await _check_user_power(bot_mock, user, is_available=False)
+            task = pm._user_states.get("timeout_user_42", {}).get("debounce_task")
+            if task:
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+                except (asyncio.TimeoutError, Exception):
+                    pass
+
+        mock_logger.error.assert_called()

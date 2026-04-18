@@ -613,7 +613,16 @@ async def _check_user_power(bot: Bot, user, *, is_available: bool | None = None)
                     user_state["pending_state_time"] = None
                     user_state["original_change_time"] = None
                     _mark_dirty(telegram_id)
-                await _handle_power_state_change(bot, user, new_state, old_state, user_state, orig_dt)
+                try:
+                    await asyncio.wait_for(
+                        _handle_power_state_change(bot, user, new_state, old_state, user_state, orig_dt),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Power state change handler timed out for user %s (%s→%s)",
+                        telegram_id, old_state, new_state,
+                    )
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
@@ -655,8 +664,15 @@ async def _check_all_ips(bot: Bot) -> None:
             after_id = 0
 
             while True:
-                async with async_session() as session:
-                    batch = await get_users_with_ip_cursor(session, limit=_BATCH, after_id=after_id)
+                try:
+                    async with async_session() as session:
+                        batch = await asyncio.wait_for(
+                            get_users_with_ip_cursor(session, limit=_BATCH, after_id=after_id),
+                            timeout=15.0,
+                        )
+                except asyncio.TimeoutError:
+                    logger.error("User cursor query timed out at after_id=%d — aborting ping cycle", after_id)
+                    return
                 if not batch:
                     break
                 for user in batch:

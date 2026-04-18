@@ -23,7 +23,7 @@ from bot.db.queries import get_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.middlewares.db import DbSessionMiddleware
-from bot.middlewares.maintenance import MaintenanceMiddleware
+from bot.middlewares.maintenance import MaintenanceMiddleware, load_maintenance_mode
 from bot.middlewares.throttle import ThrottleMiddleware
 from bot.services import chart_cache
 from bot.services.api import (
@@ -66,6 +66,7 @@ def _track_bg_task(task: asyncio.Task) -> asyncio.Task:
         exc = done_task.exception()
         if exc is not None:
             logger.exception("Background task %s crashed", done_task.get_name(), exc_info=exc)
+            sentry_sdk.capture_exception(exc)
 
     task.add_done_callback(_on_done)
     _bg_tasks.append(task)
@@ -307,6 +308,8 @@ async def on_startup(bot: Bot) -> None:
         logger.info("AUTO_MIGRATE=False — skipping automatic migrations")
     await check_db_connectivity()
     logger.info("✅ База даних ініційована")
+
+    await load_maintenance_mode()
 
     await init_http_client()
     logger.info("✅ HTTP client ініційований")

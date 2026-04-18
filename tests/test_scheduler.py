@@ -3317,3 +3317,40 @@ class TestCheckAndSendRemindersPagination:
         assert len(seen_after_ids) == 2
         assert seen_after_ids[0] == 0
         assert seen_after_ids[1] == fake_users[-1].id
+
+
+# ─── TestFlushFetchTimeout ────────────────────────────────────────────────
+
+
+class TestFlushFetchTimeout:
+    async def test_fetch_schedule_timeout_skips_pair(self):
+        """scheduler.py:522-524: fetch_schedule_data timeout → logs error and continues."""
+        import asyncio
+        from bot.services.scheduler import flush_pending_notifications
+
+        bot_mock = AsyncMock()
+        mock_session = _make_mock_session()
+
+        async def _timeout_fetch(region, force_refresh=False):
+            raise asyncio.TimeoutError()
+
+        notify_mock = AsyncMock()
+
+        with _patch_async_session(mock_session), \
+             patch("bot.services.scheduler.get_all_pending_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[]), \
+             patch("bot.services.scheduler.get_distinct_region_queue_pairs",
+                   new_callable=AsyncMock, return_value=[("kyiv", "1.1")]), \
+             patch("bot.services.scheduler.fetch_schedule_data", side_effect=_timeout_fetch), \
+             patch("bot.services.scheduler._send_notifications_for_pair", notify_mock), \
+             patch("bot.services.scheduler.delete_old_pending_notifications",
+                   new_callable=AsyncMock, return_value=0), \
+             patch("bot.services.scheduler.cleanup_old_reminders",
+                   new_callable=AsyncMock, return_value=0), \
+             patch("bot.services.scheduler.logger") as mock_logger:
+            await flush_pending_notifications(bot_mock)
+
+        # Notification should NOT be sent for the timed-out pair
+        notify_mock.assert_not_awaited()
+        # Error should be logged
+        mock_logger.error.assert_called()

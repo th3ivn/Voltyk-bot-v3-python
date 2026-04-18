@@ -7,6 +7,9 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.config import settings
+from bot.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _DEFAULT_MAINTENANCE_MESSAGE = "🔧 Бот тимчасово недоступний. Спробуйте пізніше."
 
@@ -58,3 +61,35 @@ def get_maintenance_message() -> str:
     return MaintenanceMiddleware._message
 
 
+async def persist_maintenance_mode(enabled: bool, message: str | None = None) -> None:
+    """Persist maintenance state to DB so it survives bot restarts."""
+    from bot.db.queries import set_setting
+    from bot.db.session import async_session
+
+    set_maintenance_mode(enabled, message)
+    try:
+        async with async_session() as session:
+            await set_setting(session, "maintenance_enabled", "1" if enabled else "0")
+            await set_setting(session, "maintenance_message", message or "")
+            await session.commit()
+        logger.info("Maintenance mode persisted: enabled=%s", enabled)
+    except Exception as e:
+        logger.warning("Could not persist maintenance mode to DB: %s", e)
+
+
+async def load_maintenance_mode() -> None:
+    """Load maintenance state from DB on startup."""
+    from bot.db.queries import get_setting
+    from bot.db.session import async_session
+
+    try:
+        async with async_session() as session:
+            enabled_raw = await get_setting(session, "maintenance_enabled")
+            message_raw = await get_setting(session, "maintenance_message")
+        enabled = enabled_raw == "1"
+        message = message_raw or None
+        set_maintenance_mode(enabled, message)
+        if enabled:
+            logger.warning("Maintenance mode restored from DB: enabled=True, message=%r", message)
+    except Exception as e:
+        logger.warning("Could not load maintenance mode from DB: %s", e)

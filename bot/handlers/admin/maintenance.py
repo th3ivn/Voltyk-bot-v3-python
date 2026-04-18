@@ -9,7 +9,7 @@ from bot.keyboards.inline import get_maintenance_keyboard
 from bot.middlewares.maintenance import (
     get_maintenance_message,
     is_maintenance_mode,
-    set_maintenance_mode,
+    persist_maintenance_mode,
 )
 from bot.states.fsm import MaintenanceSG
 
@@ -36,9 +36,8 @@ async def maintenance_toggle(callback: CallbackQuery) -> None:
     if not settings.is_admin(callback.from_user.id):
         await callback.answer("❌ Доступ заборонено")
         return
-    enabled = is_maintenance_mode()
-    set_maintenance_mode(not enabled)
-    new_enabled = not enabled
+    new_enabled = not is_maintenance_mode()
+    await persist_maintenance_mode(new_enabled)
     status = "🟢 Увімкнено" if new_enabled else "🔴 Вимкнено"
     msg = get_maintenance_message()
     await callback.answer(f"Тех. роботи: {status}")
@@ -65,7 +64,7 @@ async def maintenance_message_input(message: Message, state: FSMContext) -> None
         return
     if not message.text:
         return
-    set_maintenance_mode(is_maintenance_mode(), message=message.text.strip())
+    await persist_maintenance_mode(is_maintenance_mode(), message=message.text.strip())
     await state.clear()
     await message.answer(
         f"✅ Повідомлення оновлено: {message.text.strip()}",
