@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     ENVIRONMENT: str = "production"
 
+    @field_validator("BOT_TOKEN")
+    @classmethod
+    def validate_bot_token(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("BOT_TOKEN is required and cannot be empty")
+        if ":" not in v:
+            raise ValueError("BOT_TOKEN must be in format <bot_id>:<token>")
+        return v
+
     @field_validator("ADMIN_IDS", mode="before")
     @classmethod
     def parse_admin_ids(cls, v: str | list) -> list:
@@ -122,7 +131,10 @@ class Settings(BaseSettings):
         if self.OWNER_ID:
             ids.add(self.OWNER_ID)
         self._admin_ids_set = frozenset(ids)
-        self._tz_info = ZoneInfo(self.TZ)
+        try:
+            self._tz_info = ZoneInfo(self.TZ)
+        except KeyError:
+            raise ValueError(f"Invalid timezone: {self.TZ!r}. Use a valid IANA timezone name (e.g. 'Europe/Kyiv')")
 
     @property
     def all_admin_ids(self) -> list[int]:
@@ -148,7 +160,7 @@ class Settings(BaseSettings):
 
 settings = Settings()  # type: ignore[call-arg]
 
-if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET:
+if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET.strip():
     raise ValueError(
         "WEBHOOK_SECRET is required when USE_WEBHOOK=True. "
         "Set WEBHOOK_SECRET in your environment to protect the webhook endpoint from unauthorized requests. "

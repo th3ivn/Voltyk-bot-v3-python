@@ -20,31 +20,31 @@ class TestSettingsParseAdminIds:
     def test_csv_string(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS="1,2,3")
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS="1,2,3")
         assert s.ADMIN_IDS == [1, 2, 3]
 
     def test_csv_string_with_spaces(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=" 1 , 2 , 3 ")
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=" 1 , 2 , 3 ")
         assert s.ADMIN_IDS == [1, 2, 3]
 
     def test_empty_string_returns_empty_list(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS="")
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS="")
         assert s.ADMIN_IDS == []
 
     def test_list_passthrough(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[1, 2])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[1, 2])
         assert s.ADMIN_IDS == [1, 2]
 
     def test_single_value_string(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS="42")
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS="42")
         assert s.ADMIN_IDS == [42]
 
 
@@ -54,25 +54,25 @@ class TestSettingsAdminIdsSet:
     def test_owner_and_admins_combined(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=1, ADMIN_IDS=[2, 3])
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=1, ADMIN_IDS=[2, 3])
         assert s._admin_ids_set == frozenset({1, 2, 3})
 
     def test_no_owner_only_admins(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[2, 3])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[2, 3])
         assert s._admin_ids_set == frozenset({2, 3})
 
     def test_no_owner_no_admins_empty_frozenset(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[])
         assert s._admin_ids_set == frozenset()
 
     def test_owner_without_admins_in_set(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=99, ADMIN_IDS=[])
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=99, ADMIN_IDS=[])
         assert 99 in s._admin_ids_set
 
 
@@ -82,26 +82,26 @@ class TestSettingsIsAdmin:
     def test_admin_id_returns_true(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[100, 200])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[100, 200])
         assert s.is_admin(100) is True
         assert s.is_admin(200) is True
 
     def test_unknown_user_returns_false(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[100])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[100])
         assert s.is_admin(999) is False
 
     def test_owner_is_also_admin(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=1, ADMIN_IDS=[])
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=1, ADMIN_IDS=[])
         assert s.is_admin(1) is True
 
     def test_empty_admins_returns_false(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[])
         assert s.is_admin(42) is False
 
 
@@ -111,25 +111,25 @@ class TestSettingsIsOwner:
     def test_owner_id_returns_true(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=42)
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=42)
         assert s.is_owner(42) is True
 
     def test_wrong_user_returns_false(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=42)
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=42)
         assert s.is_owner(999) is False
 
     def test_no_owner_returns_false(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token")
+        s = Settings(BOT_TOKEN="test:token")
         assert s.is_owner(42) is False
 
     def test_admin_id_not_owner(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=1, ADMIN_IDS=[2])
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=1, ADMIN_IDS=[2])
         assert s.is_owner(2) is False
 
 
@@ -139,13 +139,13 @@ class TestSettingsAllAdminIds:
     def test_contains_owner_and_admins(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", OWNER_ID=1, ADMIN_IDS=[2, 3])
+        s = Settings(BOT_TOKEN="test:token", OWNER_ID=1, ADMIN_IDS=[2, 3])
         assert set(s.all_admin_ids) == {1, 2, 3}
 
     def test_empty_when_no_owner_no_admins(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", ADMIN_IDS=[])
+        s = Settings(BOT_TOKEN="test:token", ADMIN_IDS=[])
         assert s.all_admin_ids == []
 
 
@@ -155,13 +155,13 @@ class TestSettingsTimezone:
     def test_default_timezone_is_kyiv(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token")
+        s = Settings(BOT_TOKEN="test:token")
         assert s.timezone == ZoneInfo("Europe/Kyiv")
 
     def test_custom_timezone(self):
         from bot.config import Settings
 
-        s = Settings(BOT_TOKEN="test-token", TZ="UTC")
+        s = Settings(BOT_TOKEN="test:token", TZ="UTC")
         assert s.timezone == ZoneInfo("UTC")
 
 
@@ -172,7 +172,7 @@ class TestSettingsSyncDatabaseUrl:
         from bot.config import Settings
 
         s = Settings(
-            BOT_TOKEN="test-token",
+            BOT_TOKEN="test:token",
             DATABASE_URL="postgresql+asyncpg://localhost/db",
         )
         assert s.sync_database_url == "postgresql://localhost/db"
@@ -181,7 +181,7 @@ class TestSettingsSyncDatabaseUrl:
         from bot.config import Settings
 
         s = Settings(
-            BOT_TOKEN="test-token",
+            BOT_TOKEN="test:token",
             DATABASE_URL="postgresql://localhost/db",
         )
         assert s.sync_database_url == "postgresql://localhost/db"
