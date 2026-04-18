@@ -230,7 +230,7 @@ async def _start_health_server() -> None:
     app.router.add_get("/health", _health_handler)
     app.router.add_get("/metrics", _metrics_handler)
 
-    port = int(os.getenv("PORT", settings.HEALTH_PORT))
+    port = int(os.getenv("PORT", "") or settings.HEALTH_PORT)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
@@ -412,7 +412,7 @@ async def main() -> None:
             handler.register(app, path=settings.WEBHOOK_PATH)
             setup_application(app, dp, bot=bot)
 
-            port = int(os.getenv("PORT", settings.WEBHOOK_PORT))
+            port = int(os.getenv("PORT", "") or settings.WEBHOOK_PORT)
             runner = web.AppRunner(app)
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", port)
