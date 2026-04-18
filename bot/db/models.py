@@ -30,7 +30,7 @@ class User(Base):
     router_ip: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    last_menu_message_id: Mapped[int | None] = mapped_column(Integer)
+    last_menu_message_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -128,9 +128,9 @@ class UserChannelConfig(Base):
     channel_guard_warnings: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     last_published_hash: Mapped[str | None] = mapped_column(String(128))
-    last_post_id: Mapped[int | None] = mapped_column(Integer)
-    last_schedule_message_id: Mapped[int | None] = mapped_column(Integer)
-    last_power_message_id: Mapped[int | None] = mapped_column(Integer)
+    last_post_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_schedule_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_power_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
     schedule_caption: Mapped[str | None] = mapped_column(Text)
     period_format: Mapped[str | None] = mapped_column(Text)
@@ -172,8 +172,8 @@ class UserPowerTracking(Base):
     power_on_duration: Mapped[int | None] = mapped_column(Integer)
     last_alert_off_period: Mapped[str | None] = mapped_column(String(64))
     last_alert_on_period: Mapped[str | None] = mapped_column(String(64))
-    alert_off_message_id: Mapped[int | None] = mapped_column(Integer)
-    alert_on_message_id: Mapped[int | None] = mapped_column(Integer)
+    alert_off_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    alert_on_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
     last_ping_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     bot_power_message_id: Mapped[int | None] = mapped_column(BigInteger)
@@ -193,9 +193,9 @@ class UserMessageTracking(Base):
     last_bot_keyboard_message_id: Mapped[int | None] = mapped_column(BigInteger)
     last_reminder_message_id: Mapped[int | None] = mapped_column(BigInteger)
     last_channel_reminder_message_id: Mapped[int | None] = mapped_column(BigInteger)
-    last_start_message_id: Mapped[int | None] = mapped_column(Integer)
-    last_settings_message_id: Mapped[int | None] = mapped_column(Integer)
-    last_timer_message_id: Mapped[int | None] = mapped_column(Integer)
+    last_start_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_settings_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_timer_message_id: Mapped[int | None] = mapped_column(BigInteger)
     last_schedule_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -378,7 +378,7 @@ class TestWizardQueue:
         """Edit mode → moves to confirm step with summary."""
         from bot.handlers.start import wizard_queue
 
-        cb = _make_callback(data="queue_2.3")
+        cb = _make_callback(data="queue_2.2")
         state = _make_state(data={"mode": "edit", "region": "kyiv"})
 
         with patch("bot.handlers.start.get_confirm_keyboard", return_value=MagicMock()):
@@ -388,7 +388,7 @@ class TestWizardQueue:
         state.set_state.assert_awaited()
         cb.message.edit_text.assert_awaited_once()
         args, _ = cb.message.edit_text.call_args
-        assert "2.3" in args[0]
+        assert "2.2" in args[0]
 
     async def test_page_prefix_is_ignored(self):
         """queue_page_ data is handled by wizard_queue_page, not wizard_queue."""
@@ -508,6 +508,21 @@ class TestBackToRegion:
         cb.answer.assert_awaited_once()
         state.set_state.assert_awaited_once()
         cb.message.edit_text.assert_awaited_once()
+
+    async def test_invalid_queue_rejected(self):
+        """Queue not in whitelist → show_alert=True, no state transition."""
+        from bot.handlers.start import wizard_queue
+
+        cb = _make_callback(data="queue_99.9")
+        state = _make_state(data={"mode": "new", "region": "kyiv"})
+
+        await wizard_queue(cb, state)
+
+        cb.answer.assert_awaited_once()
+        _, kwargs = cb.answer.call_args
+        assert kwargs.get("show_alert") is True
+        state.set_state.assert_not_awaited()
+        cb.message.edit_text.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

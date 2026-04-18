@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.constants.regions import REGIONS
+from bot.constants.regions import REGION_QUEUES, REGIONS, STANDARD_QUEUES
 from bot.db.queries import create_or_update_user, get_setting, get_user_by_telegram_id
 from bot.formatter.messages import format_main_menu_message
 from bot.keyboards.inline import (
@@ -150,8 +150,13 @@ async def wizard_queue(callback: CallbackQuery, state: FSMContext) -> None:
     queue = callback.data.replace("queue_", "")
     if queue.startswith("page_"):
         return
-    await callback.answer()
     data = await state.get_data()
+    region_code = data.get("region", "kyiv")
+    allowed = REGION_QUEUES.get(region_code, STANDARD_QUEUES)
+    if queue not in allowed:
+        await callback.answer("❌ Невідома черга", show_alert=True)
+        return
+    await callback.answer()
     await state.update_data(queue=queue)
     mode = data.get("mode", "new")
 
