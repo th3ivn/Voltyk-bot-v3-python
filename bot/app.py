@@ -256,8 +256,14 @@ def create_bot() -> Bot:
 
 def create_dispatcher() -> Dispatcher:
     redis_url = settings.REDIS_URL
+    is_production = settings.ENVIRONMENT == "production"
     storage: RedisStorage | MemoryStorage
     if not redis_url:
+        if is_production:
+            raise RuntimeError(
+                "REDIS_URL is required in production — MemoryStorage loses FSM "
+                "state on restart.  Set REDIS_URL or change ENVIRONMENT for dev."
+            )
         storage = MemoryStorage()
         logger.warning("⚠️  REDIS_URL not set — MemoryStorage, FSM state буде втрачено при рестарті")
     else:
@@ -265,6 +271,12 @@ def create_dispatcher() -> Dispatcher:
             storage = RedisStorage.from_url(redis_url)
             logger.info("✅ Redis FSM storage configured")
         except Exception as e:
+            if is_production:
+                raise RuntimeError(
+                    f"Cannot configure Redis FSM storage in production: {e}. "
+                    "Silent fallback to MemoryStorage would drop FSM state on "
+                    "every restart — refusing to start."
+                ) from e
             storage = MemoryStorage()
             logger.warning(
                 "⚠️  Could not configure Redis FSM storage (%s); falling back to MemoryStorage",
