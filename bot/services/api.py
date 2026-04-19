@@ -279,7 +279,12 @@ async def fetch_schedule_data(
                         if len(raw) > _MAX_JSON_RESPONSE:
                             logger.warning("Schedule response too large (%d bytes) for %s", len(raw), region)
                             return None
-                        fetched = json.loads(raw)
+                        try:
+                            fetched = json.loads(raw)
+                        except json.JSONDecodeError as e:
+                            logger.warning("Schedule fetch %s returned malformed JSON: %s", region, e)
+                            SCHEDULE_FETCH_ERRORS.labels(region=region).inc()
+                            return None
                         SCHEDULE_FETCH_DURATION.observe(time.monotonic() - _t0)
                         async with _schedule_cache_lock:
                             if len(_schedule_cache) >= MAX_CACHE_SIZE:
