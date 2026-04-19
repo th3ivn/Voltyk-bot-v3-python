@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     AUTO_MIGRATE: bool = True
 
     SENTRY_DSN: str = ""
+    SENTRY_RELEASE: str = ""
     ENVIRONMENT: str = "production"
     LOG_LEVEL: str = "INFO"
 

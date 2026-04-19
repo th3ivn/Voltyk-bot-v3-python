@@ -306,6 +306,7 @@ async def on_startup(bot: Bot) -> None:
     if settings.SENTRY_DSN:
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
+            release=settings.SENTRY_RELEASE or None,
             traces_sample_rate=0.1,
             environment=settings.ENVIRONMENT,
             integrations=[
@@ -313,7 +314,11 @@ async def on_startup(bot: Bot) -> None:
                 AioHttpIntegration(),
             ],
         )
-        logger.info("✅ Sentry ініційований (environment=%s)", settings.ENVIRONMENT)
+        logger.info(
+            "✅ Sentry ініційований (environment=%s, release=%s)",
+            settings.ENVIRONMENT,
+            settings.SENTRY_RELEASE or "unset",
+        )
     logger.info("🚀 Запуск Вольтик v4...")
     if settings.AUTO_MIGRATE:
         await _run_migrations()
