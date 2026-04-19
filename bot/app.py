@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from contextlib import suppress
 from datetime import datetime
 
@@ -419,9 +420,27 @@ async def main() -> None:
             await site.start()
             logger.info("Webhook server listening on 0.0.0.0:%d", port)
 
+            # Webhook mode has no built-in signal handling (polling mode gets
+            # this from dp.start_polling).  Resolve a future on SIGTERM/SIGINT
+            # so the event loop unblocks and dp.shutdown hooks run before the
+            # container receives SIGKILL.
+            loop = asyncio.get_running_loop()
+            stop_future: asyncio.Future[None] = loop.create_future()
+
+            def _request_stop() -> None:
+                if not stop_future.done():
+                    stop_future.set_result(None)
+
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                with suppress(NotImplementedError):
+                    loop.add_signal_handler(sig, _request_stop)
+
             try:
-                await asyncio.Event().wait()
+                await stop_future
             finally:
+                # runner.cleanup() triggers app.on_shutdown, which is wired
+                # by setup_application() to call dp.emit_shutdown — no manual
+                # emit needed here.
                 with suppress(asyncio.CancelledError):
                     await runner.cleanup()
         else:

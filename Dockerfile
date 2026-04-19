@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     fonts-dejavu-core \
     libcairo2 \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -38,4 +39,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health', timeout=4)" \
     || exit 1
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python", "-m", "bot"]

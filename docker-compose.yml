@@ -8,6 +8,11 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # on_shutdown waits up to 10s for background tasks plus additional
+    # teardown (chart_cache, HTTP client, DB pool).  Give Docker a 30s
+    # window to avoid SIGKILL mid-shutdown.
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
 
   postgres:
     image: postgres:16-alpine
