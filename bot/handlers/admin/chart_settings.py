@@ -11,6 +11,7 @@ from bot.db.queries import get_setting, set_setting
 from bot.keyboards.inline import get_chart_preview_keyboard, get_chart_render_mode_keyboard
 from bot.services.api import set_chart_render_mode
 from bot.services.chart_generator import KYIV_TZ, generate_schedule_chart
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_chart_settings")
 
@@ -28,7 +29,7 @@ async def admin_chart_render(callback: CallbackQuery, session: AsyncSession) -> 
         return
     await callback.answer()
     current_mode = await get_setting(session, SETTING_KEY) or "on_change"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🖼 <b>Режим рендерингу графіків</b>\n\n"
         "• <b>При зміні</b> — рендер один раз коли змінився розклад; "
         "всі користувачі отримують кешоване фото (швидко)\n\n"
@@ -137,7 +138,7 @@ async def chart_preview_menu(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "👁 <b>Перегляд графіка</b>\n\n"
         "Оберіть сценарій для попереднього перегляду:",
         reply_markup=get_chart_preview_keyboard(),

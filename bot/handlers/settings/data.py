@@ -11,6 +11,7 @@ from bot.keyboards.inline import (
     get_delete_data_final_keyboard,
 )
 from bot.utils.metrics import USER_DEACTIVATIONS_TOTAL, USER_DELETIONS_TOTAL
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="settings_data")
 
@@ -18,7 +19,7 @@ router = Router(name="settings_data")
 @router.callback_query(F.data == "settings_delete_data")
 async def settings_delete_data(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⚠️ Увага\n\nВидалити всі дані:\n"
         "• Профіль та налаштування\n"
         "• Канал та його налаштування\n"
@@ -32,7 +33,7 @@ async def settings_delete_data(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "delete_data_step2")
 async def delete_data_step2(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "❗ Підтвердження\n\nВидалити всі дані? Цю дію неможливо скасувати.",
         reply_markup=get_delete_data_final_keyboard(),
     )
@@ -43,7 +44,7 @@ async def confirm_delete_data(callback: CallbackQuery, session: AsyncSession) ->
     await callback.answer()
     await delete_user_data(session, callback.from_user.id)
     USER_DELETIONS_TOTAL.inc()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "Добре, домовились 🙂 Я видалив усі дані та відключив канал.\n\n"
         "Якщо захочете повернутися — /start"
     )
@@ -52,7 +53,7 @@ async def confirm_delete_data(callback: CallbackQuery, session: AsyncSession) ->
 @router.callback_query(F.data == "settings_deactivate")
 async def settings_deactivate(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "❗️ Ви впевнені, що хочете деактивувати бота?",
         reply_markup=get_deactivate_confirm_keyboard(),
     )
@@ -63,6 +64,6 @@ async def confirm_deactivate(callback: CallbackQuery, session: AsyncSession) -> 
     await callback.answer()
     await deactivate_user(session, callback.from_user.id)
     USER_DEACTIVATIONS_TOTAL.inc()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "✅ Бот деактивовано. Використайте /start для повторної активації."
     )

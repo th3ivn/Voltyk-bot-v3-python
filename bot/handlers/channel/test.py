@@ -12,6 +12,7 @@ from bot.services.api import fetch_schedule_data, fetch_schedule_image, parse_sc
 from bot.states.fsm import ChannelConversationSG
 from bot.utils.html_to_entities import html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
+from bot.utils.telegram import safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="channel_test")
@@ -20,7 +21,7 @@ router = Router(name="channel_test")
 @router.callback_query(F.data == "channel_test")
 async def channel_test(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🧪 Тест публікації\n\nЩо опублікувати в канал?",
         reply_markup=get_test_publication_keyboard(),
     )
@@ -108,6 +109,6 @@ async def test_power_off(callback: CallbackQuery, session: AsyncSession) -> None
 async def test_custom(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_custom_test)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "✏️ Своє повідомлення\n\nВведіть текст для публікації в канал:"
     )

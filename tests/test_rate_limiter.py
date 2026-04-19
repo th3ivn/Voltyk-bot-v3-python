@@ -183,7 +183,7 @@ class TestTgRateLimiterSingleton:
         loop = asyncio.get_running_loop()
         limiter._last_refill = loop.time()
 
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
         mock_metric = MagicMock()
         mock_metric.observe.side_effect = RuntimeError("metric failure")
 

@@ -12,6 +12,7 @@ from bot.middlewares.maintenance import (
     persist_maintenance_mode,
 )
 from bot.states.fsm import MaintenanceSG
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_maintenance")
 
@@ -25,7 +26,7 @@ async def admin_maintenance(callback: CallbackQuery) -> None:
     enabled = is_maintenance_mode()
     msg = get_maintenance_message()
     status = "🟢 Увімкнено" if enabled else "🔴 Вимкнено"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"🔧 Тех. роботи\n\nСтатус: {status}\nПовідомлення: {msg}",
         reply_markup=get_maintenance_keyboard(enabled=enabled),
     )
@@ -41,7 +42,7 @@ async def maintenance_toggle(callback: CallbackQuery) -> None:
     status = "🟢 Увімкнено" if new_enabled else "🔴 Вимкнено"
     msg = get_maintenance_message()
     await callback.answer(f"Тех. роботи: {status}")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"🔧 Тех. роботи\n\nСтатус: {status}\nПовідомлення: {msg}",
         reply_markup=get_maintenance_keyboard(enabled=new_enabled),
     )
@@ -54,7 +55,7 @@ async def maintenance_edit_message(callback: CallbackQuery, state: FSMContext) -
         return
     await callback.answer()
     await state.set_state(MaintenanceSG.waiting_for_message)
-    await callback.message.edit_text("✏️ Введіть нове повідомлення для тех. робіт:")
+    await safe_edit_text(callback.message, "✏️ Введіть нове повідомлення для тех. робіт:")
 
 
 @router.message(MaintenanceSG.waiting_for_message)

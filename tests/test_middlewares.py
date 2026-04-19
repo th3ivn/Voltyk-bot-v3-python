@@ -405,7 +405,7 @@ class TestPersistLoadMaintenanceMode:
 
     async def test_persist_maintenance_mode_success(self):
         """persist_maintenance_mode() sets in-memory state and writes to DB."""
-        from bot.middlewares.maintenance import persist_maintenance_mode, is_maintenance_mode
+        from bot.middlewares.maintenance import is_maintenance_mode, persist_maintenance_mode
 
         session_factory = self._make_session_cm()
 
@@ -454,7 +454,7 @@ class TestPersistLoadMaintenanceMode:
 
     async def test_load_maintenance_mode_restores_enabled(self):
         """load_maintenance_mode() reads DB and sets enabled=True + message."""
-        from bot.middlewares.maintenance import load_maintenance_mode, is_maintenance_mode, get_maintenance_message
+        from bot.middlewares.maintenance import get_maintenance_message, is_maintenance_mode, load_maintenance_mode
 
         session_factory = self._make_session_cm()
 
@@ -472,7 +472,7 @@ class TestPersistLoadMaintenanceMode:
 
     async def test_load_maintenance_mode_restores_disabled(self):
         """load_maintenance_mode() with enabled=0 → maintenance stays off."""
-        from bot.middlewares.maintenance import load_maintenance_mode, is_maintenance_mode, set_maintenance_mode
+        from bot.middlewares.maintenance import is_maintenance_mode, load_maintenance_mode, set_maintenance_mode
 
         set_maintenance_mode(False)
         session_factory = self._make_session_cm()

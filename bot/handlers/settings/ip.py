@@ -63,7 +63,7 @@ async def _show_settings(callback: CallbackQuery, session: AsyncSession) -> None
     """Helper: show main settings screen (replicates back_to_settings logic)."""
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
     is_admin = app_settings.is_admin(callback.from_user.id)
     text = format_live_status_message(user)
@@ -80,10 +80,10 @@ async def _show_management_screen(callback: CallbackQuery, session: AsyncSession
     """
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
     if not user.router_ip:
-        await callback.message.edit_text("❌ IP-адреса не налаштована.")
+        await safe_edit_text(callback.message, "❌ IP-адреса не налаштована.")
         return
 
     router_ip = user.router_ip
@@ -134,7 +134,7 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
     await state.clear()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
     try:
         if user.router_ip:
@@ -143,7 +143,7 @@ async def settings_ip(callback: CallbackQuery, state: FSMContext, session: Async
             await _show_input_screen(callback, state)
     except Exception as e:
         logger.error("settings_ip error for user %s: %s", callback.from_user.id, e, exc_info=True)
-        await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+        await safe_edit_text(callback.message, "❌ Виникла помилка. Спробуйте ще раз.")
 
 
 # ─── Screen 2 — Change confirm ────────────────────────────────────────────
@@ -155,20 +155,20 @@ async def ip_change(callback: CallbackQuery, session: AsyncSession) -> None:
     try:
         user = await get_user_by_telegram_id(session, callback.from_user.id)
         if not user:
-            await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+            await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
             return
         text = (
             "Зміна IP-адреси\n\n"
             f"Поточна IP-адреса: {user.router_ip}\n\n"
             "Ви впевнені що хочете змінити IP-адресу?"
         )
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             text, reply_markup=get_ip_change_confirm_keyboard(), parse_mode="HTML"
         )
     except Exception as e:
         logger.error("ip_change error for user %s: %s", callback.from_user.id, e, exc_info=True)
         try:
-            await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+            await safe_edit_text(callback.message, "❌ Виникла помилка. Спробуйте ще раз.")
         except Exception as notify_err:
             logger.error("ip_change could not notify user: %s", notify_err)
 
@@ -188,20 +188,20 @@ async def ip_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> N
     try:
         user = await get_user_by_telegram_id(session, callback.from_user.id)
         if not user:
-            await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+            await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
             return
         text = (
             "Видалення IP-адреси\n\n"
             f"Ви впевнені що хочете видалити IP-адресу\n{user.router_ip}?\n\n"
             "Моніторинг світла буде вимкнено."
         )
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             text, reply_markup=get_ip_delete_confirm_keyboard(), parse_mode="HTML"
         )
     except Exception as e:
         logger.error("ip_delete_confirm error for user %s: %s", callback.from_user.id, e, exc_info=True)
         try:
-            await callback.message.edit_text("❌ Виникла помилка. Спробуйте ще раз.")
+            await safe_edit_text(callback.message, "❌ Виникла помилка. Спробуйте ще раз.")
         except Exception as notify_err:
             logger.error("ip_delete_confirm could not notify user: %s", notify_err)
 
@@ -280,7 +280,7 @@ async def ip_ping_check(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user or not user.router_ip:
-        await callback.message.edit_text("❌ Спочатку запустіть бота, натиснувши /start")
+        await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")
         return
     router_ip = user.router_ip
     loading_text = (
@@ -345,7 +345,7 @@ async def ip_input(message: Message, state: FSMContext, session: AsyncSession) -
 
     await state.clear()
     keyboard = get_ip_saved_success_keyboard() if is_alive else get_ip_saved_fail_keyboard(support_url=app_settings.SUPPORT_CHANNEL_URL or None)
-    await status_msg.edit_text(
+    await safe_edit_text(status_msg,
         result_text, reply_markup=keyboard, parse_mode="HTML"
     )
 
@@ -389,7 +389,7 @@ async def ip_delete(callback: CallbackQuery, session: AsyncSession) -> None:
             await deactivate_ping_error_alert(session, str(user.telegram_id))
         except Exception as exc:
             logger.warning("Failed to deactivate ping alert for user %s: %s", user.telegram_id, exc)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         '<tg-emoji emoji-id="5264973221576349285">✅</tg-emoji> IP-адресу видалено\n\n'
         "Моніторинг світла вимкнено.",
         reply_markup=get_ip_deleted_keyboard(),

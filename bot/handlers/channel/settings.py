@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
 from bot.keyboards.inline import get_understood_keyboard
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="channel_settings")
 
@@ -29,7 +30,7 @@ async def channel_info(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "channel_disable")
 async def channel_disable(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⚠️ Точно вимкнути публікації?",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
@@ -48,4 +49,4 @@ async def channel_disable_confirm(callback: CallbackQuery, session: AsyncSession
         user.channel_config.channel_title = None
         user.channel_config.channel_status = "disconnected"
     await callback.answer("✅ Публікації вимкнено")
-    await callback.message.edit_text("✅ Публікації вимкнено", reply_markup=get_understood_keyboard())
+    await safe_edit_text(callback.message, "✅ Публікації вимкнено", reply_markup=get_understood_keyboard())

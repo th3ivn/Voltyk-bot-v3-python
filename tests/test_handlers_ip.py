@@ -17,6 +17,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.types import Message
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -55,7 +57,7 @@ def _make_callback(user_id: int = 111, data: str = "") -> MagicMock:
     cb.data = data
     cb.answer = AsyncMock()
     cb.bot = AsyncMock()
-    cb.message = MagicMock()
+    cb.message = MagicMock(spec=Message)
     cb.message.edit_text = AsyncMock()
     cb.message.edit_reply_markup = AsyncMock()
     cb.message.chat = SimpleNamespace(id=user_id)
@@ -67,7 +69,7 @@ def _make_message(user_id: int = 111, text: str = "192.168.1.1") -> MagicMock:
     msg.from_user = SimpleNamespace(id=user_id, username="tester")
     msg.text = text
     msg.reply = AsyncMock()
-    msg.answer = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
+    msg.answer = AsyncMock(return_value=MagicMock(spec=Message, edit_text=AsyncMock()))
     msg.bot = AsyncMock()
     return msg
 
@@ -629,17 +631,21 @@ class TestSettingsIpException:
         session = AsyncMock()
         user = _make_user(router_ip="1.2.3.4")
 
+        safe_edit_mock = AsyncMock()
         with (
             patch("bot.handlers.settings.ip.get_user_by_telegram_id", AsyncMock(return_value=user)),
             patch("bot.handlers.settings.ip.check_router_http", AsyncMock(side_effect=RuntimeError("boom"))),
-            patch("bot.handlers.settings.ip.safe_edit_text", AsyncMock()),
+            patch("bot.handlers.settings.ip.safe_edit_text", safe_edit_mock),
             patch("bot.handlers.settings.ip.get_ip_management_keyboard", return_value=MagicMock()),
         ):
             await settings_ip(cb, state, session)
 
-        cb.message.edit_text.assert_awaited_once()
-        args, _ = cb.message.edit_text.call_args
-        assert "Виникла помилка" in args[0]
+        # The outer exception handler should call safe_edit_text with the error text.
+        error_calls = [
+            c for c in safe_edit_mock.await_args_list
+            if len(c.args) >= 2 and "Виникла помилка" in c.args[1]
+        ]
+        assert error_calls, f"expected safe_edit_text with error text, got {safe_edit_mock.await_args_list!r}"
 
 
 # ---------------------------------------------------------------------------

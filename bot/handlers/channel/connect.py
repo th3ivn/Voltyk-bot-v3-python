@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import update as sa_update
@@ -23,6 +22,7 @@ from bot.states.fsm import ChannelConversationSG
 from bot.utils.branding import CHANNEL_NAME_PREFIX
 from bot.utils.helpers import safe_parse_callback_int
 from bot.utils.logger import get_logger
+from bot.utils.telegram import safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="channel_connect")
@@ -33,7 +33,7 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
     await callback.answer()
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
     if pending:
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             f'📺 Знайдено канал!\n\n"{pending.channel_title}"\n\nПідключити цей канал?',
             reply_markup=get_channel_pending_confirm_keyboard(pending.channel_id),
         )
@@ -50,19 +50,15 @@ async def channel_connect(callback: CallbackQuery, session: AsyncSession) -> Non
         "5️⃣ Увімкніть усі перемикачі\n\n"
         "Після того як ви додасте бота — він знайде канал автоматично."
     )
-    try:
-        await callback.message.edit_text(
-            instruction_text,
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
-                ]
-            ),
-            parse_mode="HTML",
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-            raise
+    await safe_edit_text(callback.message,
+        instruction_text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="← Назад", callback_data="settings_channel")],
+            ]
+        ),
+        parse_mode="HTML",
+    )
 
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if user:
@@ -88,7 +84,7 @@ async def channel_confirm(callback: CallbackQuery, state: FSMContext, session: A
 
     pending = await get_pending_channel_by_telegram_id(session, callback.from_user.id)
     if not pending or pending.channel_id != channel_id:
-        await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
+        await safe_edit_text(callback.message, "❌ Канал не знайдено або час очікування вийшов.")
         return
 
     user.channel_config.channel_id = channel_id
@@ -97,7 +93,7 @@ async def channel_confirm(callback: CallbackQuery, state: FSMContext, session: A
     await delete_pending_channel(session, channel_id)
 
     await state.set_state(ChannelConversationSG.waiting_for_title)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "✅ Канал підключено!\n\n"
         "Як назвати канал?\n\n"
         f'Назва буде додана після "{CHANNEL_NAME_PREFIX}"\n\n'
@@ -117,7 +113,7 @@ async def connect_channel(callback: CallbackQuery, state: FSMContext, session: A
 
     pending = await get_pending_channel(session, callback.from_user.id, channel_id)
     if not pending:
-        await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
+        await safe_edit_text(callback.message, "❌ Канал не знайдено або час очікування вийшов.")
         return
 
     user.channel_config.channel_id = channel_id
@@ -126,7 +122,7 @@ async def connect_channel(callback: CallbackQuery, state: FSMContext, session: A
     await delete_pending_channel(session, channel_id)
 
     await state.set_state(ChannelConversationSG.waiting_for_title)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📝 Введіть назву для каналу\n\n"
         f'Назва буде додана після "{CHANNEL_NAME_PREFIX}"\n\n'
         f"Приклад: Київ Черга 3.1\n"
@@ -145,7 +141,7 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
 
     pending = await get_pending_channel(session, callback.from_user.id, channel_id)
     if not pending:
-        await callback.message.edit_text("❌ Канал не знайдено або час очікування вийшов.")
+        await safe_edit_text(callback.message, "❌ Канал не знайдено або час очікування вийшов.")
         return
 
     user.channel_config.channel_id = channel_id
@@ -154,7 +150,7 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
     await delete_pending_channel(session, channel_id)
 
     await state.set_state(ChannelConversationSG.waiting_for_title)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f'✅ Канал замінено на "{pending.channel_title}"!\n\n'
         "📝 Введіть назву для каналу\n\n"
         f'Назва буде додана після "{CHANNEL_NAME_PREFIX}"\n\n'
@@ -167,14 +163,14 @@ async def replace_channel(callback: CallbackQuery, state: FSMContext, session: A
 async def keep_current(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await delete_pending_channel_by_telegram_id(session, callback.from_user.id)
-    await callback.message.edit_text("👌 Добре, залишаємо поточний канал.", reply_markup=get_understood_keyboard())
+    await safe_edit_text(callback.message, "👌 Добре, залишаємо поточний канал.", reply_markup=get_understood_keyboard())
 
 
 @router.callback_query(F.data == "cancel_channel_connect")
 async def cancel_connect(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     await delete_pending_channel_by_telegram_id(session, callback.from_user.id)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "👌 Добре, канал не підключено. Ви можете підключити його пізніше в налаштуваннях.",
         reply_markup=get_understood_keyboard(),
     )

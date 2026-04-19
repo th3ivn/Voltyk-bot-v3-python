@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
 from bot.keyboards.inline import get_cleanup_keyboard
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="settings_cleanup")
 
@@ -19,7 +20,7 @@ async def settings_cleanup(callback: CallbackQuery, session: AsyncSession) -> No
     ns = user.notification_settings
     cmd_status = "увімкнено ✅" if ns.auto_delete_commands else "вимкнено"
     msg_status = "увімкнено ✅" if ns.auto_delete_bot_messages else "вимкнено"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"🗑 Автоматичне очищення\n\n⌨️ Команди: {cmd_status}\n💬 Відповіді: {msg_status}",
         reply_markup=get_cleanup_keyboard(
             auto_delete_commands=ns.auto_delete_commands,
@@ -40,7 +41,7 @@ async def cleanup_toggle_commands(callback: CallbackQuery, session: AsyncSession
     await callback.answer(text)
     cmd_status = "увімкнено ✅" if ns.auto_delete_commands else "вимкнено"
     msg_status = "увімкнено ✅" if ns.auto_delete_bot_messages else "вимкнено"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"🗑 Автоматичне очищення\n\n⌨️ Команди: {cmd_status}\n💬 Відповіді: {msg_status}",
         reply_markup=get_cleanup_keyboard(
             auto_delete_commands=ns.auto_delete_commands,
@@ -65,7 +66,7 @@ async def cleanup_toggle_messages(callback: CallbackQuery, session: AsyncSession
     await callback.answer(text)
     cmd_status = "увімкнено ✅" if ns.auto_delete_commands else "вимкнено"
     msg_status = "увімкнено ✅" if ns.auto_delete_bot_messages else "вимкнено"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"🗑 Автоматичне очищення\n\n⌨️ Команди: {cmd_status}\n💬 Відповіді: {msg_status}",
         reply_markup=get_cleanup_keyboard(
             auto_delete_commands=ns.auto_delete_commands,

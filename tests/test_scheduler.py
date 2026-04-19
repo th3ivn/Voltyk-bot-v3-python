@@ -3326,6 +3326,7 @@ class TestFlushFetchTimeout:
     async def test_fetch_schedule_timeout_skips_pair(self):
         """scheduler.py:522-524: fetch_schedule_data timeout → logs error and continues."""
         import asyncio
+
         from bot.services.scheduler import flush_pending_notifications
 
         bot_mock = AsyncMock()

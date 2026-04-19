@@ -10,6 +10,7 @@ from bot.db.queries import get_admin_router, upsert_admin_router
 from bot.keyboards.inline import get_admin_router_keyboard
 from bot.states.fsm import AdminRouterIpSG
 from bot.utils.helpers import is_valid_ip_or_domain
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_router")
 
@@ -27,7 +28,7 @@ async def admin_router_view(callback: CallbackQuery, session: AsyncSession) -> N
     state_text = ""
     if ar and ar.last_state:
         state_text = f"\n🔌 Стан: {ar.last_state}"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"📡 Роутер{ip_text}{state_text}",
         reply_markup=get_admin_router_keyboard(has_ip=has_ip, notifications_on=notif),
     )
@@ -40,7 +41,7 @@ async def admin_router_set_ip(callback: CallbackQuery, state: FSMContext) -> Non
         return
     await callback.answer()
     await state.set_state(AdminRouterIpSG.waiting_for_ip)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "✏️ Введіть IP-адресу роутера:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="❌ Скасувати", callback_data="admin_router")]]

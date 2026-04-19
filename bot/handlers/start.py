@@ -21,6 +21,7 @@ from bot.keyboards.inline import (
 from bot.states.fsm import WizardSG
 from bot.utils.logger import get_logger
 from bot.utils.metrics import USER_REGISTRATIONS_TOTAL
+from bot.utils.telegram import safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="start")
@@ -87,7 +88,7 @@ async def restore_profile(callback: CallbackQuery, state: FSMContext, session: A
         text = format_main_menu_message(user)
         has_channel = bool(user.channel_config and user.channel_config.channel_id)
         channel_paused = bool(user.channel_config and user.channel_config.channel_paused)
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             text,
             reply_markup=get_main_menu(channel_paused=channel_paused, has_channel=has_channel),
             parse_mode="HTML",
@@ -99,7 +100,7 @@ async def create_new_profile(callback: CallbackQuery, state: FSMContext, session
     await callback.answer()
     await state.set_state(WizardSG.region)
     await state.update_data(mode="new")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📍 Крок 1 із 3 — Оберіть свій регіон:",
         reply_markup=get_region_keyboard(),
     )
@@ -123,7 +124,7 @@ async def wizard_region(callback: CallbackQuery, state: FSMContext, session: Asy
         user = await get_user_by_telegram_id(session, callback.from_user.id)
         if user and user.region == region_code:
             current_queue = user.queue
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"✅ Регіон: {region.name}\n\n⚡ Крок 2 із 3 — Оберіть свою чергу:",
         reply_markup=get_queue_keyboard(region_code, current_queue=current_queue),
     )
@@ -139,7 +140,7 @@ async def wizard_queue_page(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     region_code = data.get("region", "kyiv")
     region = REGIONS.get(region_code)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"✅ Регіон: {region.name if region else region_code}\n\n⚡ Крок 2 із 3 — Оберіть свою чергу:",
         reply_markup=get_queue_keyboard(region_code, page),
     )
@@ -162,7 +163,7 @@ async def wizard_queue(callback: CallbackQuery, state: FSMContext) -> None:
 
     if mode == "new":
         await state.set_state(WizardSG.notify_target)
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             f"✅ Черга: {queue}\n\n"
             "📬 Крок 3 із 3 — Куди надсилати сповіщення?\n\n"
             "📱 У цьому боті\n"
@@ -176,7 +177,7 @@ async def wizard_queue(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(WizardSG.confirm)
         region_code = data.get("region", "")
         region = REGIONS.get(region_code)
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             f"✅ Налаштування:\n\n"
             f"📍 Регіон: {region.name if region else region_code}\n"
             f"⚡️ Черга: {queue}\n\n"
@@ -189,7 +190,7 @@ async def wizard_queue(callback: CallbackQuery, state: FSMContext) -> None:
 async def back_to_region(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(WizardSG.region)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📍 Крок 1 із 3 — Оберіть свій регіон:",
         reply_markup=get_region_keyboard(),
     )
@@ -215,10 +216,10 @@ async def wizard_notify_bot(callback: CallbackQuery, state: FSMContext, session:
     await state.set_state(WizardSG.bot_notifications)
     ns = user.notification_settings
     if not ns:
-        await callback.message.edit_text("❌ Помилка. Спробуйте /start")
+        await safe_edit_text(callback.message, "❌ Помилка. Спробуйте /start")
         await state.clear()
         return
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔔 Налаштуйте сповіщення в боті:",
         reply_markup=get_wizard_bot_notification_keyboard(
             schedule_changes=ns.notify_schedule_changes,
@@ -314,7 +315,7 @@ async def wizard_notify_back(callback: CallbackQuery, state: FSMContext) -> None
     data = await state.get_data()
     queue = data.get("queue", "")
     await state.set_state(WizardSG.notify_target)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"✅ Черга: {queue}\n\n"
         "📬 Крок 3 із 3 — Куди надсилати сповіщення?\n\n"
         "📱 У цьому боті\nСповіщення приходитимуть прямо в цей чат\n\n"
@@ -350,7 +351,7 @@ async def wizard_bot_done(callback: CallbackQuery, state: FSMContext, session: A
             [InlineKeyboardButton(text="📢 Новини бота", url="https://t.me/Voltyk_news")],
         ]
     )
-    await callback.message.edit_text(text, reply_markup=kb)
+    await safe_edit_text(callback.message, text, reply_markup=kb)
 
 
 @router.callback_query(WizardSG.notify_target, F.data == "wizard_notify_channel")
@@ -372,7 +373,7 @@ async def wizard_notify_channel(callback: CallbackQuery, state: FSMContext, sess
     await state.set_state(WizardSG.channel_setup)
 
     bot_me = await callback.bot.get_me()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📺 Підключення каналу\n\n"
         "Щоб бот міг публікувати графіки у ваш канал:\n\n"
         "1️⃣ Відкрийте ваш канал у Telegram\n"
@@ -403,7 +404,7 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
     region_name = region.name if region else region_code
 
     if mode == "edit_from_schedule":
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",
         )
         from bot.handlers.menu import _send_schedule_photo
@@ -411,7 +412,7 @@ async def wizard_confirm(callback: CallbackQuery, state: FSMContext, session: As
         await _send_schedule_photo(callback, user, session, edit_photo=False)
         return
     else:
-        await callback.message.edit_text(
+        await safe_edit_text(callback.message,
             f"✅ Налаштування оновлено!\n\n📍 Регіон: {region_name}\n⚡ Черга: {queue}",
             reply_markup=get_main_menu(
                 has_channel=bool(user.channel_config and user.channel_config.channel_id),

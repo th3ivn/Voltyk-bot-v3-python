@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.types import Message
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,7 +41,7 @@ def _make_callback(user_id: int = 42, data: str = "") -> MagicMock:
     cb.data = data
     cb.bot = AsyncMock()
     cb.answer = AsyncMock()
-    cb.message = MagicMock()
+    cb.message = MagicMock(spec=Message)
     cb.message.edit_text = AsyncMock()
     return cb
 

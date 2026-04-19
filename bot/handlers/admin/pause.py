@@ -14,6 +14,7 @@ from bot.keyboards.inline import (
     get_pause_type_keyboard,
 )
 from bot.states.fsm import PauseMessageSG
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_pause")
 
@@ -25,7 +26,7 @@ async def admin_pause(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     await callback.answer()
     is_paused = (await get_setting(session, "bot_paused") or "false") == "true"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⏸️ Режим паузи",
         reply_markup=get_pause_menu_keyboard(is_paused=is_paused),
     )
@@ -51,7 +52,7 @@ async def pause_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     await add_pause_log(session, callback.from_user.id, event_type)
 
     await callback.answer(f"{'🔴 Пауза увімкнена' if is_paused else '🟢 Пауза вимкнена'}")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⏸️ Режим паузи",
         reply_markup=get_pause_menu_keyboard(is_paused=is_paused),
     )
@@ -65,7 +66,7 @@ async def pause_message_settings(callback: CallbackQuery, session: AsyncSession)
     await callback.answer()
     show_support = (await get_setting(session, "pause_show_support") or "false") == "true"
     current_message = await get_setting(session, "pause_message") or ""
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📋 Налаштування повідомлення паузи",
         reply_markup=get_pause_message_keyboard(show_support_button=show_support, current_message=current_message),
     )
@@ -100,7 +101,7 @@ async def pause_custom_message(callback: CallbackQuery, state: FSMContext) -> No
         return
     await callback.answer()
     await state.set_state(PauseMessageSG.waiting_for_message)
-    await callback.message.edit_text("✏️ Введіть текст повідомлення паузи:")
+    await safe_edit_text(callback.message, "✏️ Введіть текст повідомлення паузи:")
 
 
 @router.message(PauseMessageSG.waiting_for_message)
@@ -142,7 +143,7 @@ async def pause_type_select(callback: CallbackQuery, session: AsyncSession) -> N
         return
     await callback.answer()
     current = await get_setting(session, "pause_type") or "update"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🏷 Тип паузи",
         reply_markup=get_pause_type_keyboard(current_type=current),
     )
@@ -171,13 +172,13 @@ async def pause_log(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     logs = await get_pause_logs(session, limit=10)
     if not logs:
-        await callback.message.edit_text("📜 Лог паузи порожній")
+        await safe_edit_text(callback.message, "📜 Лог паузи порожній")
         return
     lines = ["📜 Лог паузи\n"]
     for log in logs:
         date = log.created_at.strftime("%d.%m %H:%M") if log.created_at else "-"
         lines.append(f"{date} | {log.event_type} | {log.pause_type or '-'}")
-    await callback.message.edit_text("\n".join(lines))
+    await safe_edit_text(callback.message, "\n".join(lines))
 
 
 @router.callback_query(F.data == "admin_debounce")
@@ -187,7 +188,7 @@ async def admin_debounce(callback: CallbackQuery, session: AsyncSession) -> None
         return
     await callback.answer()
     current = int(await get_setting(session, "power_debounce_minutes") or "5")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"⏸ Debounce\n\nПоточне значення: {current} хв",
         reply_markup=get_debounce_keyboard(current_value=current),
     )

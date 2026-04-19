@@ -11,8 +11,10 @@ import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import ErrorEvent
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from alembic.config import Config as AlembicConfig
@@ -255,6 +257,23 @@ def create_bot() -> Bot:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
+async def _global_error_handler(event: ErrorEvent) -> None:
+    """Catch-all for exceptions raised in update handlers.
+
+    Silently swallow benign Telegram errors (idempotent edits, users who
+    blocked the bot) so they don't pollute Sentry / logs.  Log + capture
+    everything else.
+    """
+    exc = event.exception
+    if isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc):
+        return
+    if isinstance(exc, TelegramForbiddenError):
+        logger.debug("TelegramForbiddenError (user blocked bot / kicked): %s", exc)
+        return
+    logger.error("Unhandled error in update handler: %s", exc, exc_info=exc)
+    sentry_sdk.capture_exception(exc)
+
+
 def create_dispatcher() -> Dispatcher:
     redis_url = settings.REDIS_URL
     is_production = settings.ENVIRONMENT == "production"
@@ -296,6 +315,8 @@ def create_dispatcher() -> Dispatcher:
     dp.my_chat_member.middleware(DbSessionMiddleware())
 
     register_all_handlers(dp)
+
+    dp.errors.register(_global_error_handler)
 
     return dp
 
