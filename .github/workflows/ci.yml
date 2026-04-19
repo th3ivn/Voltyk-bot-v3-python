@@ -43,12 +43,10 @@ jobs:
         run: pip install -e ".[dev]" mypy
 
       - name: Run mypy
-        # --ignore-missing-imports: many aiogram/SQLAlchemy stubs are incomplete
-        # or absent; removing this flag requires stub packages for every
-        # third-party library we use.  Gradually add stubs and remove this flag.
-        # --disable-error-code=union-attr: suppresses false-positive attribute
-        # access errors on Optional types that are already guarded at runtime.
-        run: mypy bot/ --ignore-missing-imports --disable-error-code=union-attr
+        # Configuration (ignored imports for libs without stubs, scoped
+        # union-attr suppression for handler modules) lives in
+        # pyproject.toml under [tool.mypy] / [[tool.mypy.overrides]].
+        run: mypy bot/
 
   test:
     name: Tests (pytest)
