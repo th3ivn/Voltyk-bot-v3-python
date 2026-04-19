@@ -43,6 +43,14 @@ KYIV_TZ = settings.timezone
 
 # ─── In-memory state ──────────────────────────────────────────────────────
 
+# Hard cap on _user_states entries.  For 100k+ DAU with churn this protects
+# against pathological growth (crashed eviction, orphan accounts, etc.).
+# Excess entries are evicted LRU-style by last_change_at.
+USER_STATES_MAX: int = 200_000
+# Entries older than this are considered stale and evicted even if they fit
+# under USER_STATES_MAX.  7 days matches the typical notification window.
+USER_STATES_STALE_AFTER_S: int = 7 * 24 * 3600
+
 _user_states: dict[str, dict] = {}
 _user_states_lock: asyncio.Lock = asyncio.Lock()
 # Tracks telegram_ids whose state changed since last DB flush.
@@ -93,6 +101,70 @@ def _get_user_state(telegram_id: str) -> dict:
         }
         _dirty_states.add(telegram_id)
     return _user_states[telegram_id]
+
+
+def _state_last_touch_ts(state: dict) -> float:
+    """Return a comparable timestamp for LRU eviction.
+
+    Prefers ``last_change_at`` (actual state change) and falls back to
+    ``last_ping_time``.  States with no timestamp sort to the top (evicted
+    first) to clear orphans quickly.
+    """
+    for key in ("last_change_at", "last_ping_time"):
+        raw = state.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, datetime):
+            return raw.timestamp()
+        try:
+            return datetime.fromisoformat(raw).timestamp()
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+async def _evict_stale_entries() -> None:
+    """Enforce ``USER_STATES_MAX`` cap and drop entries older than TTL.
+
+    Intended to run periodically from ``_check_all_ips``.  Must not be called
+    while ``_user_states_lock`` is already held by the caller — it takes the
+    lock itself.
+    """
+    now_ts = datetime.now(timezone.utc).timestamp()
+    ttl_threshold = now_ts - USER_STATES_STALE_AFTER_S
+    evicted_states: list[dict] = []
+
+    async with _user_states_lock:
+        # TTL eviction first — cheap linear scan.
+        stale = [
+            tid for tid, st in _user_states.items()
+            if _state_last_touch_ts(st) and _state_last_touch_ts(st) < ttl_threshold
+        ]
+        for tid in stale:
+            evicted_states.append(_user_states.pop(tid))
+            _dirty_states.discard(tid)
+
+        # Cap enforcement — LRU by last_touch_ts.
+        overflow = len(_user_states) - USER_STATES_MAX
+        if overflow > 0:
+            sortable = sorted(
+                _user_states.items(),
+                key=lambda kv: _state_last_touch_ts(kv[1]),
+            )
+            for tid, _ in sortable[:overflow]:
+                evicted_states.append(_user_states.pop(tid))
+                _dirty_states.discard(tid)
+
+    for state in evicted_states:
+        task = state.get("debounce_task")
+        if task and not task.done():
+            task.cancel()
+    if evicted_states:
+        logger.info(
+            "Evicted %d _user_states entries (cap=%d, ttl=%ds); remaining=%d",
+            len(evicted_states), USER_STATES_MAX, USER_STATES_STALE_AFTER_S,
+            len(_user_states),
+        )
 
 
 def _mark_dirty(telegram_id: str) -> None:
@@ -692,12 +764,17 @@ async def _check_all_ips(bot: Bot) -> None:
                 evicted_states = []
                 for tid in stale_ids:
                     evicted_states.append(_user_states.pop(tid))
+                    _dirty_states.discard(tid)
             for state in evicted_states:
                 task = state.get("debounce_task")
                 if task and not task.done():
                     task.cancel()
             if stale_ids:
                 logger.debug("Evicted %d stale _user_states entries", len(stale_ids))
+
+            # Defense-in-depth: enforce hard cap + TTL in case active_ids-based
+            # eviction misses (cursor iteration may skip concurrent inserts).
+            await _evict_stale_entries()
 
             # Group users by router IP so each unique IP is pinged only once.
             logger.debug(

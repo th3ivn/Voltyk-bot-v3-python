@@ -2594,3 +2594,94 @@ class TestUpdatePowerNotificationsPagination:
             await update_power_notifications_on_schedule_change(bot, "kyiv", "1.1")
 
         assert call_count["n"] == 2
+
+
+# ─── _evict_stale_entries ──────────────────────────────────────────────────
+
+
+class TestEvictStaleEntries:
+    def setup_method(self):
+        import bot.services.power_monitor as pm
+        pm._user_states.clear()
+        pm._dirty_states.clear()
+
+    @pytest.mark.asyncio
+    async def test_ttl_evicts_entries_older_than_threshold(self, monkeypatch):
+        import bot.services.power_monitor as pm
+
+        now = datetime.now(timezone.utc)
+        old = now.replace(year=now.year - 1).isoformat()
+        fresh = now.isoformat()
+
+        pm._user_states["old"] = {"last_change_at": old, "debounce_task": None}
+        pm._user_states["fresh"] = {"last_change_at": fresh, "debounce_task": None}
+        pm._dirty_states.update(["old", "fresh"])
+
+        await pm._evict_stale_entries()
+
+        assert "old" not in pm._user_states
+        assert "fresh" in pm._user_states
+        assert "old" not in pm._dirty_states
+
+    @pytest.mark.asyncio
+    async def test_cap_evicts_lru_when_over_max(self, monkeypatch):
+        import bot.services.power_monitor as pm
+
+        monkeypatch.setattr(pm, "USER_STATES_MAX", 2)
+        now = datetime.now(timezone.utc)
+        pm._user_states["oldest"] = {
+            "last_change_at": now.replace(minute=0).isoformat(),
+            "debounce_task": None,
+        }
+        pm._user_states["middle"] = {
+            "last_change_at": now.replace(minute=30).isoformat(),
+            "debounce_task": None,
+        }
+        pm._user_states["newest"] = {
+            "last_change_at": now.isoformat(),
+            "debounce_task": None,
+        }
+
+        await pm._evict_stale_entries()
+
+        assert "oldest" not in pm._user_states
+        assert "middle" in pm._user_states
+        assert "newest" in pm._user_states
+        assert len(pm._user_states) == 2
+
+    @pytest.mark.asyncio
+    async def test_cancels_debounce_task_on_eviction(self, monkeypatch):
+        import bot.services.power_monitor as pm
+
+        monkeypatch.setattr(pm, "USER_STATES_MAX", 0)  # force evict-all via cap
+
+        async def _forever():
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_forever())
+        pm._user_states["victim"] = {"last_change_at": None, "debounce_task": task}
+
+        await pm._evict_stale_entries()
+
+        # Let the cancellation propagate.
+        await asyncio.sleep(0)
+        assert task.cancelled() or task.done()
+        assert "victim" not in pm._user_states
+
+    @pytest.mark.asyncio
+    async def test_noop_when_empty(self):
+        import bot.services.power_monitor as pm
+
+        await pm._evict_stale_entries()
+        assert pm._user_states == {}
+
+    def test_state_last_touch_ts_falls_back_through_fields(self):
+        import bot.services.power_monitor as pm
+
+        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        assert pm._state_last_touch_ts({"last_change_at": ts}) == ts.timestamp()
+        assert pm._state_last_touch_ts(
+            {"last_change_at": None, "last_ping_time": ts.isoformat()}
+        ) == ts.timestamp()
+        assert pm._state_last_touch_ts({"last_change_at": "garbage"}) == 0.0
+        assert pm._state_last_touch_ts({}) == 0.0
