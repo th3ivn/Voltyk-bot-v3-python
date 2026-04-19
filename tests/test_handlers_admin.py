@@ -24,6 +24,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.types import Message
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ def _make_callback(user_id: int = 42, data: str = "") -> MagicMock:
     cb.from_user = SimpleNamespace(id=user_id)
     cb.data = data
     cb.answer = AsyncMock()
-    cb.message = MagicMock()
+    cb.message = MagicMock(spec=Message)
     cb.message.edit_text = AsyncMock()
     cb.message.edit_reply_markup = AsyncMock()
     cb.message.answer = AsyncMock()
@@ -1900,7 +1902,8 @@ class TestPauseLog:
             ms.is_admin.return_value = True
             await pause_log(cb, session)
 
-        cb.message.edit_text.assert_awaited_once_with("📜 Лог паузи порожній")
+        cb.message.edit_text.assert_awaited_once()
+        assert cb.message.edit_text.await_args.args[0] == "📜 Лог паузи порожній"
 
     async def test_with_logs(self):
         from datetime import datetime

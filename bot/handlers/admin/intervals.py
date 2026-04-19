@@ -13,6 +13,7 @@ from bot.keyboards.inline import (
     get_schedule_interval_keyboard,
 )
 from bot.utils.helpers import safe_parse_callback_int
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_intervals")
 
@@ -25,7 +26,7 @@ async def admin_intervals(callback: CallbackQuery, session: AsyncSession) -> Non
     await callback.answer()
     sched = int(await get_setting(session, "schedule_check_interval") or "180")
     ip = int(await get_setting(session, "power_check_interval") or "10")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⏱ Інтервали",
         reply_markup=get_admin_intervals_keyboard(schedule_interval=sched, ip_interval=ip),
     )
@@ -38,7 +39,7 @@ async def admin_interval_schedule(callback: CallbackQuery, session: AsyncSession
         return
     await callback.answer()
     current = int(await get_setting(session, "schedule_check_interval") or "180")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⏱ Інтервал перевірки графіків",
         reply_markup=get_schedule_interval_keyboard(current_seconds=current),
     )
@@ -68,7 +69,7 @@ async def admin_interval_ip(callback: CallbackQuery, session: AsyncSession) -> N
         return
     await callback.answer()
     current = int(await get_setting(session, "power_check_interval") or "10")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📡 Інтервал перевірки IP",
         reply_markup=get_ip_interval_keyboard(current_seconds=current),
     )
@@ -98,7 +99,7 @@ async def admin_refresh_cooldown(callback: CallbackQuery, session: AsyncSession)
         return
     await callback.answer()
     current = int(await get_setting(session, "refresh_cooldown") or "30")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔄 Cooldown кнопки «Перевірити»\n\nЧас очікування між натисканнями для одного юзера:",
         reply_markup=get_refresh_cooldown_keyboard(current_seconds=current),
     )

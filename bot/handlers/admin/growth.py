@@ -11,6 +11,7 @@ from bot.keyboards.inline import (
     get_growth_registration_keyboard,
     get_growth_stage_keyboard,
 )
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_growth")
 
@@ -21,7 +22,7 @@ async def admin_growth(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text("📈 Ріст / Growth", reply_markup=get_growth_keyboard())
+    await safe_edit_text(callback.message, "📈 Ріст / Growth", reply_markup=get_growth_keyboard())
 
 
 @router.callback_query(F.data == "growth_metrics")
@@ -42,7 +43,7 @@ async def growth_stage(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     await callback.answer()
     current = int(await get_setting(session, "growth_stage") or "0")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🎯 Етап росту",
         reply_markup=get_growth_stage_keyboard(current_stage=current),
     )
@@ -73,7 +74,7 @@ async def growth_registration(callback: CallbackQuery, session: AsyncSession) ->
         return
     await callback.answer()
     enabled = (await get_setting(session, "registration_enabled") or "true") != "false"
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔐 Реєстрація",
         reply_markup=get_growth_registration_keyboard(enabled=enabled),
     )

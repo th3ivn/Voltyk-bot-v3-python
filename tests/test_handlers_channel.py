@@ -21,7 +21,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from aiogram.types import Message
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,7 +74,7 @@ def _make_callback(user_id: int = 42, data: str = "") -> MagicMock:
     cb.data = data
     cb.bot = AsyncMock()
     cb.answer = AsyncMock()
-    cb.message = MagicMock()
+    cb.message = MagicMock(spec=Message)
     cb.message.message_id = 100
     cb.message.edit_text = AsyncMock()
     cb.message.edit_reply_markup = AsyncMock()
@@ -112,8 +112,8 @@ class TestChannelBranding:
         session = AsyncMock()
         with patch("bot.handlers.channel.branding.get_user_by_telegram_id", return_value=None):
             await channel_edit_title(cb, state, session)
-        cb.message.edit_text.assert_awaited_once_with("❌ Канал не підключено")
-
+        cb.message.edit_text.assert_awaited_once()
+        assert cb.message.edit_text.await_args.args[0] == "❌ Канал не підключено"
     async def test_edit_title_no_channel_config(self):
         from bot.handlers.channel.branding import channel_edit_title
 
@@ -123,8 +123,8 @@ class TestChannelBranding:
         user = _make_user(channel_config=None)
         with patch("bot.handlers.channel.branding.get_user_by_telegram_id", return_value=user):
             await channel_edit_title(cb, state, session)
-        cb.message.edit_text.assert_awaited_once_with("❌ Канал не підключено")
-
+        cb.message.edit_text.assert_awaited_once()
+        assert cb.message.edit_text.await_args.args[0] == "❌ Канал не підключено"
     async def test_edit_title_no_channel_id(self):
         from bot.handlers.channel.branding import channel_edit_title
 
@@ -134,8 +134,8 @@ class TestChannelBranding:
         user = _make_user(channel_config=_make_channel_config(channel_id=None))
         with patch("bot.handlers.channel.branding.get_user_by_telegram_id", return_value=user):
             await channel_edit_title(cb, state, session)
-        cb.message.edit_text.assert_awaited_once_with("❌ Канал не підключено")
-
+        cb.message.edit_text.assert_awaited_once()
+        assert cb.message.edit_text.await_args.args[0] == "❌ Канал не підключено"
     async def test_edit_title_sets_state(self):
         from bot.handlers.channel.branding import channel_edit_title
 
@@ -156,8 +156,8 @@ class TestChannelBranding:
         session = AsyncMock()
         with patch("bot.handlers.channel.branding.get_user_by_telegram_id", return_value=None):
             await channel_edit_description(cb, state, session)
-        cb.message.edit_text.assert_awaited_once_with("❌ Канал не підключено")
-
+        cb.message.edit_text.assert_awaited_once()
+        assert cb.message.edit_text.await_args.args[0] == "❌ Канал не підключено"
     async def test_edit_description_sets_state(self):
         from bot.handlers.channel.branding import channel_edit_description
 
@@ -294,7 +294,9 @@ class TestChannelConnect:
         ):
             await channel_connect(cb, session)  # should not raise
 
-    async def test_channel_connect_reraises_other_bad_request(self):
+    async def test_channel_connect_swallows_other_bad_request(self):
+        """safe_edit_text must suppress all TelegramBadRequest, not just
+        'message is not modified'; the global error handler owns logging."""
         from aiogram.exceptions import TelegramBadRequest
 
         from bot.handlers.channel.connect import channel_connect
@@ -309,8 +311,9 @@ class TestChannelConnect:
             patch("bot.handlers.channel.connect.get_pending_channel_by_telegram_id", return_value=None),
             patch("bot.handlers.channel.connect.get_user_by_telegram_id", return_value=None),
         ):
-            with pytest.raises(TelegramBadRequest):
-                await channel_connect(cb, session)
+            # Should not raise — safe_edit_text swallows the error.
+            await channel_connect(cb, session)
+        cb.message.edit_text.assert_awaited()
 
     async def test_channel_confirm_no_user(self):
         from bot.handlers.channel.connect import channel_confirm

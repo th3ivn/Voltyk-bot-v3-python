@@ -12,6 +12,7 @@ from bot.keyboards.inline import (
     get_format_settings_keyboard,
 )
 from bot.states.fsm import ChannelConversationSG
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="channel_format")
 
@@ -19,7 +20,7 @@ router = Router(name="channel_format")
 @router.callback_query(F.data.in_({"channel_format", "format_menu"}))
 async def format_menu(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📋 Формат публікацій\n\nОберіть, що хочете налаштувати:",
         reply_markup=get_format_settings_keyboard(),
     )
@@ -32,7 +33,7 @@ async def format_schedule_settings(callback: CallbackQuery, session: AsyncSessio
     if not user or not user.channel_config:
         return
     cc = user.channel_config
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📊 Графік відключень\n\nНалаштуйте формат публікацій графіка:",
         reply_markup=get_format_schedule_keyboard(
             delete_old=cc.delete_old_message, picture_only=cc.picture_only
@@ -43,7 +44,7 @@ async def format_schedule_settings(callback: CallbackQuery, session: AsyncSessio
 @router.callback_query(F.data == "format_power_settings")
 async def format_power_settings(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⚡ Фактичний стан\n\nНалаштуйте текст повідомлень про стан світла:",
         reply_markup=get_format_power_keyboard(),
     )
@@ -99,14 +100,14 @@ async def format_schedule_text(callback: CallbackQuery) -> None:
             [InlineKeyboardButton(text="← Назад", callback_data="format_schedule_settings")],
         ]
     )
-    await callback.message.edit_text(text, reply_markup=kb)
+    await safe_edit_text(callback.message, text, reply_markup=kb)
 
 
 @router.callback_query(F.data == "format_schedule_caption")
 async def format_schedule_caption(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_schedule_caption)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "📝 Шаблон підпису під графіком\n\n"
         "Введіть шаблон підпису. Доступні змінні:\n"
         "{d}, {dm}, {dd}, {sdw}, {fdw}, {queue}, {region}, <br>"
@@ -117,7 +118,7 @@ async def format_schedule_caption(callback: CallbackQuery, state: FSMContext) ->
 async def format_schedule_periods(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_period_format)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⏰ Формат періодів відключень\n\n"
         "Введіть формат. Доступні змінні:\n"
         "{s} — початок, {f} — кінець, {h} — тривалість"
@@ -128,7 +129,7 @@ async def format_schedule_periods(callback: CallbackQuery, state: FSMContext) ->
 async def format_power_off(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_power_off_text)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         '📴 Текст при відключенні світла\n\n'
         "Введіть текст. Доступні змінні:\n"
         "{time} — час, {date} — дата, {duration} — тривалість, {schedule} — графік"
@@ -139,7 +140,7 @@ async def format_power_off(callback: CallbackQuery, state: FSMContext) -> None:
 async def format_power_on(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(ChannelConversationSG.waiting_for_power_on_text)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         '💡 Текст при появі світла\n\n'
         "Введіть текст. Доступні змінні:\n"
         "{time} — час, {date} — дата, {duration} — тривалість, {schedule} — графік"

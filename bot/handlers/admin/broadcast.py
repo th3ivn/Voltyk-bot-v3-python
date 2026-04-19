@@ -14,6 +14,7 @@ from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
 from bot.utils.logger import get_logger
 from bot.utils.rate_limiter import tg_rate_limiter
+from bot.utils.telegram import safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="admin_broadcast")
@@ -46,7 +47,7 @@ async def admin_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await callback.answer()
     await state.set_state(BroadcastSG.waiting_for_text)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"📢 Розсилка\n\nВведіть текст повідомлення (макс. {_BROADCAST_MAX_TEXT_LEN} символів):",
         reply_markup=get_broadcast_cancel_keyboard(),
     )
@@ -86,7 +87,7 @@ async def broadcast_edit_text(callback: CallbackQuery, state: FSMContext) -> Non
         return
     await callback.answer()
     await state.set_state(BroadcastSG.waiting_for_text)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "✏️ Введіть новий текст:", reply_markup=get_broadcast_cancel_keyboard()
     )
 
@@ -113,7 +114,7 @@ async def broadcast_confirm_send(callback: CallbackQuery, state: FSMContext) -> 
                 [InlineKeyboardButton(text="⏹ Зупинити розсилку", callback_data="broadcast_cancel_active")],
             ]
         )
-        await callback.message.edit_text("📤 Розсилка розпочата...", reply_markup=cancel_kb)
+        await safe_edit_text(callback.message, "📤 Розсилка розпочата...", reply_markup=cancel_kb)
 
         admin_id = callback.from_user.id
         bot = callback.bot
@@ -142,7 +143,7 @@ async def broadcast_cancel(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await callback.answer()
     await state.clear()
-    await callback.message.edit_text("❌ Розсилку скасовано.")
+    await safe_edit_text(callback.message, "❌ Розсилку скасовано.")
 
 
 # ─── Background broadcast ───────────────────────────────────────────────

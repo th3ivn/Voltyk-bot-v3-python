@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery
 
 from bot.config import settings
 from bot.keyboards.inline import get_restart_confirm_keyboard
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_database")
 
@@ -25,7 +26,7 @@ async def admin_restart(callback: CallbackQuery) -> None:
         await callback.answer("❌ Тільки для власника")
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔄 Перезапуск бота?\n\nЦе зупинить бота на кілька секунд.",
         reply_markup=get_restart_confirm_keyboard(),
     )
@@ -37,5 +38,5 @@ async def admin_restart_confirm(callback: CallbackQuery) -> None:
         await callback.answer("❌ Тільки для власника")
         return
     await callback.answer("🔄 Перезапуск...")
-    await callback.message.edit_text("🔄 Перезапуск бота...")
+    await safe_edit_text(callback.message, "🔄 Перезапуск бота...")
     sys.exit(0)

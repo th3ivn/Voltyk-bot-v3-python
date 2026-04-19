@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.queries import get_user_by_telegram_id
 from bot.keyboards.inline import get_channel_menu_keyboard
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="settings_channel")
 
@@ -30,7 +31,7 @@ async def settings_channel(callback: CallbackQuery, session: AsyncSession) -> No
         elif channel_status == "active":
             status_text += " ✅"
 
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         f"📺 Налаштування каналу{status_text}",
         reply_markup=get_channel_menu_keyboard(
             channel_id=channel_id,

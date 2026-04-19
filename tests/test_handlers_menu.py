@@ -24,12 +24,14 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.types import Message
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_message(**kwargs) -> MagicMock:
-    msg = MagicMock()
+    msg = MagicMock(spec=Message)
     msg.message_id = kwargs.get("message_id", 100)
     msg.chat = SimpleNamespace(id=999)
     msg.photo = kwargs.get("photo", None)

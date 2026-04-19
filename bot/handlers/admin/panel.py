@@ -22,6 +22,7 @@ from bot.keyboards.inline import (
     get_admin_settings_menu_keyboard,
     get_users_menu_keyboard,
 )
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_panel")
 
@@ -49,7 +50,7 @@ async def settings_admin(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔧 Адмін-панель",
         reply_markup=get_admin_keyboard(),
     )
@@ -61,7 +62,7 @@ async def admin_menu(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "🔧 Адмін-панель",
         reply_markup=get_admin_keyboard(),
     )
@@ -73,7 +74,7 @@ async def admin_analytics(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text("📊 Аналітика", reply_markup=get_admin_analytics_keyboard())
+    await safe_edit_text(callback.message, "📊 Аналітика", reply_markup=get_admin_analytics_keyboard())
 
 
 @router.callback_query(F.data == "admin_stats")
@@ -90,7 +91,7 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession) -> None:
         f"✅ Активних: {active}\n"
         f"❌ Неактивних: {total - active}"
     )
-    await callback.message.edit_text(text, reply_markup=get_admin_analytics_keyboard())
+    await safe_edit_text(callback.message, text, reply_markup=get_admin_analytics_keyboard())
 
 
 @router.callback_query(F.data == "admin_users")
@@ -99,7 +100,7 @@ async def admin_users(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text("👥 Користувачі", reply_markup=get_users_menu_keyboard())
+    await safe_edit_text(callback.message, "👥 Користувачі", reply_markup=get_users_menu_keyboard())
 
 
 @router.callback_query(F.data == "admin_users_stats")
@@ -124,7 +125,7 @@ async def admin_users_list(callback: CallbackQuery, session: AsyncSession) -> No
     for u in users:
         status = "✅" if u.is_active else "❌"
         lines.append(f"{status} {u.telegram_id} (@{u.username or '-'}) - {u.region}/{u.queue}")
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "\n".join(lines), reply_markup=get_users_menu_keyboard()
     )
 
@@ -135,7 +136,7 @@ async def admin_settings_menu(callback: CallbackQuery) -> None:
         await callback.answer("❌ Доступ заборонено")
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         "⚙️ Налаштування", reply_markup=get_admin_settings_menu_keyboard()
     )
 
@@ -156,4 +157,4 @@ async def admin_system(callback: CallbackQuery) -> None:
         f"⏱ Uptime: {hours}h {minutes}m\n"
         f"🏗 Railway: {os.getenv('RAILWAY_ENVIRONMENT', 'N/A')}"
     )
-    await callback.message.edit_text(text, reply_markup=get_admin_settings_menu_keyboard())
+    await safe_edit_text(callback.message, text, reply_markup=get_admin_settings_menu_keyboard())

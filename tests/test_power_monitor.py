@@ -4237,6 +4237,7 @@ class TestCheckAllIpsCursorTimeout:
 
     async def test_cursor_timeout_aborts_ping_cycle(self):
         import asyncio
+
         from bot.services.power_monitor import _check_all_ips
 
         bot_mock = AsyncMock()
@@ -4274,6 +4275,7 @@ class TestDebounceConfirmTimeout:
 
     async def test_handle_state_change_timeout_logged(self):
         import asyncio
+
         import bot.services.power_monitor as pm
         from bot.services.power_monitor import _check_user_power
 

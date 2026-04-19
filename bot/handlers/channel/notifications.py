@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.queries import get_user_by_telegram_id
 from bot.formatter.messages import build_channel_notification_message
 from bot.keyboards.inline import get_channel_notification_keyboard
+from bot.utils.telegram import safe_edit_text
 
 router = Router(name="channel_notifications")
 
@@ -19,7 +20,7 @@ async def channel_notifications(callback: CallbackQuery, session: AsyncSession) 
         return
     cc = user.channel_config
     text = build_channel_notification_message(cc)
-    await callback.message.edit_text(
+    await safe_edit_text(callback.message,
         text,
         reply_markup=get_channel_notification_keyboard(
             schedule=cc.ch_notify_schedule,

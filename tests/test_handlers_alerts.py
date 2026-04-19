@@ -18,6 +18,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.types import Message
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -72,7 +74,7 @@ def _make_callback(user_id: int = 111, data: str = "") -> MagicMock:
     cb.from_user = SimpleNamespace(id=user_id)
     cb.data = data
     cb.answer = AsyncMock()
-    cb.message = MagicMock()
+    cb.message = MagicMock(spec=Message)
     cb.message.edit_text = AsyncMock()
     cb.message.edit_reply_markup = AsyncMock()
     return cb
