@@ -124,7 +124,7 @@ class UserChannelConfig(Base):
     channel_user_description: Mapped[str | None] = mapped_column(Text)
     channel_status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     channel_paused: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    channel_branding_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    channel_branding_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     channel_guard_warnings: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     last_published_hash: Mapped[str | None] = mapped_column(String(128))

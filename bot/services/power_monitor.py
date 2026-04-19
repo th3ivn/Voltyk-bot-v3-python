@@ -745,6 +745,16 @@ async def _check_all_ips(bot: Bot) -> None:
                 except asyncio.TimeoutError:
                     logger.error("User cursor query timed out at after_id=%d — aborting ping cycle", after_id)
                     return
+                except Exception as e:
+                    if "InvalidCachedStatementError" in type(e).__name__ or "cached statement" in str(e).lower():
+                        logger.warning("Cached statement invalidated, retrying once: %s", e)
+                        async with async_session() as session:
+                            batch = await asyncio.wait_for(
+                                get_users_with_ip_cursor(session, limit=_BATCH, after_id=after_id),
+                                timeout=15.0,
+                            )
+                    else:
+                        raise
                 if not batch:
                     break
                 for user in batch:
