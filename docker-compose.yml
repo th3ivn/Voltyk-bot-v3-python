@@ -1,4 +1,17 @@
 services:
+  # One-shot migration job: runs alembic upgrade head against the postgres
+  # service and exits.  The bot service waits for it to complete successfully
+  # before starting, which decouples schema migrations from bot startup and
+  # makes multi-replica rollouts safe (no concurrent ALTER TABLE locks).
+  migrate:
+    build: .
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   bot:
     build: .
     env_file: .env
@@ -7,6 +20,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
     # on_shutdown waits up to 10s for background tasks plus additional
     # teardown (chart_cache, HTTP client, DB pool).  Give Docker a 30s

@@ -78,9 +78,13 @@ class Settings(BaseSettings):
     DB_IDLE_TX_TIMEOUT_MS: int = 60000     # idle_in_transaction_session_timeout (ms)
     DB_COMMAND_TIMEOUT: int = 60           # asyncpg command_timeout (seconds)
 
-    # Set to False to skip automatic Alembic migrations on startup.
-    # Useful when migrations are run as a separate init-container step.
-    AUTO_MIGRATE: bool = True
+    # Decoupled by default: migrations run as an explicit step (docker-compose
+    # `migrate` service, Railway start-command prefix, or CI job) rather than
+    # on every bot start.  This is the only safe default for multi-replica
+    # deployments (concurrent ALTER TABLE holds EXCLUSIVE locks) and keeps
+    # single-replica boots fast and observable.  Set to True locally or in
+    # environments where the bot process is the only Alembic caller.
+    AUTO_MIGRATE: bool = False
 
     SENTRY_DSN: str = ""
     ENVIRONMENT: str = "production"
