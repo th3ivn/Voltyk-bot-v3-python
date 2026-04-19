@@ -7,6 +7,8 @@ build/
 .eggs/
 *.egg
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 env/
@@ -17,6 +19,8 @@ env/
 .mypy_cache/
 htmlcov/
 .coverage
+coverage.json
+coverage.xml
 
 # HTTP Archive files — may contain auth tokens, cookies, session IDs, or other
 # secrets captured from browser sessions.  Never commit these to the repository.
