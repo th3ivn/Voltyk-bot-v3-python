@@ -173,6 +173,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                     break
                 row_id, row_tid = row
                 telegram_id = int(row_tid)
+                await tg_rate_limiter.acquire()
                 for attempt in range(settings.TELEGRAM_MAX_RETRIES + 1):
                     try:
                         await bot.send_message(telegram_id, full_text, parse_mode="HTML")
@@ -201,7 +202,6 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                         logger.warning("Broadcast failed for user %s: %s", telegram_id, e)
                         failed += 1
                         break
-                await tg_rate_limiter.acquire()
 
                 if sent > 0 and sent % _PROGRESS_EVERY == 0:
                     try:

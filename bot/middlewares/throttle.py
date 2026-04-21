@@ -7,13 +7,14 @@ from typing import Any
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
+from bot.config import settings
 from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 _CLEANUP_INTERVAL = 300  # run cleanup every 5 minutes
 _ENTRY_TTL = 60  # remove entries inactive for 60+ seconds
-_MAX_ENTRIES = 100_000  # hard cap — sized for 100k active users
+_MAX_ENTRIES = settings.THROTTLE_MAX_ENTRIES  # configurable hard cap for active-user map
 
 
 class ThrottleMiddleware(BaseMiddleware):
@@ -40,9 +41,11 @@ class ThrottleMiddleware(BaseMiddleware):
 
                 # Hard cap: evict oldest entries if still over limit after TTL eviction
                 if len(self._last_call) > _MAX_ENTRIES:
-                    sorted_uids = sorted(self._last_call, key=lambda uid: self._last_call[uid])
+                    import heapq
+
                     excess = len(self._last_call) - _MAX_ENTRIES
-                    for uid in sorted_uids[:excess]:
+                    oldest = heapq.nsmallest(excess, self._last_call.items(), key=lambda item: item[1])
+                    for uid, _ in oldest:
                         del self._last_call[uid]
                     logger.debug(
                         "ThrottleMiddleware: evicted %d oldest entries to enforce _MAX_ENTRIES=%d cap",
