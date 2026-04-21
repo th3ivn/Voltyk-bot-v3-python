@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
 import signal
 from contextlib import suppress
@@ -131,9 +132,25 @@ async def _run_migrations() -> None:
     logger.info("Alembic migrations applied")
 
 
-async def _health_handler(_request: web.Request) -> web.Response:
+def _is_token_authorized(request: web.Request, token: str) -> bool:
+    if not token:
+        return True
+
+    header = request.headers.get("Authorization", "")
+    if header.lower().startswith("bearer "):
+        provided = header[7:].strip()
+        return hmac.compare_digest(provided, token)
+
+    query_token = request.query.get("token", "")
+    return bool(query_token) and hmac.compare_digest(query_token, token)
+
+
+async def _health_handler(request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
     from sqlalchemy import text
+
+    if not _is_token_authorized(request, settings.HEALTHCHECK_TOKEN):
+        return web.json_response({"status": "unauthorized"}, status=401)
 
     db_status = "ok"
     redis_status = "ok"
@@ -205,9 +222,12 @@ async def _health_handler(_request: web.Request) -> web.Response:
     return web.json_response(payload, status=status_code)
 
 
-async def _metrics_handler(_request: web.Request) -> web.Response:
+async def _metrics_handler(request: web.Request) -> web.Response:
     """Expose Prometheus metrics at /metrics."""
     from bot.utils.metrics import DB_POOL_CHECKED_OUT, DB_POOL_SIZE, metrics_response
+
+    if not _is_token_authorized(request, settings.METRICS_TOKEN):
+        return web.Response(status=401, text="unauthorized")
 
     try:
         pool_size = engine.pool.size()  # type: ignore[attr-defined]
@@ -229,7 +249,7 @@ async def _start_health_server() -> None:
     if _health_runner is not None:
         return
 
-    app = web.Application()
+    app = web.Application(client_max_size=1 * 1024 * 1024)
     app.router.add_get("/health", _health_handler)
     app.router.add_get("/metrics", _metrics_handler)
 
@@ -441,7 +461,7 @@ async def main() -> None:
             )
             logger.info("Webhook set: %s", webhook_url)
 
-            app = web.Application()
+            app = web.Application(client_max_size=1 * 1024 * 1024)
             app.router.add_get("/health", _health_handler)
             app.router.add_get("/metrics", _metrics_handler)
 
@@ -483,6 +503,10 @@ async def main() -> None:
                     await runner.cleanup()
         else:
             await _start_health_server()
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                tasks_concurrency_limit=settings.INBOUND_UPDATES_CONCURRENCY_LIMIT,
+            )
     finally:
         await bot.session.close()

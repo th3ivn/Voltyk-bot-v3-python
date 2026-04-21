@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     WEBHOOK_MAX_CONNECTIONS: int = 100
 
     HEALTH_PORT: int = 3000
+    HEALTHCHECK_TOKEN: str = ""
+    METRICS_TOKEN: str = ""
+
 
     GITHUB_TOKEN: str = ""
 
@@ -51,6 +54,9 @@ class Settings(BaseSettings):
 
     TELEGRAM_RATE_LIMIT_PER_SEC: int = 25
     TELEGRAM_MAX_RETRIES: int = 3
+
+    THROTTLE_MAX_ENTRIES: int = 300_000
+    INBOUND_UPDATES_CONCURRENCY_LIMIT: int = 2000
 
     SCHEDULER_BATCH_SIZE: int = 50
     SCHEDULER_STAGGER_MS: int = 20
@@ -117,6 +123,22 @@ class Settings(BaseSettings):
             except ValueError:
                 logger.warning("Skipping invalid ADMIN_ID value: %r", x)
         return result
+
+
+    @field_validator("WEBHOOK_MAX_CONNECTIONS")
+    @classmethod
+    def validate_webhook_max_connections(cls, v: int) -> int:
+        # Telegram Bot API constraint: 1..100
+        if not 1 <= v <= 100:
+            raise ValueError("WEBHOOK_MAX_CONNECTIONS must be within 1..100")
+        return v
+
+    @field_validator("THROTTLE_MAX_ENTRIES", "INBOUND_UPDATES_CONCURRENCY_LIMIT")
+    @classmethod
+    def validate_positive_capacity_settings(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Capacity settings must be >= 1")
+        return v
 
     @model_validator(mode="after")
     def _warn_default_credentials(self) -> "Settings":
