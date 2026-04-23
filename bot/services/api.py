@@ -313,7 +313,7 @@ async def fetch_schedule_data(
                 _, stale = _schedule_cache[cache_key]
                 return stale
         return None
-    except (TimeoutError, aiohttp.ClientError, json.JSONDecodeError):
+    except (TimeoutError, aiohttp.ClientError):
         return None
 
 
