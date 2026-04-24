@@ -58,11 +58,15 @@ class Settings(BaseSettings):
     THROTTLE_MAX_ENTRIES: int = 300_000
     INBOUND_UPDATES_CONCURRENCY_LIMIT: int = 2000
 
-    # DB connection pool sizing — defaults calibrated for 150k+ MAU with bursty
-    # handler concurrency.  All values overridable via ENV for per-environment
-    # tuning without code changes.
-    DB_POOL_SIZE: int = 200
-    DB_MAX_OVERFLOW: int = 100
+    # DB connection pool sizing.  Defaults are conservative (fit under the
+    # standard Postgres ``max_connections=100`` on small/managed plans) so the
+    # bot boots out-of-the-box on Railway Hobby, Neon Free, etc.  For 150k+ MAU
+    # with bursty handler concurrency, raise via ENV after verifying your
+    # Postgres plan's ``max_connections`` — the pool size across all replicas
+    # plus ``max_overflow`` must not exceed ``max_connections`` minus a small
+    # reserve for migrations/admin sessions.
+    DB_POOL_SIZE: int = 50
+    DB_MAX_OVERFLOW: int = 25
     DB_POOL_TIMEOUT_S: int = 30
     DB_POOL_RECYCLE_S: int = 1800
 

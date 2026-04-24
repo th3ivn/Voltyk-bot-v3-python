@@ -1022,6 +1022,11 @@ async def _send_schedule_notification(
                     if not is_daily_planned and cc.last_schedule_message_id:
                         await _safe_delete_message(bot, ch_id, cc.last_schedule_message_id)
 
+                    # _send_notifications_to_users acquires the rate limiter
+                    # once per user, but this path can emit a second Telegram
+                    # call when the user has a channel configured — acquire
+                    # again so large region-wide blasts stay under 25 msg/s.
+                    await tg_rate_limiter.acquire()
                     if image_bytes:
                         photo = BufferedInputFile(image_bytes, filename="schedule.png")
                         sent_ch_msg = await retry_bot_call(lambda: bot.send_photo(
