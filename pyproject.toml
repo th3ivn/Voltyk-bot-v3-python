@@ -53,6 +53,11 @@ addopts = "--tb=short -v"
 
 [tool.coverage.run]
 source = ["bot"]
+# __main__ and the top-level main() in app.py are entry-point bootstrap:
+# signal-handler setup, aiohttp web.AppRunner, polling loop.  Those paths
+# require real sockets and are exercised by integration/deploy tests, not
+# the unit suite.  Every other function in app.py IS unit-tested; see
+# tests/test_app.py for the regression guards.
 omit = ["bot/__main__.py", "bot/app.py"]
 
 [tool.coverage.report]

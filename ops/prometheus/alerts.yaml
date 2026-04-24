@@ -1,0 +1,118 @@
+groups:
+  - name: voltyk-bot.liveness
+    interval: 30s
+    rules:
+      - alert: VoltykBotPodUnhealthy
+        expr: up{job="voltyk-bot"} == 0
+        for: 2m
+        labels:
+          severity: page
+          service: voltyk-bot
+        annotations:
+          summary: "Voltyk bot pod is down ({{ $labels.instance }})"
+          description: >-
+            Prometheus has failed to scrape /metrics for 2 consecutive minutes.
+            Check Railway/Kubernetes pod logs for crashes or OOM.
+
+      - alert: VoltykBotBackgroundTaskStalled
+        expr: max by (name) (voltyk_bg_task_heartbeat_age_seconds) > 600
+        for: 5m
+        labels:
+          severity: page
+          service: voltyk-bot
+        annotations:
+          summary: "Background task {{ $labels.name }} stalled for 10+ minutes"
+          description: >-
+            Heartbeat is older than the per-task threshold.  /health is
+            probably already returning 503 — the orchestrator should restart
+            the pod, investigate why that hasn't happened.
+
+  - name: voltyk-bot.saturation
+    interval: 30s
+    rules:
+      - alert: VoltykBotDbPoolNearExhaustion
+        expr: |
+          voltyk_db_pool_checked_out / voltyk_db_pool_size > 0.85
+        for: 5m
+        labels:
+          severity: warn
+          service: voltyk-bot
+        annotations:
+          summary: "DB pool >85% checked out for 5+ minutes"
+          description: >-
+            Handler concurrency is saturating the connection pool.  Increase
+            DB_POOL_SIZE (after verifying Postgres max_connections headroom)
+            or investigate slow queries.
+
+      - alert: VoltykBotTelegramBreakerOpen
+        expr: rate(voltyk_telegram_api_calls_rejected_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warn
+          service: voltyk-bot
+        annotations:
+          summary: "Telegram API breaker is rejecting calls"
+          description: >-
+            The outbound circuit breaker has opened — likely a Telegram
+            outage or a sustained 5xx burst.  Users are not receiving
+            notifications.  Once upstream recovers, the breaker half-opens
+            automatically and this alert clears.
+
+      - alert: VoltykBotHighRateLimitWait
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(voltyk_telegram_rate_limit_wait_seconds_bucket[5m])
+          ) > 1
+        for: 10m
+        labels:
+          severity: info
+          service: voltyk-bot
+        annotations:
+          summary: "p95 Telegram rate-limit wait >1s"
+          description: >-
+            Callers are queueing behind the global 25 msg/s budget for
+            noticeable durations.  Not an outage — just saturation.
+            Acceptable during region-wide blasts; investigate only if
+            sustained outside a blackout event.
+
+  - name: voltyk-bot.correctness
+    interval: 1m
+    rules:
+      - alert: VoltykBotSchedulerFailuresSpike
+        expr: rate(voltyk_scheduler_notifications_failed_total[10m]) > 1
+        for: 10m
+        labels:
+          severity: warn
+          service: voltyk-bot
+        annotations:
+          summary: "Scheduler notification failures >1/s for 10+ minutes"
+          description: >-
+            Region {{ $labels.region }} is seeing sustained non-Forbidden
+            send failures.  Check logs for Telegram errors or DB issues.
+
+      - alert: VoltykBotCircuitBreakerTripping
+        expr: increase(voltyk_circuit_breaker_trips_total[15m]) > 3
+        for: 0m
+        labels:
+          severity: warn
+          service: voltyk-bot
+        annotations:
+          summary: "Circuit breaker {{ $labels.name }} opened 3+ times in 15 min"
+          description: >-
+            Breaker flapping indicates persistent upstream instability that
+            the 30s reset_timeout isn't long enough to recover from.
+
+      - alert: VoltykBotPowerCheckInternalErrors
+        expr: |
+          rate(voltyk_power_check_skipped_total{reason="internal_error"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warn
+          service: voltyk-bot
+        annotations:
+          summary: "Power-check safety net tripped (programming bug)"
+          description: >-
+            The outer exception handler in _check_ip_group is only reached
+            on programming bugs in the wrapper code itself — check Sentry
+            for the capture.

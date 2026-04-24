@@ -1,0 +1,246 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "DB pool utilisation",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "voltyk_db_pool_checked_out / voltyk_db_pool_size",
+          "legendFormat": "checked-out / size",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 0.6},
+              {"color": "red", "value": 0.85}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Bot memory (MB)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"voltyk-bot\"} / 1024 / 1024",
+          "legendFormat": "RSS",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Power states in memory",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "voltyk_user_states_in_memory", "refId": "A"}
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Dirty states (pending flush)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {"expr": "voltyk_dirty_states_count", "refId": "A"}
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Background task heartbeat age (seconds)",
+      "description": "Seconds since the named loop last reported liveness.  If any task crosses its per-task threshold /health flips to 503 and the pod should restart.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "voltyk_bg_task_heartbeat_age_seconds",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Telegram sends per second (by type)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(voltyk_schedule_notifications_sent_total[1m]))",
+          "legendFormat": "schedule",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(voltyk_power_notifications_sent_total[1m]))",
+          "legendFormat": "power",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(voltyk_broadcast_messages_sent_total[1m]))",
+          "legendFormat": "broadcast",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Telegram rate-limit wait (p50 / p95 / p99)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(voltyk_telegram_rate_limit_wait_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(voltyk_telegram_rate_limit_wait_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(voltyk_telegram_rate_limit_wait_seconds_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Circuit breaker trips",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "increase(voltyk_circuit_breaker_trips_total[5m])",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Scheduler notification failures by region (per second)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {
+          "expr": "rate(voltyk_scheduler_notifications_failed_total[5m])",
+          "legendFormat": "{{region}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Power-check skipped (by reason)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "targets": [
+        {
+          "expr": "rate(voltyk_power_check_skipped_total[5m])",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "DB session duration (p50 / p95 / p99)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(voltyk_db_session_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(voltyk_db_session_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(voltyk_db_session_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Schedule-fetch duration",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(voltyk_schedule_fetch_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(voltyk_schedule_fetch_errors_total[5m]))",
+          "legendFormat": "errors/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "User registrations / deactivations / deletions (per minute)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 36},
+      "targets": [
+        {
+          "expr": "increase(voltyk_user_registrations_total[1m])",
+          "legendFormat": "registrations",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(voltyk_user_deactivations_total[1m])",
+          "legendFormat": "deactivations",
+          "refId": "B"
+        },
+        {
+          "expr": "increase(voltyk_user_deletions_total[1m])",
+          "legendFormat": "deletions",
+          "refId": "C"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["voltyk", "telegram", "bot"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Voltyk Bot — Production Overview",
+  "version": 1,
+  "weekStart": ""
+}
