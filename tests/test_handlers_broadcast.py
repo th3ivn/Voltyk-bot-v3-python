@@ -799,3 +799,286 @@ class TestRunBroadcast:
             await _run_broadcast(bot, "msg", 99)
 
         assert user_send_done
+
+
+# ─── Checkpoint + resume ─────────────────────────────────────────────────
+
+
+class TestBroadcastCheckpoint:
+    """Interrupted-broadcast resume path."""
+
+    def setup_method(self):
+        _reset_broadcast_state()
+
+    async def test_save_checkpoint_writes_json(self):
+        from bot.handlers.admin.broadcast import (
+            BROADCAST_STATE_KEY,
+            _save_checkpoint,
+        )
+
+        session = AsyncMock()
+        session.commit = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch("bot.handlers.admin.broadcast.set_setting", new=AsyncMock()) as ss,
+        ):
+            await _save_checkpoint("hi", 99, 42, 100, 5, 3)
+
+        ss.assert_awaited_once()
+        _, key, payload = ss.await_args.args
+        assert key == BROADCAST_STATE_KEY
+        import json
+
+        data = json.loads(payload)
+        assert data["text"] == "hi"
+        assert data["admin_id"] == 99
+        assert data["last_id"] == 42
+        assert data["sent"] == 100
+        assert data["failed"] == 5
+        assert data["blocked"] == 3
+        assert "started_at" in data
+
+    async def test_save_checkpoint_swallows_db_error(self):
+        """A broken DB must not crash the broadcast — at worst we lose the
+        resume capability, which is strictly no worse than the pre-feature
+        behaviour."""
+        from bot.handlers.admin.broadcast import _save_checkpoint
+
+        def _boom():
+            raise Exception("db down")
+
+        with patch("bot.handlers.admin.broadcast.async_session", side_effect=_boom):
+            # Must not raise
+            await _save_checkpoint("hi", 99, 0, 0, 0, 0)
+
+    async def test_clear_checkpoint_calls_delete_setting(self):
+        from bot.handlers.admin.broadcast import _clear_checkpoint
+
+        session = AsyncMock()
+        session.commit = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch("bot.handlers.admin.broadcast.delete_setting", new=AsyncMock()) as ds,
+        ):
+            await _clear_checkpoint()
+
+        ds.assert_awaited_once()
+
+    async def test_clear_checkpoint_swallows_db_error(self):
+        from bot.handlers.admin.broadcast import _clear_checkpoint
+
+        def _boom():
+            raise Exception("db down")
+
+        with patch("bot.handlers.admin.broadcast.async_session", side_effect=_boom):
+            await _clear_checkpoint()
+
+    async def test_load_interrupted_broadcast_returns_parsed(self):
+        import json
+
+        from bot.handlers.admin.broadcast import load_interrupted_broadcast
+
+        payload = json.dumps(
+            {
+                "text": "hi",
+                "admin_id": 99,
+                "last_id": 42,
+                "sent": 100,
+                "failed": 0,
+                "blocked": 0,
+                "started_at": "2026-04-24T00:00:00+00:00",
+            }
+        )
+
+        session = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch("bot.handlers.admin.broadcast.get_setting", new=AsyncMock(return_value=payload)),
+        ):
+            result = await load_interrupted_broadcast()
+
+        assert result is not None
+        assert result["last_id"] == 42
+
+    async def test_load_interrupted_broadcast_returns_none_when_absent(self):
+        from bot.handlers.admin.broadcast import load_interrupted_broadcast
+
+        session = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch("bot.handlers.admin.broadcast.get_setting", new=AsyncMock(return_value=None)),
+        ):
+            result = await load_interrupted_broadcast()
+
+        assert result is None
+
+    async def test_load_interrupted_broadcast_handles_malformed_json(self):
+        """Corrupt payload → log and clear, return None (don't trap operator
+        on a zombie 'resume' prompt forever)."""
+        from bot.handlers.admin.broadcast import load_interrupted_broadcast
+
+        session = AsyncMock()
+        session.commit = AsyncMock()
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.async_session", return_value=session_ctx),
+            patch(
+                "bot.handlers.admin.broadcast.get_setting",
+                new=AsyncMock(return_value="not json"),
+            ),
+            patch("bot.handlers.admin.broadcast.delete_setting", new=AsyncMock()) as ds,
+        ):
+            result = await load_interrupted_broadcast()
+
+        assert result is None
+        ds.assert_awaited_once()
+
+    async def test_load_interrupted_broadcast_swallows_db_error(self):
+        from bot.handlers.admin.broadcast import load_interrupted_broadcast
+
+        def _boom():
+            raise Exception("db down")
+
+        with patch("bot.handlers.admin.broadcast.async_session", side_effect=_boom):
+            result = await load_interrupted_broadcast()
+
+        assert result is None
+
+
+class TestBroadcastResumeHandler:
+    def setup_method(self):
+        _reset_broadcast_state()
+
+    async def test_non_admin_denied(self):
+        from bot.handlers.admin.broadcast import broadcast_resume
+
+        cb = _make_callback(user_id=1)
+        with patch("bot.handlers.admin.broadcast.settings") as mock_settings:
+            mock_settings.is_admin.return_value = False
+            await broadcast_resume(cb)
+
+        cb.answer.assert_called_once_with("❌ Доступ заборонено")
+
+    async def test_no_snapshot_informs_admin(self):
+        from bot.handlers.admin.broadcast import broadcast_resume
+
+        cb = _make_callback(user_id=42)
+        with (
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+            patch(
+                "bot.handlers.admin.broadcast.load_interrupted_broadcast",
+                AsyncMock(return_value=None),
+            ),
+            patch("bot.handlers.admin.broadcast.safe_edit_text", AsyncMock()),
+        ):
+            mock_settings.is_admin.return_value = True
+            await broadcast_resume(cb)
+
+        cb.answer.assert_called_with("ℹ️ Немає перерваної розсилки", show_alert=True)
+
+    async def test_resume_starts_background_task(self):
+        import bot.handlers.admin.broadcast as bcast
+
+        cb = _make_callback(user_id=42)
+        cb.bot = AsyncMock()
+
+        snapshot = {
+            "text": "hi",
+            "admin_id": 99,
+            "last_id": 500,
+            "sent": 500,
+            "failed": 0,
+            "blocked": 0,
+        }
+
+        created_task = MagicMock()
+        created_task.done = MagicMock(return_value=False)
+
+        with (
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+            patch(
+                "bot.handlers.admin.broadcast.load_interrupted_broadcast",
+                AsyncMock(return_value=snapshot),
+            ),
+            patch("bot.handlers.admin.broadcast.safe_edit_text", AsyncMock()),
+            patch(
+                "bot.handlers.admin.broadcast.asyncio.create_task",
+                return_value=created_task,
+            ) as mock_ct,
+        ):
+            mock_settings.is_admin.return_value = True
+            await bcast.broadcast_resume(cb)
+
+        mock_ct.assert_called_once()
+
+    async def test_resume_refused_when_broadcast_already_running(self):
+        import bot.handlers.admin.broadcast as bcast
+
+        # Simulate running broadcast
+        running = MagicMock()
+        running.done = MagicMock(return_value=False)
+        bcast._active_broadcast = running
+
+        cb = _make_callback(user_id=42)
+        snapshot = {"text": "hi", "admin_id": 99, "last_id": 1}
+
+        with (
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+            patch(
+                "bot.handlers.admin.broadcast.load_interrupted_broadcast",
+                AsyncMock(return_value=snapshot),
+            ),
+        ):
+            mock_settings.is_admin.return_value = True
+            await bcast.broadcast_resume(cb)
+
+        cb.answer.assert_called_with("⚠️ Розсилка вже виконується", show_alert=True)
+        bcast._active_broadcast = None
+
+
+class TestBroadcastAbortInterrupted:
+    def setup_method(self):
+        _reset_broadcast_state()
+
+    async def test_non_admin_denied(self):
+        from bot.handlers.admin.broadcast import broadcast_abort_interrupted
+
+        cb = _make_callback(user_id=1)
+        with patch("bot.handlers.admin.broadcast.settings") as mock_settings:
+            mock_settings.is_admin.return_value = False
+            await broadcast_abort_interrupted(cb)
+
+        cb.answer.assert_called_once_with("❌ Доступ заборонено")
+
+    async def test_clears_checkpoint(self):
+        from bot.handlers.admin.broadcast import broadcast_abort_interrupted
+
+        cb = _make_callback(user_id=42)
+        with (
+            patch("bot.handlers.admin.broadcast.settings") as mock_settings,
+            patch("bot.handlers.admin.broadcast._clear_checkpoint", AsyncMock()) as cc,
+            patch("bot.handlers.admin.broadcast.safe_edit_text", AsyncMock()),
+        ):
+            mock_settings.is_admin.return_value = True
+            await broadcast_abort_interrupted(cb)
+
+        cc.assert_awaited_once()

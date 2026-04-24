@@ -90,3 +90,30 @@ class TestSetSetting:
         await set_setting(session, key="b", value="2")
 
         assert session.execute.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# delete_setting
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSetting:
+    async def test_execute_called(self):
+        from bot.db.queries.settings import delete_setting
+
+        session = _make_session()
+        await delete_setting(session, key="foo")
+
+        session.execute.assert_called_once()
+
+    async def test_no_op_on_missing_key_does_not_raise(self):
+        """delete_setting is idempotent — deleting a nonexistent row is a
+        no-op at the SQL level (DELETE returns rowcount=0)."""
+        from bot.db.queries.settings import delete_setting
+
+        session = _make_session()
+        # Simulate "no row affected" by not raising — SQLAlchemy handles
+        # this naturally; our query should not care about the result.
+        await delete_setting(session, key="never-existed")
+
+        session.execute.assert_called_once()

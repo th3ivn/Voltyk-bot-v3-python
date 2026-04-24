@@ -506,6 +506,50 @@ async def on_startup(bot: Bot) -> None:
     _bg(lambda: daily_flush_loop(bot), "daily_flush_loop")
     _bg(lambda: reminder_checker_loop(bot), "reminder_checker_loop")
 
+    # If the previous process was killed mid-broadcast (SIGTERM, OOM, crash),
+    # the checkpoint is still in the DB.  Prompt the admin who started it
+    # with a resume/abort inline keyboard — the broadcast state itself stays
+    # in the DB until they answer, so even an operator on vacation eventually
+    # sees the prompt the next time they open a chat with the bot.
+    await _probe_interrupted_broadcast(bot)
+
+
+async def _probe_interrupted_broadcast(bot: Bot) -> None:
+    """Surface a one-time resume prompt to the admin who started a broadcast
+    that was interrupted by a previous pod restart."""
+    from bot.handlers.admin.broadcast import (
+        get_interrupted_broadcast_keyboard,
+        load_interrupted_broadcast,
+    )
+
+    snap = await load_interrupted_broadcast()
+    if snap is None:
+        return
+
+    admin_id = snap.get("admin_id")
+    if admin_id is None:
+        return
+
+    summary = (
+        "⏸ <b>Перервана розсилка виявлена</b>\n\n"
+        f"📤 Надіслано: {snap.get('sent', 0)}\n"
+        f"❌ Помилок: {snap.get('failed', 0)}\n"
+        f"🚫 Заблокували: {snap.get('blocked', 0)}\n"
+        f"🔖 Зупинилися на user_id: <code>{snap.get('last_id', 0)}</code>\n\n"
+        "Продовжити розсилку з цієї точки або скасувати?"
+    )
+    try:
+        await asyncio.wait_for(
+            bot.send_message(
+                admin_id, summary, reply_markup=get_interrupted_broadcast_keyboard()
+            ),
+            timeout=5,
+        )
+    except Exception as e:
+        logger.warning(
+            "Could not notify admin %s about interrupted broadcast: %s", admin_id, e
+        )
+
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
 

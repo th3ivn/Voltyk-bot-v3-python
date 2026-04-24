@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from bot.utils.logger import get_logger
 logger = get_logger(__name__)
 
 __all__ = [
+    "delete_setting",
     "get_setting",
     "set_setting",
 ]
@@ -35,3 +36,8 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
         .on_conflict_do_update(index_elements=["key"], set_={"value": value})
     )
     await session.execute(stmt)
+
+
+async def delete_setting(session: AsyncSession, key: str) -> None:
+    """Remove a setting row.  No-op if the key does not exist."""
+    await session.execute(delete(Setting).where(Setting.key == key))

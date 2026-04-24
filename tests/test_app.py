@@ -487,3 +487,75 @@ class TestCreateBot:
         bot = app.create_bot()
         assert bot is not None
         assert bot.token == "123456:TEST-token-value-0000"
+
+
+# ─── _probe_interrupted_broadcast ─────────────────────────────────────────
+
+
+class TestProbeInterruptedBroadcast:
+    async def test_no_snapshot_is_noop(self, monkeypatch):
+        """No prior interrupted broadcast → don't message anyone."""
+        bot = AsyncMock()
+
+        async def _none():
+            return None
+
+        monkeypatch.setattr(
+            "bot.handlers.admin.broadcast.load_interrupted_broadcast", _none
+        )
+        await app._probe_interrupted_broadcast(bot)
+
+        bot.send_message.assert_not_called()
+
+    async def test_snapshot_without_admin_id_is_noop(self, monkeypatch):
+        """Defensive — malformed snapshot without admin_id shouldn't crash."""
+        bot = AsyncMock()
+
+        async def _snap():
+            return {"last_id": 1}
+
+        monkeypatch.setattr(
+            "bot.handlers.admin.broadcast.load_interrupted_broadcast", _snap
+        )
+        await app._probe_interrupted_broadcast(bot)
+
+        bot.send_message.assert_not_called()
+
+    async def test_snapshot_sends_resume_prompt(self, monkeypatch):
+        bot = AsyncMock()
+
+        snapshot = {
+            "admin_id": 99,
+            "last_id": 500,
+            "sent": 500,
+            "failed": 2,
+            "blocked": 1,
+        }
+
+        async def _snap():
+            return snapshot
+
+        monkeypatch.setattr(
+            "bot.handlers.admin.broadcast.load_interrupted_broadcast", _snap
+        )
+        await app._probe_interrupted_broadcast(bot)
+
+        bot.send_message.assert_awaited_once()
+        args, kwargs = bot.send_message.call_args
+        assert args[0] == 99
+        assert "Перервана розсилка" in args[1]
+        assert kwargs.get("reply_markup") is not None
+
+    async def test_send_failure_is_swallowed(self, monkeypatch):
+        """A failed notification must not crash startup."""
+        bot = AsyncMock()
+        bot.send_message = AsyncMock(side_effect=Exception("telegram down"))
+
+        async def _snap():
+            return {"admin_id": 99, "last_id": 1, "sent": 1, "failed": 0, "blocked": 0}
+
+        monkeypatch.setattr(
+            "bot.handlers.admin.broadcast.load_interrupted_broadcast", _snap
+        )
+        # Must not raise
+        await app._probe_interrupted_broadcast(bot)
