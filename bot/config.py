@@ -58,6 +58,33 @@ class Settings(BaseSettings):
     THROTTLE_MAX_ENTRIES: int = 300_000
     INBOUND_UPDATES_CONCURRENCY_LIMIT: int = 2000
 
+    # DB connection pool sizing — defaults calibrated for 150k+ MAU with bursty
+    # handler concurrency.  All values overridable via ENV for per-environment
+    # tuning without code changes.
+    DB_POOL_SIZE: int = 200
+    DB_MAX_OVERFLOW: int = 100
+    DB_POOL_TIMEOUT_S: int = 30
+    DB_POOL_RECYCLE_S: int = 1800
+
+    # Power-monitor in-memory state retention.  48h keeps a healthy buffer for
+    # weekend inactivity while preventing unbounded growth in pathological
+    # churn scenarios.
+    USER_STATES_STALE_HOURS: int = 48
+
+    # Maximum time allowed for the final dirty-state flush during shutdown.
+    # Must be < docker-compose stop_grace_period (30s) so SIGKILL doesn't
+    # interrupt the batch upsert mid-transaction.
+    SHUTDOWN_FLUSH_TIMEOUT_S: int = 15
+
+    # Anti-spam cooldown for admin startup/shutdown notifications. On a
+    # crashloop this prevents admins from getting hammered with every restart.
+    ADMIN_NOTIFY_COOLDOWN_S: int = 600
+
+    # Background-task heartbeat threshold. If a registered task has not
+    # reported liveness within this many seconds, /health returns 503 and
+    # a Prometheus gauge is exposed so Kubernetes/Railway will restart the pod.
+    BG_TASK_STALE_THRESHOLD_S: int = 300
+
     SCHEDULER_BATCH_SIZE: int = 50
     SCHEDULER_STAGGER_MS: int = 20
 
@@ -140,6 +167,22 @@ class Settings(BaseSettings):
             raise ValueError("Capacity settings must be >= 1")
         return v
 
+    @field_validator(
+        "DB_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_POOL_TIMEOUT_S",
+        "DB_POOL_RECYCLE_S",
+        "USER_STATES_STALE_HOURS",
+        "SHUTDOWN_FLUSH_TIMEOUT_S",
+        "ADMIN_NOTIFY_COOLDOWN_S",
+        "BG_TASK_STALE_THRESHOLD_S",
+    )
+    @classmethod
+    def validate_positive_runtime_settings(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("Runtime tuning settings must be >= 1")
+        return v
+
     @model_validator(mode="after")
     def _warn_default_credentials(self) -> "Settings":
         _default_db = "postgresql+asyncpg://postgres:postgres@localhost:5432/voltyk"
@@ -196,3 +239,34 @@ if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET.strip():
         "but Telegram or your webhook client must be configured to send the same secret token. "
         "Outside local development, use a strong random value."
     )
+
+
+def ensure_production_endpoint_tokens() -> None:
+    """Refuse to boot when /health and /metrics are served without auth.
+
+    Kept as an explicit function — not a module-level guard — so that tooling
+    that only imports :mod:`bot.config` (Alembic migrations, ad-hoc scripts,
+    unit tests) does not trip it.  The bot entrypoint calls this right before
+    the aiohttp server is started; see :func:`bot.app.main`.
+
+    An empty token in :func:`_is_token_authorized` returns True
+    unconditionally, which would expose DB pool state, memory, and per-region
+    counters to anyone who can reach the health/metrics port — so this guard
+    is the last line of defence in a production deployment.
+    """
+    if settings.ENVIRONMENT != "production":
+        return
+    missing = [
+        name for name, val in (
+            ("HEALTHCHECK_TOKEN", settings.HEALTHCHECK_TOKEN),
+            ("METRICS_TOKEN", settings.METRICS_TOKEN),
+        )
+        if not val.strip()
+    ]
+    if missing:
+        raise ValueError(
+            "The following tokens are required in production and must be set "
+            "to a strong random value: " + ", ".join(missing) + ". "
+            "An empty token disables authentication on /health and /metrics, "
+            "which leaks internal state (DB pool stats, memory, counters) to anyone."
+        )

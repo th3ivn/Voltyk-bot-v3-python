@@ -191,3 +191,115 @@ class TestDefaultCredentialWarnings:
 
         calls = [str(c) for c in mock_log.warning.call_args_list]
         assert any("DATABASE_URL" in c for c in calls)
+
+
+class TestRuntimeTuningValidation:
+    """field_validator 'validate_positive_runtime_settings' rejects zero / negative values."""
+
+    def test_db_pool_size_zero_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="Runtime tuning settings"):
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+                DB_POOL_SIZE=0,
+            )
+
+    def test_bg_task_threshold_negative_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="Runtime tuning settings"):
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+                BG_TASK_STALE_THRESHOLD_S=-1,
+            )
+
+
+class TestProductionTokenGuard:
+    """ensure_production_endpoint_tokens() blocks bot startup when tokens are empty.
+
+    The guard is an explicit function (not a module-level assertion) so that
+    Alembic migrations and other tooling can safely import bot.config even
+    before /health and /metrics tokens are provisioned.  bot.app.main() calls
+    it right before the HTTP server starts.
+    """
+
+    def _settings(self, **kwargs):
+        from bot.config import Settings
+
+        defaults = dict(
+            BOT_TOKEN="test:token",
+            DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+        )
+        defaults.update(kwargs)
+        return Settings(**defaults)
+
+    def test_missing_tokens_in_production_raises(self, monkeypatch):
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(ENVIRONMENT="production", HEALTHCHECK_TOKEN="", METRICS_TOKEN=""),
+        )
+        with pytest.raises(ValueError, match="HEALTHCHECK_TOKEN"):
+            ensure_production_endpoint_tokens()
+
+    def test_partial_tokens_still_raises(self, monkeypatch):
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="ok-token",
+                METRICS_TOKEN="",
+            ),
+        )
+        with pytest.raises(ValueError, match="METRICS_TOKEN"):
+            ensure_production_endpoint_tokens()
+
+    def test_both_tokens_set_in_production_ok(self, monkeypatch):
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="strong-token-1",
+                METRICS_TOKEN="strong-token-2",
+            ),
+        )
+        # Does not raise
+        ensure_production_endpoint_tokens()
+
+    def test_development_env_skips_token_guard(self, monkeypatch):
+        """No ValueError when ENVIRONMENT != production, even with empty tokens."""
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(ENVIRONMENT="development", HEALTHCHECK_TOKEN="", METRICS_TOKEN=""),
+        )
+        # Does not raise — development env skips the guard entirely
+        ensure_production_endpoint_tokens()
+
+    def test_whitespace_only_token_treated_as_empty(self, monkeypatch):
+        """Whitespace-only tokens must not satisfy the guard."""
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="   ",
+                METRICS_TOKEN="   ",
+            ),
+        )
+        with pytest.raises(ValueError, match="HEALTHCHECK_TOKEN"):
+            ensure_production_endpoint_tokens()

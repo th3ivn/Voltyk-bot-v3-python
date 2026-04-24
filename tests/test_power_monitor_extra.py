@@ -1748,6 +1748,50 @@ class TestSaveStatesOnShutdown:
         # wait_for not called because task was already done
         mock_wf.assert_not_called()
 
+    async def test_flush_timeout_warns_and_continues(self):
+        """TimeoutError during shutdown flush is logged but does not prevent connector close."""
+        import asyncio
+
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        async def _slow_save():
+            raise asyncio.TimeoutError()
+
+        with patch(
+            "bot.services.power_monitor._save_all_user_states",
+            side_effect=_slow_save,
+        ):
+            # Should not raise even when flush times out
+            await save_states_on_shutdown()
+
+        mock_connector.close.assert_called_once()
+        assert pm._http_connector is None
+
+    async def test_flush_generic_error_does_not_abort_shutdown(self):
+        """Non-timeout flush exception is swallowed so the connector still closes."""
+        import bot.services.power_monitor as pm
+        from bot.services.power_monitor import save_states_on_shutdown
+
+        mock_connector = AsyncMock()
+        mock_connector.closed = False
+        mock_connector.close = AsyncMock()
+        pm._http_connector = mock_connector
+
+        with patch(
+            "bot.services.power_monitor._save_all_user_states",
+            side_effect=RuntimeError("db gone"),
+        ):
+            await save_states_on_shutdown()
+
+        mock_connector.close.assert_called_once()
+        assert pm._http_connector is None
+
 
 # ─── daily_ping_error_loop ────────────────────────────────────────────────
 

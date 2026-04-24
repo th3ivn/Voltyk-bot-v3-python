@@ -13,6 +13,7 @@ from bot.db.session import async_session
 from bot.keyboards.inline import get_broadcast_cancel_keyboard
 from bot.states.fsm import BroadcastSG
 from bot.utils.logger import get_logger
+from bot.utils.metrics import BROADCAST_MESSAGES_SENT
 from bot.utils.rate_limiter import tg_rate_limiter
 from bot.utils.telegram import safe_edit_text
 
@@ -178,6 +179,7 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
                     try:
                         await bot.send_message(telegram_id, full_text, parse_mode="HTML")
                         sent += 1
+                        BROADCAST_MESSAGES_SENT.inc()
                         break
                     except TelegramForbiddenError:
                         blocked += 1
@@ -215,7 +217,13 @@ async def _run_broadcast(bot: Bot, full_text: str, admin_id: int) -> None:
             last_id = batch[-1][0] if batch else last_id
 
     except asyncio.CancelledError:
-        logger.info("Broadcast task cancelled")
+        # Happens when the bot shuts down mid-broadcast (SIGTERM → on_shutdown
+        # cancels background tasks).  Log a structured record so operators
+        # know the broadcast was interrupted and may need to be resumed.
+        logger.warning(
+            "Broadcast interrupted: sent=%d failed=%d blocked=%d last_id=%d",
+            sent, failed, blocked, last_id,
+        )
     except Exception as e:
         logger.error("Broadcast error: %s", e, exc_info=True)
         failed += 1

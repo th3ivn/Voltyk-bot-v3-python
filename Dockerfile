@@ -1,11 +1,22 @@
 FROM python:3.12-slim
 
+# Flush stdout/stderr immediately (so Docker/Railway logs are not buffered)
+# and do not write .pyc files (container FS is ephemeral; .pyc only adds I/O).
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     fonts-dejavu-core \
     libcairo2 \
     tini \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure the pip installed in the base image is recent enough to avoid bundled
+# stale-CVE false positives in pip-audit.
+RUN pip install --upgrade pip
 
 WORKDIR /app
 
