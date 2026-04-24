@@ -82,3 +82,18 @@ def mock_bot():
     bot.send_message = AsyncMock()
     bot.get_me = AsyncMock(return_value=SimpleNamespace(username="voltyk_bot"))
     return bot
+
+
+@pytest.fixture(autouse=True)
+def _reset_circuit_breakers():
+    """Module-level breakers accumulate state across tests; reset between
+    cases so one test's simulated failures don't open the breaker for the
+    next test and mask real regressions."""
+    from bot.services.api import _schedule_api_breaker
+    from bot.utils.helpers import _telegram_api_breaker
+
+    _schedule_api_breaker.reset()
+    _telegram_api_breaker.reset()
+    yield
+    _schedule_api_breaker.reset()
+    _telegram_api_breaker.reset()

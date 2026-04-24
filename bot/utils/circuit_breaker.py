@@ -102,6 +102,17 @@ class CircuitBreaker:
     def failures(self) -> int:
         return self._failures
 
+    def reset(self) -> None:
+        """Force the breaker back to CLOSED with zero failures.
+
+        Used by tests (module-level singletons leak state between test cases)
+        and by graceful shutdown paths where leaving a half-open breaker
+        behind would confuse the next run in a reused process.
+        """
+        self._state = self._CLOSED
+        self._failures = 0
+        self._opened_at = 0.0
+
     # ── Internal ──────────────────────────────────────────────────────────
 
     def _get_state(self) -> str:

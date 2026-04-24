@@ -81,6 +81,11 @@ try:
         "Admin-broadcast messages successfully delivered",
     )
 
+    TELEGRAM_API_CALLS_REJECTED = Counter(
+        "voltyk_telegram_api_calls_rejected_total",
+        "Telegram API calls rejected by the outbound circuit breaker",
+    )
+
     # ── Gauges ────────────────────────────────────────────────────────────
 
     USER_STATES_IN_MEMORY = Gauge(
@@ -174,6 +179,7 @@ except ImportError:
     POWER_CHECK_SKIPPED = _noop  # type: ignore[assignment]
     SCHEDULER_NOTIFICATIONS_FAILED = _noop  # type: ignore[assignment]
     BROADCAST_MESSAGES_SENT = _noop  # type: ignore[assignment]
+    TELEGRAM_API_CALLS_REJECTED = _noop  # type: ignore[assignment]
     USER_STATES_IN_MEMORY = _noop  # type: ignore[assignment]
     DIRTY_STATES_COUNT = _noop  # type: ignore[assignment]
     DB_POOL_SIZE = _noop  # type: ignore[assignment]

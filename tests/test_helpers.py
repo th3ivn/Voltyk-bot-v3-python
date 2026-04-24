@@ -265,6 +265,59 @@ class TestRetryBotCallUnreachable:
             await retry_bot_call(lambda: coro(), max_retries=-1)
 
 
+# ─── retry_bot_call: circuit breaker ──────────────────────────────────────
+
+
+class TestRetryBotCallCircuitBreaker:
+    """Telegram API breaker prevents the event loop from burning on doomed
+    retries when Telegram is in an outage."""
+
+    async def test_forbidden_does_not_count_as_failure(self):
+        """User-blocked errors are stable application state, not Telegram
+        fault — they must never trip the breaker."""
+        from aiogram.exceptions import TelegramForbiddenError
+
+            # Simulate many forbidden errors — should not open breaker
+        from bot.utils.helpers import _telegram_api_breaker
+
+        async def forbidden():
+            raise TelegramForbiddenError(method=MagicMock(), message="user blocked")
+
+        for _ in range(25):
+            with pytest.raises(TelegramForbiddenError):
+                await retry_bot_call(lambda: forbidden())
+
+        assert _telegram_api_breaker.state == "closed"
+        assert _telegram_api_breaker.failures == 0
+
+    async def test_transport_errors_open_breaker_and_reject_fast(self):
+        """After fail_max=20 consecutive transport failures, further calls
+        must raise CircuitBreakerOpen immediately without invoking the
+        coroutine factory."""
+        from bot.utils.circuit_breaker import CircuitBreakerOpen
+        from bot.utils.helpers import _telegram_api_breaker
+
+        call_count = 0
+
+        async def flaky():
+            nonlocal call_count
+            call_count += 1
+            raise ConnectionError("network down")
+
+        for _ in range(20):
+            with pytest.raises(ConnectionError):
+                await retry_bot_call(lambda: flaky())
+
+        assert _telegram_api_breaker.state == "open"
+        calls_before_reject = call_count
+
+        # The next call must be rejected by the breaker without touching the
+        # factory — protects the event loop during an ongoing outage.
+        with pytest.raises(CircuitBreakerOpen):
+            await retry_bot_call(lambda: flaky())
+        assert call_count == calls_before_reject
+
+
 # ─── is_valid_ip_or_domain: ValueError branch ─────────────────────────────
 
 

@@ -6,9 +6,29 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
+
+from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 _T = TypeVar("_T")
+
+# Outbound Telegram API breaker — opens after 20 consecutive *transport* or
+# 5xx failures, stays OPEN for 30s, then allows one probe.  We deliberately
+# do NOT count TelegramForbiddenError (user blocked the bot) or
+# TelegramBadRequest (malformed call — caller's bug, not Telegram's) as
+# failures — those are application-level and stable even when Telegram is
+# perfectly healthy.  TelegramRetryAfter is handled by retry_bot_call
+# itself and does not reach the breaker.
+_telegram_api_breaker = CircuitBreaker(
+    name="telegram_api",
+    fail_max=20,
+    reset_timeout=30.0,
+    exclude=(TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter),
+)
 
 _IP_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 _DOMAIN_RE = re.compile(
@@ -38,10 +58,25 @@ async def retry_bot_call(
 
     Pass a lambda so a fresh coroutine is created for each attempt:
         await retry_bot_call(lambda: bot.send_message(chat_id, text))
+
+    Guarded by a module-level circuit breaker keyed on "telegram_api".  When
+    Telegram is experiencing a real outage (connection errors, 5xx bursts),
+    the breaker opens and subsequent calls raise :class:`CircuitBreakerOpen`
+    immediately instead of burning the event loop on doomed retries.  Each
+    caller that wraps send/edit in a try/except (every bulk path already
+    does) will degrade gracefully, letting the background loops survive the
+    outage and resume on recovery.
     """
     for attempt in range(max_retries + 1):
         try:
-            return await coro_factory()
+            return await _telegram_api_breaker.call(coro_factory)
+        except CircuitBreakerOpen:
+            # Surface as a Telegram-adjacent exception so existing callers'
+            # ``except Exception`` blocks continue to work without a new
+            # dependency on the circuit-breaker module.
+            from bot.utils.metrics import TELEGRAM_API_CALLS_REJECTED  # noqa: PLC0415
+            TELEGRAM_API_CALLS_REJECTED.inc()
+            raise
         except TelegramRetryAfter as e:
             if attempt >= max_retries:
                 raise

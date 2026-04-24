@@ -808,6 +808,13 @@ async def _check_all_ips(bot: Bot) -> None:
             semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
 
             async def _check_ip_group(ip: str, group_users: list) -> None:
+                # check_router_http never raises (it converts all errors to
+                # False/None internally), so this outer handler is a pure
+                # safety-net for programming bugs in the wrapper code —
+                # unexpected AttributeError, semaphore.__aenter__ crashing,
+                # etc.  Keep the loop alive for the rest of the region even
+                # if one group's scaffolding misbehaves, but flag loudly via
+                # Sentry — this is not a transient Telegram/network issue.
                 try:
                     async with semaphore:
                         ping_result = await check_router_http(ip)
@@ -815,19 +822,18 @@ async def _check_all_ips(bot: Bot) -> None:
                         try:
                             await _check_user_power(bot, u, is_available=ping_result)
                         except Exception as user_exc:
-                            # Never let a single user's state-machine error skip the rest
-                            # of the group — log, increment the metric, move on.
                             logger.error(
                                 "Error checking power for user %s: %s",
                                 getattr(u, "telegram_id", "?"), user_exc, exc_info=True,
                             )
                             POWER_CHECK_SKIPPED.labels(reason="handler_error").inc()
+                            sentry_sdk.capture_exception(user_exc)
                 except Exception as group_exc:
                     logger.error(
-                        "Error checking IP group %s (%d users): %s",
+                        "Internal error in IP group %s (%d users): %s",
                         ip, len(group_users), group_exc, exc_info=True,
                     )
-                    POWER_CHECK_SKIPPED.labels(reason="ping_error").inc()
+                    POWER_CHECK_SKIPPED.labels(reason="internal_error").inc()
                     sentry_sdk.capture_exception(group_exc)
 
             await asyncio.gather(*[

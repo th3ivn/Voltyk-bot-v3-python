@@ -152,7 +152,13 @@ class Settings(BaseSettings):
             try:
                 result.append(int(x))
             except ValueError:
-                logger.warning("Skipping invalid ADMIN_ID value: %r", x)
+                # Fail fast — a typo in ADMIN_IDS would otherwise silently drop
+                # the affected admin, and the operator would only notice days
+                # later when that admin doesn't receive critical alerts.
+                raise ValueError(
+                    f"Invalid ADMIN_ID value {x!r}: must be a comma-separated "
+                    "list of Telegram user IDs (integers)."
+                ) from None
         return result
 
 

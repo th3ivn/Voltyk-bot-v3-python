@@ -29,15 +29,22 @@ class TestParseAdminIds:
         s = self._make_settings(",789,")
         assert s.ADMIN_IDS == [789]
 
-    def test_invalid_non_integer_id_skipped_with_warning(self):
-        """Lines 94-95: non-integer admin ID → warning logged, entry skipped."""
-        s = self._make_settings("111,abc,222")
-        assert s.ADMIN_IDS == [111, 222]
+    def test_invalid_non_integer_id_raises(self):
+        """Non-integer admin ID must fail loudly — a typo in ADMIN_IDS that
+        silently drops an admin would be noticed only when that admin fails
+        to receive alerts, which is far worse than a loud startup failure."""
+        from pydantic import ValidationError
 
-    def test_all_invalid_returns_empty(self):
-        """Lines 94-95: all non-integer → empty list."""
-        s = self._make_settings("foo,bar")
-        assert s.ADMIN_IDS == []
+        with pytest.raises(ValidationError, match="Invalid ADMIN_ID"):
+            self._make_settings("111,abc,222")
+
+    def test_all_invalid_raises(self):
+        """Even if every entry is invalid — still fail fast, do not silently
+        coerce to an empty list."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid ADMIN_ID"):
+            self._make_settings("foo,bar")
 
     def test_list_passthrough(self):
         """mode='before' with list input → returned as-is."""

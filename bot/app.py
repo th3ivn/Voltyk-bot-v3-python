@@ -190,39 +190,24 @@ def _is_token_authorized(request: web.Request, token: str) -> bool:
 
 
 async def _health_handler(request: web.Request) -> web.Response:
-    """Shared /health handler used in both polling and webhook modes."""
-    from sqlalchemy import text
+    """Kubernetes/Railway *liveness* probe.
 
+    Liveness answers: "is this process progressing or is it stuck?"  A liveness
+    failure restarts the pod, so we must only fail for problems a restart can
+    actually fix — i.e. background-task deadlock / crash loops.  A transient
+    DB or Redis outage is *not* a liveness problem (restart won't help, and
+    cycling pods during a DB blip makes the incident worse); that's what the
+    separate /ready endpoint is for.
+
+    503 here → orchestrator restart.  200 otherwise.
+    """
     if not _is_token_authorized(request, settings.HEALTHCHECK_TOKEN):
         return web.json_response({"status": "unauthorized"}, status=401)
 
-    db_status = "ok"
-    redis_status = "ok"
-    healthy = True
+    stale_tasks = heartbeat.stale_tasks(settings.BG_TASK_STALE_THRESHOLD_S)
+    healthy = not stale_tasks
 
-    try:
-        async def _check_db() -> None:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-
-        await asyncio.wait_for(_check_db(), timeout=3)
-    except Exception as e:
-        logger.debug("Health check: DB unreachable: %s", e)
-        db_status = "unreachable"
-        healthy = False
-
-    try:
-        async def _check_redis() -> None:
-            if chart_cache.is_usable():
-                await chart_cache.ping()
-
-        await asyncio.wait_for(_check_redis(), timeout=3)
-    except Exception as e:
-        logger.debug("Health check: Redis unreachable: %s", e)
-        redis_status = "unreachable"
-        healthy = False
-
-    # ── Extended diagnostics (non-blocking) ──────────────────────────────
+    # ── Extended diagnostics (non-blocking, for operator debugging) ──────
     memory_mb: int | None = None
     try:
         import resource
@@ -248,19 +233,7 @@ async def _health_handler(request: web.Request) -> web.Response:
     except Exception:
         pass
 
-    # ── Background-task liveness ─────────────────────────────────────────
-    # Each loop emits a heartbeat on every iteration.  If any registered task
-    # is past the stale threshold, flip to unhealthy so the orchestrator
-    # restarts the pod instead of silently letting users miss notifications.
-    stale_tasks = heartbeat.stale_tasks(settings.BG_TASK_STALE_THRESHOLD_S)
-    if stale_tasks:
-        healthy = False
-
-    payload: dict = {
-        "status": "ok" if healthy else "degraded",
-        "db": db_status,
-        "redis": redis_status,
-    }
+    payload: dict = {"status": "ok" if healthy else "degraded"}
     if memory_mb is not None:
         payload["memory_mb"] = memory_mb
     if pool_size is not None:
@@ -280,6 +253,54 @@ async def _health_handler(request: web.Request) -> web.Response:
 
     status_code = 200 if healthy else 503
     return web.json_response(payload, status=status_code)
+
+
+async def _ready_handler(request: web.Request) -> web.Response:
+    """Kubernetes/Railway *readiness* probe.
+
+    Readiness answers: "should the load balancer send me new traffic?"  It is
+    independent from liveness — a readiness failure stops routing traffic but
+    does NOT restart the pod, so it's the right place to fail on transient
+    dependency outages (DB, Redis).  When the dependency recovers, readiness
+    flips back to green and traffic resumes without a restart.
+    """
+    from sqlalchemy import text
+
+    if not _is_token_authorized(request, settings.HEALTHCHECK_TOKEN):
+        return web.json_response({"status": "unauthorized"}, status=401)
+
+    db_status = "ok"
+    redis_status = "ok"
+    ready = True
+
+    try:
+        async def _check_db() -> None:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+
+        await asyncio.wait_for(_check_db(), timeout=3)
+    except Exception as e:
+        logger.debug("Readiness: DB unreachable: %s", e)
+        db_status = "unreachable"
+        ready = False
+
+    try:
+        async def _check_redis() -> None:
+            if chart_cache.is_usable():
+                await chart_cache.ping()
+
+        await asyncio.wait_for(_check_redis(), timeout=3)
+    except Exception as e:
+        logger.debug("Readiness: Redis unreachable: %s", e)
+        redis_status = "unreachable"
+        ready = False
+
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "db": db_status,
+        "redis": redis_status,
+    }
+    return web.json_response(payload, status=200 if ready else 503)
 
 
 async def _metrics_handler(request: web.Request) -> web.Response:
@@ -315,6 +336,7 @@ async def _start_health_server() -> None:
 
     app = web.Application(client_max_size=1 * 1024 * 1024)
     app.router.add_get("/health", _health_handler)
+    app.router.add_get("/ready", _ready_handler)
     app.router.add_get("/metrics", _metrics_handler)
 
     port = int(os.getenv("PORT", "") or settings.HEALTH_PORT)
