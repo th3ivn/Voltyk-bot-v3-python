@@ -240,22 +240,33 @@ if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET.strip():
         "Outside local development, use a strong random value."
     )
 
-# Refuse to boot in production when the /health and /metrics endpoints are
-# left unauthenticated — an empty token in _is_token_authorized() returns True
-# unconditionally, which would expose internal diagnostics (DB pool state,
-# memory, per-region counters) to the public internet.
-if settings.ENVIRONMENT == "production":
-    _missing_tokens = [
+
+def ensure_production_endpoint_tokens() -> None:
+    """Refuse to boot when /health and /metrics are served without auth.
+
+    Kept as an explicit function — not a module-level guard — so that tooling
+    that only imports :mod:`bot.config` (Alembic migrations, ad-hoc scripts,
+    unit tests) does not trip it.  The bot entrypoint calls this right before
+    the aiohttp server is started; see :func:`bot.app.main`.
+
+    An empty token in :func:`_is_token_authorized` returns True
+    unconditionally, which would expose DB pool state, memory, and per-region
+    counters to anyone who can reach the health/metrics port — so this guard
+    is the last line of defence in a production deployment.
+    """
+    if settings.ENVIRONMENT != "production":
+        return
+    missing = [
         name for name, val in (
             ("HEALTHCHECK_TOKEN", settings.HEALTHCHECK_TOKEN),
             ("METRICS_TOKEN", settings.METRICS_TOKEN),
         )
         if not val.strip()
     ]
-    if _missing_tokens:
+    if missing:
         raise ValueError(
             "The following tokens are required in production and must be set "
-            "to a strong random value: " + ", ".join(_missing_tokens) + ". "
+            "to a strong random value: " + ", ".join(missing) + ". "
             "An empty token disables authentication on /health and /metrics, "
             "which leaks internal state (DB pool stats, memory, counters) to anyone."
         )

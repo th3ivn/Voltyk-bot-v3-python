@@ -22,7 +22,7 @@ from alembic.config import Config as AlembicConfig
 from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
-from bot.config import settings
+from bot.config import ensure_production_endpoint_tokens, settings
 from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
@@ -525,6 +525,12 @@ async def on_shutdown(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
+
+    # Fail fast if /health or /metrics would be exposed without auth in
+    # production — empty tokens leak internal state.  Done here (not at
+    # import) so tooling such as Alembic migrations can still import the
+    # config module without tripping the guard.
+    ensure_production_endpoint_tokens()
 
     bot = create_bot()
     dp = create_dispatcher()

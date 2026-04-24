@@ -222,58 +222,84 @@ class TestRuntimeTuningValidation:
 
 
 class TestProductionTokenGuard:
-    """Module-level guard: ENVIRONMENT=production requires HEALTHCHECK_TOKEN + METRICS_TOKEN."""
+    """ensure_production_endpoint_tokens() blocks bot startup when tokens are empty.
+
+    The guard is an explicit function (not a module-level assertion) so that
+    Alembic migrations and other tooling can safely import bot.config even
+    before /health and /metrics tokens are provisioned.  bot.app.main() calls
+    it right before the HTTP server starts.
+    """
+
+    def _settings(self, **kwargs):
+        from bot.config import Settings
+
+        defaults = dict(
+            BOT_TOKEN="test:token",
+            DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+        )
+        defaults.update(kwargs)
+        return Settings(**defaults)
 
     def test_missing_tokens_in_production_raises(self, monkeypatch):
-        monkeypatch.setenv("BOT_TOKEN", "test:token")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.setenv("HEALTHCHECK_TOKEN", "")
-        monkeypatch.setenv("METRICS_TOKEN", "")
-        monkeypatch.setenv("USE_WEBHOOK", "false")
-        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+        from bot.config import ensure_production_endpoint_tokens
 
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(ENVIRONMENT="production", HEALTHCHECK_TOKEN="", METRICS_TOKEN=""),
+        )
         with pytest.raises(ValueError, match="HEALTHCHECK_TOKEN"):
-            importlib.import_module("bot.config")
+            ensure_production_endpoint_tokens()
 
     def test_partial_tokens_still_raises(self, monkeypatch):
-        monkeypatch.setenv("BOT_TOKEN", "test:token")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.setenv("HEALTHCHECK_TOKEN", "ok-token")
-        monkeypatch.setenv("METRICS_TOKEN", "")
-        monkeypatch.setenv("USE_WEBHOOK", "false")
-        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+        from bot.config import ensure_production_endpoint_tokens
 
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="ok-token",
+                METRICS_TOKEN="",
+            ),
+        )
         with pytest.raises(ValueError, match="METRICS_TOKEN"):
-            importlib.import_module("bot.config")
+            ensure_production_endpoint_tokens()
 
     def test_both_tokens_set_in_production_ok(self, monkeypatch):
-        monkeypatch.setenv("BOT_TOKEN", "test:token")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.setenv("HEALTHCHECK_TOKEN", "strong-token-1")
-        monkeypatch.setenv("METRICS_TOKEN", "strong-token-2")
-        monkeypatch.setenv("USE_WEBHOOK", "false")
-        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+        from bot.config import ensure_production_endpoint_tokens
 
-        mod = importlib.import_module("bot.config")
-        assert mod.settings.HEALTHCHECK_TOKEN == "strong-token-1"
-        assert mod.settings.METRICS_TOKEN == "strong-token-2"
-        # Restore development-env for subsequent tests
-        monkeypatch.setenv("ENVIRONMENT", "development")
-        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
-        importlib.import_module("bot.config")
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="strong-token-1",
+                METRICS_TOKEN="strong-token-2",
+            ),
+        )
+        # Does not raise
+        ensure_production_endpoint_tokens()
 
     def test_development_env_skips_token_guard(self, monkeypatch):
         """No ValueError when ENVIRONMENT != production, even with empty tokens."""
-        monkeypatch.setenv("BOT_TOKEN", "test:token")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
-        monkeypatch.setenv("ENVIRONMENT", "development")
-        monkeypatch.setenv("HEALTHCHECK_TOKEN", "")
-        monkeypatch.setenv("METRICS_TOKEN", "")
-        monkeypatch.setenv("USE_WEBHOOK", "false")
-        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+        from bot.config import ensure_production_endpoint_tokens
 
-        mod = importlib.import_module("bot.config")
-        assert mod.settings.ENVIRONMENT == "development"
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(ENVIRONMENT="development", HEALTHCHECK_TOKEN="", METRICS_TOKEN=""),
+        )
+        # Does not raise — development env skips the guard entirely
+        ensure_production_endpoint_tokens()
+
+    def test_whitespace_only_token_treated_as_empty(self, monkeypatch):
+        """Whitespace-only tokens must not satisfy the guard."""
+        from bot.config import ensure_production_endpoint_tokens
+
+        monkeypatch.setattr(
+            "bot.config.settings",
+            self._settings(
+                ENVIRONMENT="production",
+                HEALTHCHECK_TOKEN="   ",
+                METRICS_TOKEN="   ",
+            ),
+        )
+        with pytest.raises(ValueError, match="HEALTHCHECK_TOKEN"):
+            ensure_production_endpoint_tokens()
