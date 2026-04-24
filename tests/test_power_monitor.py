@@ -1202,6 +1202,84 @@ class TestCheckAllIps:
 
         mock_task.cancel.assert_called_once()
 
+    async def test_user_handler_error_does_not_stop_group(self):
+        """Safety-net: a single user's _check_user_power exception must not skip the rest."""
+        from bot.services.power_monitor import _check_all_ips
+
+        bot_mock = AsyncMock()
+        users = [
+            _make_pm_user(telegram_id="111", router_ip="1.2.3.4"),
+            _make_pm_user(telegram_id="222", router_ip="1.2.3.4"),
+            _make_pm_user(telegram_id="333", router_ip="1.2.3.4"),
+        ]
+
+        call_ids: list[str] = []
+
+        async def _maybe_fail(_bot, user, is_available=None):
+            call_ids.append(str(user.telegram_id))
+            if user.telegram_id == "222":
+                raise RuntimeError("boom")
+
+        mock_session = _make_mock_session()
+        with _patch_pm_async_session(mock_session):
+            with (
+                patch(
+                    "bot.services.power_monitor.get_users_with_ip_cursor",
+                    AsyncMock(return_value=users),
+                ),
+                patch(
+                    "bot.services.power_monitor.check_router_http",
+                    AsyncMock(return_value=True),
+                ),
+                patch(
+                    "bot.services.power_monitor._check_user_power",
+                    side_effect=_maybe_fail,
+                ),
+            ):
+                await _check_all_ips(bot_mock)
+
+        assert call_ids == ["111", "222", "333"]
+
+    async def test_ping_error_captured_per_group(self):
+        """Safety-net: if check_router_http raises, the group is skipped but others continue."""
+        from bot.services.power_monitor import _check_all_ips
+
+        bot_mock = AsyncMock()
+        good_user = _make_pm_user(telegram_id="111", router_ip="1.2.3.4")
+        bad_user = _make_pm_user(telegram_id="222", router_ip="5.6.7.8")
+
+        async def _ping(ip):
+            if ip == "5.6.7.8":
+                raise RuntimeError("ping crashed")
+            return True
+
+        touched: list[str] = []
+
+        async def _check(_bot, user, is_available=None):
+            touched.append(str(user.telegram_id))
+
+        mock_session = _make_mock_session()
+        with _patch_pm_async_session(mock_session):
+            with (
+                patch(
+                    "bot.services.power_monitor.get_users_with_ip_cursor",
+                    AsyncMock(return_value=[good_user, bad_user]),
+                ),
+                patch(
+                    "bot.services.power_monitor.check_router_http",
+                    side_effect=_ping,
+                ),
+                patch(
+                    "bot.services.power_monitor._check_user_power",
+                    side_effect=_check,
+                ),
+                patch("bot.services.power_monitor.sentry_sdk.capture_exception"),
+            ):
+                await _check_all_ips(bot_mock)
+
+        # Only the good user was checked; bad group was skipped gracefully
+        assert touched == ["111"]
+
 
 # ─── _handle_power_state_change ──────────────────────────────────────────
 

@@ -8,6 +8,9 @@ import os
 os.environ.setdefault("BOT_TOKEN", "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+# Tests run with ENVIRONMENT=development so the production-only token
+# requirement in bot.config does not reject the blank tokens below.
+os.environ.setdefault("ENVIRONMENT", "development")
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock

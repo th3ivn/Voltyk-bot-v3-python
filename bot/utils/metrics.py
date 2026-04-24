@@ -64,6 +64,23 @@ try:
         "Total user data deletion requests confirmed",
     )
 
+    POWER_CHECK_SKIPPED = Counter(
+        "voltyk_power_check_skipped_total",
+        "Power-check iterations skipped for a user or IP group",
+        ["reason"],  # "ping_error" | "lock_contention" | "handler_error"
+    )
+
+    SCHEDULER_NOTIFICATIONS_FAILED = Counter(
+        "voltyk_scheduler_notifications_failed_total",
+        "Schedule notification send failures (non-FORBIDDEN)",
+        ["region"],
+    )
+
+    BROADCAST_MESSAGES_SENT = Counter(
+        "voltyk_broadcast_messages_sent_total",
+        "Admin-broadcast messages successfully delivered",
+    )
+
     # ── Gauges ────────────────────────────────────────────────────────────
 
     USER_STATES_IN_MEMORY = Gauge(
@@ -84,6 +101,12 @@ try:
     DB_POOL_CHECKED_OUT = Gauge(
         "voltyk_db_pool_checked_out",
         "SQLAlchemy connection pool: connections currently in use",
+    )
+
+    BG_TASK_HEARTBEAT_AGE_SECONDS = Gauge(
+        "voltyk_bg_task_heartbeat_age_seconds",
+        "Seconds since the named background task last reported liveness",
+        ["name"],
     )
 
     # ── Histograms ────────────────────────────────────────────────────────
@@ -148,10 +171,14 @@ except ImportError:
     USER_REGISTRATIONS_TOTAL = _noop  # type: ignore[assignment]
     USER_DEACTIVATIONS_TOTAL = _noop  # type: ignore[assignment]
     USER_DELETIONS_TOTAL = _noop  # type: ignore[assignment]
+    POWER_CHECK_SKIPPED = _noop  # type: ignore[assignment]
+    SCHEDULER_NOTIFICATIONS_FAILED = _noop  # type: ignore[assignment]
+    BROADCAST_MESSAGES_SENT = _noop  # type: ignore[assignment]
     USER_STATES_IN_MEMORY = _noop  # type: ignore[assignment]
     DIRTY_STATES_COUNT = _noop  # type: ignore[assignment]
     DB_POOL_SIZE = _noop  # type: ignore[assignment]
     DB_POOL_CHECKED_OUT = _noop  # type: ignore[assignment]
+    BG_TASK_HEARTBEAT_AGE_SECONDS = _noop  # type: ignore[assignment]
     SCHEDULE_FETCH_DURATION = _noop  # type: ignore[assignment]
     NOTIFICATION_BLAST_DURATION = _noop  # type: ignore[assignment]
     TELEGRAM_RATE_LIMIT_WAIT_SECONDS = _noop  # type: ignore[assignment]

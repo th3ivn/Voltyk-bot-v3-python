@@ -69,11 +69,11 @@ _connect_args["server_settings"].setdefault(
 
 engine = create_async_engine(
     _clean_url,
-    pool_size=100,
-    max_overflow=50,
-    pool_timeout=60,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT_S,
     pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_recycle=settings.DB_POOL_RECYCLE_S,
     pool_use_lifo=True,  # reuse recently-returned connections → fewer idle sockets at low load
     connect_args=_connect_args,
 )

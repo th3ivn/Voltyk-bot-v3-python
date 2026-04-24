@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 import sentry_sdk
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
 from bot.constants.regions import REGIONS
@@ -45,12 +49,14 @@ from bot.services.api import (
     parse_schedule_for_queue,
 )
 from bot.services.power_monitor import update_power_notifications_on_schedule_change
+from bot.utils import heartbeat
 from bot.utils.helpers import retry_bot_call
 from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
 from bot.utils.logger import get_logger
 from bot.utils.metrics import (
     NOTIFICATION_BLAST_DURATION,
     SCHEDULE_NOTIFICATIONS_SENT,
+    SCHEDULER_NOTIFICATIONS_FAILED,
     TELEGRAM_RETRY_AFTER_TOTAL,
 )
 from bot.utils.rate_limiter import tg_rate_limiter
@@ -62,6 +68,40 @@ _running = False
 DEFAULT_SCHEDULE_CHECK_INTERVAL_S = 60
 _DB_SCAN_BATCH_SIZE = 1000  # batch size for scanning active users in background loops
 KYIV_TZ = settings.timezone
+
+HEARTBEAT_SCHEDULE_CHECKER = "schedule_checker_loop"
+HEARTBEAT_DAILY_FLUSH = "daily_flush_loop"
+HEARTBEAT_REMINDER_CHECKER = "reminder_checker_loop"
+
+# Arbitrary stable 32-bit key used with pg_try_advisory_xact_lock to prevent
+# cross-replica duplicate notification sends.  Any same-process attempt just
+# falls through to the asyncio lock below.
+_SCHEDULER_NOTIFY_LOCK_KEY = 0x1F07B01
+
+
+@asynccontextmanager
+async def _scheduler_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[bool]:
+    """Try to acquire a Postgres transaction-scoped advisory lock.
+
+    Yields True when the lock was acquired (caller should proceed) or False
+    when another replica holds it (caller should skip this iteration cleanly
+    rather than duplicating work).  The lock is released automatically when
+    the session's current transaction commits or rolls back.
+
+    Gracefully degrades if the backing DB is not PostgreSQL (e.g. a sqlite
+    unit test): logs a debug message and yields True so the caller proceeds
+    as if uncontested.
+    """
+    try:
+        result = await session.execute(
+            text("SELECT pg_try_advisory_xact_lock(:k)").bindparams(k=key)
+        )
+        acquired = bool(result.scalar())
+    except Exception as exc:  # pragma: no cover — sqlite / non-pg backends
+        logger.debug("Advisory lock not supported by backend: %s", exc)
+        yield True
+        return
+    yield acquired
 
 
 async def _deactivate_blocked_user(telegram_id: int | str) -> None:
@@ -205,6 +245,7 @@ async def schedule_checker_loop(bot: Bot) -> None:
     global _running
     _running = True
     logger.info("Schedule checker started")
+    heartbeat.register(HEARTBEAT_SCHEDULE_CHECKER)
 
     while _running:
         interval = await _get_schedule_interval()
@@ -214,6 +255,7 @@ async def schedule_checker_loop(bot: Bot) -> None:
             logger.error("Schedule check error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
+        heartbeat.beat(HEARTBEAT_SCHEDULE_CHECKER)
         logger.debug("Next schedule check in %ds", interval)
         await asyncio.sleep(interval)
 
@@ -229,8 +271,30 @@ async def _check_all_schedules(
         return
     logger.info("Source repo updated, checking all schedules")
 
-    # Hold the lock for the entire check cycle so that a concurrent 06:00 flush
-    # cannot race with the checker and send duplicate notifications.
+    # Cross-replica: transaction-scoped advisory lock in Postgres.  If another
+    # replica is already running a check cycle, skip cleanly rather than send
+    # duplicates.  Same-process races are additionally covered by _notify_lock.
+    async with async_session() as _lock_session:
+        async with _scheduler_advisory_lock(_lock_session, _SCHEDULER_NOTIFY_LOCK_KEY) as acquired:
+            if not acquired:
+                logger.info(
+                    "Schedule checker: advisory lock held by another replica, skipping this cycle"
+                )
+                return
+            # The advisory lock is released when this session's transaction
+            # finishes (at session close below) — keep it open for the full
+            # cycle and commit inside the `async with` block.
+            await _check_all_schedules_locked(bot, interval, _lock_session)
+
+
+async def _check_all_schedules_locked(
+    bot: Bot, interval: int, lock_session: AsyncSession
+) -> None:
+    # lock_session is kept open by the caller for the duration of this call;
+    # closing it releases the transaction-scoped Postgres advisory lock.
+    del lock_session  # contract-only parameter; see _check_all_schedules
+    # Hold the process-local lock for the full cycle so the 06:00 flush job
+    # cannot run in parallel inside the same process.
     async with _notify_lock:
         async with async_session() as session:
             region_queue_pairs = set(await get_distinct_region_queue_pairs(session))
@@ -462,6 +526,19 @@ async def flush_pending_notifications(bot: Bot) -> None:
     """
     logger.info("Running 06:00 notification flush")
 
+    # Cross-replica mutual exclusion: skip if another replica is running the
+    # flush already.  Same-process races are covered by _notify_lock below.
+    async with async_session() as _lock_session:
+        async with _scheduler_advisory_lock(_lock_session, _SCHEDULER_NOTIFY_LOCK_KEY) as acquired:
+            if not acquired:
+                logger.info(
+                    "Daily flush: advisory lock held by another replica, skipping"
+                )
+                return
+            await _flush_pending_notifications_locked(bot)
+
+
+async def _flush_pending_notifications_locked(bot: Bot) -> None:
     # Hold the lock so the periodic checker cannot race with this flush and
     # send duplicate notifications for the same schedule data.
     async with _notify_lock:
@@ -694,6 +771,7 @@ async def catch_up_missed_reminders(bot: Bot) -> None:
 async def daily_flush_loop(bot: Bot) -> None:
     """Wait until next 06:00 Kyiv time, then flush pending notifications, repeat."""
     logger.info("Daily flush loop started")
+    heartbeat.register(HEARTBEAT_DAILY_FLUSH)
 
     while _running:
         now = datetime.now(KYIV_TZ)
@@ -728,6 +806,8 @@ async def daily_flush_loop(bot: Bot) -> None:
         except Exception as e:
             logger.error("Post-quiet-hours reminder catch-up error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
+
+        heartbeat.beat(HEARTBEAT_DAILY_FLUSH)
 
 
 # ─── Notification sending ─────────────────────────────────────────────────
@@ -917,6 +997,7 @@ async def _send_schedule_notification(
                     "Failed to send schedule notification to user %s: %s",
                     fresh_user.telegram_id, e,
                 )
+                SCHEDULER_NOTIFICATIONS_FAILED.labels(region=fresh_user.region).inc()
 
         # ── Send to channel ─────────────────────────────────────────────────
         cc = fresh_user.channel_config
@@ -993,11 +1074,13 @@ _REMIND_TYPE_MAP   = {60: "1h",           30: "30m",            15: "15m"}
 async def reminder_checker_loop(bot: Bot) -> None:
     """Check every 60 seconds for upcoming events and send/clean up reminders."""
     logger.info("Reminder checker loop started")
+    heartbeat.register(HEARTBEAT_REMINDER_CHECKER)
     while _running:
         try:
             await _check_and_send_reminders(bot)
         except Exception as e:
             logger.error("Reminder checker error: %s", e, exc_info=True)
+        heartbeat.beat(HEARTBEAT_REMINDER_CHECKER)
         await asyncio.sleep(60)
 
 
@@ -1281,6 +1364,7 @@ async def _send_reminder(
 
     if send_to_bot:
         try:
+            await tg_rate_limiter.acquire()
             msg = await retry_bot_call(
                 lambda: bot.send_message(int(user.telegram_id), text, parse_mode="HTML", reply_markup=kb)
             )
@@ -1299,6 +1383,7 @@ async def _send_reminder(
                 ch_id = int(cc.channel_id)
             except (ValueError, TypeError):
                 ch_id = cc.channel_id
+            await tg_rate_limiter.acquire()
             ch_msg = await retry_bot_call(
                 lambda: bot.send_message(ch_id, text, parse_mode="HTML")
             )

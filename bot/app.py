@@ -5,7 +5,7 @@ import hmac
 import os
 import signal
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 
 import alembic.command as alembic_command
 import sentry_sdk
@@ -23,7 +23,7 @@ from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
 from bot.config import settings
-from bot.db.queries import get_setting
+from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.middlewares.db import DbSessionMiddleware
@@ -49,6 +49,7 @@ from bot.services.scheduler import (
     schedule_checker_loop,
     stop_scheduler,
 )
+from bot.utils import heartbeat
 from bot.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -116,8 +117,46 @@ def _bg(coro_factory, name: str) -> asyncio.Task:
     return task
 
 
+async def _admin_notify_cooldown_ok(event: str) -> bool:
+    """Return True if we're allowed to send an admin startup/shutdown notice.
+
+    Uses a shared DB-backed timestamp under the ``admin_notify_last_at`` key
+    so that every replica honours the same cooldown window.  The event name
+    (``"startup"`` / ``"shutdown"``) is only used for logging.
+    """
+    cooldown_s = settings.ADMIN_NOTIFY_COOLDOWN_S
+    if cooldown_s <= 0:
+        return True
+    key = "admin_notify_last_at"
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    try:
+        async with async_session() as session:
+            raw = await get_setting(session, key)
+            if raw:
+                try:
+                    last_ts = int(raw)
+                except ValueError:
+                    last_ts = 0
+                if now_ts - last_ts < cooldown_s:
+                    logger.info(
+                        "Suppressing admin %s notice (last sent %ds ago, cooldown %ds)",
+                        event, now_ts - last_ts, cooldown_s,
+                    )
+                    return False
+            await set_setting(session, key, str(now_ts))
+            await session.commit()
+    except Exception as e:
+        logger.warning("Admin-notify cooldown check failed, sending anyway: %s", e)
+    return True
+
+
 async def _run_migrations() -> None:
-    """Apply pending Alembic migrations programmatically at startup."""
+    """Apply pending Alembic migrations programmatically at startup.
+
+    Any failure is re-raised as a RuntimeError so aiogram's dispatcher startup
+    aborts and the container is restarted by the orchestrator — running the
+    bot against a partially-migrated schema risks silent data corruption.
+    """
 
     def _upgrade() -> None:
         # Resolve alembic.ini relative to this file so the bot can be started
@@ -128,7 +167,12 @@ async def _run_migrations() -> None:
         alembic_command.upgrade(cfg, "head")
 
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _upgrade)
+    try:
+        await loop.run_in_executor(None, _upgrade)
+    except Exception as exc:
+        logger.critical("Alembic migration failed — refusing to start: %s", exc, exc_info=True)
+        sentry_sdk.capture_exception(exc)
+        raise RuntimeError(f"Alembic migration failed: {exc}") from exc
     logger.info("Alembic migrations applied")
 
 
@@ -204,6 +248,14 @@ async def _health_handler(request: web.Request) -> web.Response:
     except Exception:
         pass
 
+    # ── Background-task liveness ─────────────────────────────────────────
+    # Each loop emits a heartbeat on every iteration.  If any registered task
+    # is past the stale threshold, flip to unhealthy so the orchestrator
+    # restarts the pod instead of silently letting users miss notifications.
+    stale_tasks = heartbeat.stale_tasks(settings.BG_TASK_STALE_THRESHOLD_S)
+    if stale_tasks:
+        healthy = False
+
     payload: dict = {
         "status": "ok" if healthy else "degraded",
         "db": db_status,
@@ -217,6 +269,14 @@ async def _health_handler(request: web.Request) -> web.Response:
     if user_states_count is not None:
         payload["power_states_in_memory"] = user_states_count
         payload["power_dirty_states"] = dirty_states_count
+
+    bg_snapshot = heartbeat.snapshot()
+    if bg_snapshot:
+        payload["background_tasks"] = {
+            name: round(age, 1) for name, age in bg_snapshot.items()
+        }
+    if stale_tasks:
+        payload["stale_tasks"] = stale_tasks
 
     status_code = 200 if healthy else 503
     return web.json_response(payload, status=status_code)
@@ -236,6 +296,10 @@ async def _metrics_handler(request: web.Request) -> web.Response:
         DB_POOL_CHECKED_OUT.set(pool_checked_out)
     except Exception:
         pass
+
+    # Refresh the heartbeat-age gauge at scrape time so Prometheus sees the
+    # current age rather than the age at last beat.
+    heartbeat.export_metrics()
 
     body, content_type = metrics_response()
     # Pass Content-Type via headers= to avoid aiohttp's ValueError when the
@@ -387,14 +451,29 @@ async def on_startup(bot: Bot) -> None:
         set_chart_render_mode(on_demand=(_mode == "on_demand"))
     logger.info("Chart render mode: %s", _mode)
 
-    # Notify admins that bot started
-    _now = datetime.now(settings.timezone)
-    _startup_text = f"✅ <b>Бот запущено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
-    for _admin_id in settings.all_admin_ids:
-        try:
-            await asyncio.wait_for(bot.send_message(_admin_id, _startup_text), timeout=5)
-        except Exception as e:
-            logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
+    # Notify admins that bot started — but never within ADMIN_NOTIFY_COOLDOWN_S
+    # of the last such notice.  A crashlooping pod must not spam admins on
+    # every restart (Sentry/metrics already capture that signal).
+    if await _admin_notify_cooldown_ok("startup"):
+        _now = datetime.now(settings.timezone)
+        _startup_text = f"✅ <b>Бот запущено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
+        for _admin_id in settings.all_admin_ids:
+            try:
+                await asyncio.wait_for(bot.send_message(_admin_id, _startup_text), timeout=5)
+            except Exception as e:
+                logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
+
+    # Pre-register heartbeats so /health reports a meaningful "just started"
+    # age for tasks whose first beat has not landed yet (e.g. schedule
+    # checker runs on a 60s cadence).
+    for _hb_name in (
+        "power_monitor_loop",
+        "daily_ping_error_loop",
+        "schedule_checker_loop",
+        "daily_flush_loop",
+        "reminder_checker_loop",
+    ):
+        heartbeat.register(_hb_name)
 
     _bg(lambda: power_monitor_loop(bot), "power_monitor_loop")
     _bg(lambda: daily_ping_error_loop(bot), "daily_ping_error_loop")
@@ -405,14 +484,15 @@ async def on_startup(bot: Bot) -> None:
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
 
-    # Notify admins that bot is stopping
-    _now = datetime.now(settings.timezone)
-    _shutdown_text = f"⛔ <b>Бот зупинено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
-    for _admin_id in settings.all_admin_ids:
-        try:
-            await asyncio.wait_for(bot.send_message(_admin_id, _shutdown_text), timeout=5)
-        except Exception as e:
-            logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
+    # Notify admins that bot is stopping — same anti-spam cooldown as startup
+    if await _admin_notify_cooldown_ok("shutdown"):
+        _now = datetime.now(settings.timezone)
+        _shutdown_text = f"⛔ <b>Бот зупинено</b>\n🕐 {_now.strftime('%H:%M')} {_now.strftime('%d.%m.%Y')}"
+        for _admin_id in settings.all_admin_ids:
+            try:
+                await asyncio.wait_for(bot.send_message(_admin_id, _shutdown_text), timeout=5)
+            except Exception as e:
+                logger.warning("Failed to notify admin %s on shutdown: %s", _admin_id, e)
 
     await save_states_on_shutdown()
 
@@ -440,6 +520,7 @@ async def on_shutdown(bot: Bot) -> None:
     await chart_cache.close()
 
     await engine.dispose()
+    heartbeat.reset()
     logger.info("Bye!")
 
 async def main() -> None:

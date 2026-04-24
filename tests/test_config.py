@@ -191,3 +191,89 @@ class TestDefaultCredentialWarnings:
 
         calls = [str(c) for c in mock_log.warning.call_args_list]
         assert any("DATABASE_URL" in c for c in calls)
+
+
+class TestRuntimeTuningValidation:
+    """field_validator 'validate_positive_runtime_settings' rejects zero / negative values."""
+
+    def test_db_pool_size_zero_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="Runtime tuning settings"):
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+                DB_POOL_SIZE=0,
+            )
+
+    def test_bg_task_threshold_negative_raises(self):
+        from pydantic import ValidationError
+
+        from bot.config import Settings
+
+        with pytest.raises(ValidationError, match="Runtime tuning settings"):
+            Settings(
+                BOT_TOKEN="test:token",
+                DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+                BG_TASK_STALE_THRESHOLD_S=-1,
+            )
+
+
+class TestProductionTokenGuard:
+    """Module-level guard: ENVIRONMENT=production requires HEALTHCHECK_TOKEN + METRICS_TOKEN."""
+
+    def test_missing_tokens_in_production_raises(self, monkeypatch):
+        monkeypatch.setenv("BOT_TOKEN", "test:token")
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("HEALTHCHECK_TOKEN", "")
+        monkeypatch.setenv("METRICS_TOKEN", "")
+        monkeypatch.setenv("USE_WEBHOOK", "false")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+
+        with pytest.raises(ValueError, match="HEALTHCHECK_TOKEN"):
+            importlib.import_module("bot.config")
+
+    def test_partial_tokens_still_raises(self, monkeypatch):
+        monkeypatch.setenv("BOT_TOKEN", "test:token")
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("HEALTHCHECK_TOKEN", "ok-token")
+        monkeypatch.setenv("METRICS_TOKEN", "")
+        monkeypatch.setenv("USE_WEBHOOK", "false")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+
+        with pytest.raises(ValueError, match="METRICS_TOKEN"):
+            importlib.import_module("bot.config")
+
+    def test_both_tokens_set_in_production_ok(self, monkeypatch):
+        monkeypatch.setenv("BOT_TOKEN", "test:token")
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("HEALTHCHECK_TOKEN", "strong-token-1")
+        monkeypatch.setenv("METRICS_TOKEN", "strong-token-2")
+        monkeypatch.setenv("USE_WEBHOOK", "false")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+
+        mod = importlib.import_module("bot.config")
+        assert mod.settings.HEALTHCHECK_TOKEN == "strong-token-1"
+        assert mod.settings.METRICS_TOKEN == "strong-token-2"
+        # Restore development-env for subsequent tests
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+        importlib.import_module("bot.config")
+
+    def test_development_env_skips_token_guard(self, monkeypatch):
+        """No ValueError when ENVIRONMENT != production, even with empty tokens."""
+        monkeypatch.setenv("BOT_TOKEN", "test:token")
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("HEALTHCHECK_TOKEN", "")
+        monkeypatch.setenv("METRICS_TOKEN", "")
+        monkeypatch.setenv("USE_WEBHOOK", "false")
+        monkeypatch.delitem(sys.modules, "bot.config", raising=False)
+
+        mod = importlib.import_module("bot.config")
+        assert mod.settings.ENVIRONMENT == "development"

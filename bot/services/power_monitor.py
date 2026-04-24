@@ -33,9 +33,19 @@ from bot.db.queries import (
 from bot.db.session import async_session
 from bot.keyboards.inline import get_ip_ping_error_keyboard
 from bot.services.api import fetch_schedule_data, find_next_event, parse_schedule_for_queue
+from bot.utils import heartbeat
 from bot.utils.helpers import SSRF_BLOCKED_NETWORKS, retry_bot_call
 from bot.utils.logger import get_logger
-from bot.utils.metrics import DIRTY_STATES_COUNT, POWER_NOTIFICATIONS_SENT, USER_STATES_IN_MEMORY
+from bot.utils.metrics import (
+    DIRTY_STATES_COUNT,
+    POWER_CHECK_SKIPPED,
+    POWER_NOTIFICATIONS_SENT,
+    USER_STATES_IN_MEMORY,
+)
+from bot.utils.rate_limiter import tg_rate_limiter
+
+HEARTBEAT_POWER_MONITOR = "power_monitor_loop"
+HEARTBEAT_DAILY_PING = "daily_ping_error_loop"
 
 logger = get_logger(__name__)
 
@@ -48,8 +58,9 @@ KYIV_TZ = settings.timezone
 # Excess entries are evicted LRU-style by last_change_at.
 USER_STATES_MAX: int = 200_000
 # Entries older than this are considered stale and evicted even if they fit
-# under USER_STATES_MAX.  7 days matches the typical notification window.
-USER_STATES_STALE_AFTER_S: int = 7 * 24 * 3600
+# under USER_STATES_MAX.  Driven by settings.USER_STATES_STALE_HOURS so ops
+# can tune it per environment without code changes.
+USER_STATES_STALE_AFTER_S: int = settings.USER_STATES_STALE_HOURS * 3600
 
 _user_states: dict[str, dict] = {}
 _user_states_lock: asyncio.Lock = asyncio.Lock()
@@ -432,6 +443,7 @@ async def _handle_power_state_change(
 
             if send_to_bot:
                 try:
+                    await tg_rate_limiter.acquire()
                     sent = await retry_bot_call(lambda: bot.send_message(int(telegram_id), message, parse_mode="HTML"))
                     bot_msg_id = sent.message_id
                     POWER_NOTIFICATIONS_SENT.labels(state=new_state).inc()
@@ -462,6 +474,7 @@ async def _handle_power_state_change(
                             ch_id = int(cc.channel_id)
                         except (ValueError, TypeError):
                             ch_id = cc.channel_id
+                        await tg_rate_limiter.acquire()
                         ch_sent = await retry_bot_call(lambda: bot.send_message(ch_id, message, parse_mode="HTML"))
                         ch_msg_id = ch_sent.message_id
                         logger.info("📢 Power notification sent to channel %s", cc.channel_id)
@@ -795,10 +808,27 @@ async def _check_all_ips(bot: Bot) -> None:
             semaphore = asyncio.Semaphore(settings.POWER_MAX_CONCURRENT_PINGS)
 
             async def _check_ip_group(ip: str, group_users: list) -> None:
-                async with semaphore:
-                    ping_result = await check_router_http(ip)
-                for u in group_users:
-                    await _check_user_power(bot, u, is_available=ping_result)
+                try:
+                    async with semaphore:
+                        ping_result = await check_router_http(ip)
+                    for u in group_users:
+                        try:
+                            await _check_user_power(bot, u, is_available=ping_result)
+                        except Exception as user_exc:
+                            # Never let a single user's state-machine error skip the rest
+                            # of the group — log, increment the metric, move on.
+                            logger.error(
+                                "Error checking power for user %s: %s",
+                                getattr(u, "telegram_id", "?"), user_exc, exc_info=True,
+                            )
+                            POWER_CHECK_SKIPPED.labels(reason="handler_error").inc()
+                except Exception as group_exc:
+                    logger.error(
+                        "Error checking IP group %s (%d users): %s",
+                        ip, len(group_users), group_exc, exc_info=True,
+                    )
+                    POWER_CHECK_SKIPPED.labels(reason="ping_error").inc()
+                    sentry_sdk.capture_exception(group_exc)
 
             await asyncio.gather(*[
                 _check_ip_group(ip, group_users)
@@ -1017,6 +1047,8 @@ async def power_monitor_loop(bot: Bot) -> None:
 
     logger.info("⚡ Power monitor starting...")
 
+    heartbeat.register(HEARTBEAT_POWER_MONITOR)
+
     # Restore persisted states before the first check
     await _restore_user_states()
 
@@ -1032,6 +1064,7 @@ async def power_monitor_loop(bot: Bot) -> None:
         logger.error("Initial power monitor check timed out after 300s")
     except Exception as e:
         logger.error("Initial power monitor check error: %s", e, exc_info=True)
+    heartbeat.beat(HEARTBEAT_POWER_MONITOR)
 
     last_save_at = asyncio.get_running_loop().time()
     save_interval_s = 60  # 1 minute — minimize data loss on crash
@@ -1058,6 +1091,8 @@ async def power_monitor_loop(bot: Bot) -> None:
             logger.error("Power monitor check error: %s", e, exc_info=True)
             sentry_sdk.capture_exception(e)
 
+        heartbeat.beat(HEARTBEAT_POWER_MONITOR)
+
         # Periodic state save + metrics update
         now_t = asyncio.get_running_loop().time()
         if now_t - last_save_at >= save_interval_s:
@@ -1081,9 +1116,28 @@ def stop_power_monitor() -> None:
 
 
 async def save_states_on_shutdown() -> None:
-    """Persist all in-memory user states to DB on graceful shutdown."""
+    """Persist all in-memory user states to DB on graceful shutdown.
+
+    Bounded by ``settings.SHUTDOWN_FLUSH_TIMEOUT_S`` so a slow/deadlocked DB
+    cannot block past the container's ``stop_grace_period`` (30s in
+    docker-compose) and trigger a SIGKILL mid-transaction.  Partial flushes
+    remain valid — unsaved rows stay in ``_dirty_states`` and will be flushed
+    on the next boot after state restoration.
+    """
     global _http_connector
-    await _save_all_user_states()
+    try:
+        # asyncio.timeout (3.11+) is a separate code path from asyncio.wait_for
+        # so tests that monkey-patch wait_for for the connector-close branch
+        # below don't accidentally stub out the flush-timeout here.
+        async with asyncio.timeout(settings.SHUTDOWN_FLUSH_TIMEOUT_S):
+            await _save_all_user_states()
+    except TimeoutError:
+        logger.warning(
+            "Shutdown flush exceeded %ds timeout; %d dirty states deferred to next boot",
+            settings.SHUTDOWN_FLUSH_TIMEOUT_S, len(_dirty_states),
+        )
+    except Exception as e:
+        logger.error("Shutdown flush error: %s", e, exc_info=True)
     # Close the shared TCP connector to release file descriptors.
     connector = _http_connector
     _http_connector = None
@@ -1115,12 +1169,14 @@ async def save_states_on_shutdown() -> None:
 async def daily_ping_error_loop(bot: Bot) -> None:
     """Щодня надсилає повідомлення про помилку пінгу користувачам де пінг не проходить."""
     global _running
+    heartbeat.register(HEARTBEAT_DAILY_PING)
     while _running:
         try:
             await asyncio.sleep(3600)
             if not _running:
                 break
             await _send_daily_ping_error_alerts(bot)
+            heartbeat.beat(HEARTBEAT_DAILY_PING)
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -1187,6 +1243,7 @@ async def _send_daily_ping_error_alerts(bot: Bot) -> None:
                     "адміністратор допоможе вам розібратися."
                 )
                 try:
+                    await tg_rate_limiter.acquire()
                     await retry_bot_call(lambda: bot.send_message(
                         int(alert.telegram_id),
                         text,
@@ -1307,6 +1364,7 @@ async def update_power_notifications_on_schedule_change(
                             f"{new_schedule_line}"
                         )
 
+                    await tg_rate_limiter.acquire()
                     await bot.edit_message_text(
                         text=base,
                         chat_id=int(telegram_id),
@@ -1378,6 +1436,7 @@ async def update_power_notifications_on_schedule_change(
                             f"{new_schedule_line}"
                         )
 
+                    await tg_rate_limiter.acquire()
                     await bot.edit_message_text(
                         text=base_ch,
                         chat_id=ch_id,
