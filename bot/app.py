@@ -463,17 +463,20 @@ async def on_startup(bot: Bot) -> None:
             except Exception as e:
                 logger.warning("Failed to notify admin %s on startup: %s", _admin_id, e)
 
-    # Pre-register heartbeats so /health reports a meaningful "just started"
-    # age for tasks whose first beat has not landed yet (e.g. schedule
-    # checker runs on a 60s cadence).
-    for _hb_name in (
-        "power_monitor_loop",
-        "daily_ping_error_loop",
-        "schedule_checker_loop",
-        "daily_flush_loop",
-        "reminder_checker_loop",
+    # Pre-register heartbeats with per-task staleness thresholds so /health
+    # does not 503 on a healthy low-cadence loop (e.g. daily_flush_loop beats
+    # once per 24h).  Fast loops fall back to BG_TASK_STALE_THRESHOLD_S via
+    # None.  Thresholds are set to ~2× the loop's expected cadence with a
+    # floor of 5 minutes.
+    _HOUR = 3600
+    for _hb_name, _hb_threshold in (
+        ("power_monitor_loop", None),                # 10-60s cadence
+        ("schedule_checker_loop", None),             # ~60s cadence
+        ("reminder_checker_loop", None),             # 60s cadence
+        ("daily_ping_error_loop", 2 * _HOUR + 300),  # 1h cadence + grace
+        ("daily_flush_loop", 26 * _HOUR),            # 24h cadence + grace
     ):
-        heartbeat.register(_hb_name)
+        heartbeat.register(_hb_name, threshold_s=_hb_threshold)
 
     _bg(lambda: power_monitor_loop(bot), "power_monitor_loop")
     _bg(lambda: daily_ping_error_loop(bot), "daily_ping_error_loop")

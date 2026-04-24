@@ -88,11 +88,23 @@ async def _scheduler_advisory_lock(session: AsyncSession, key: int) -> AsyncIter
     rather than duplicating work).  The lock is released automatically when
     the session's current transaction commits or rolls back.
 
+    Critical: the caller holds this transaction open for the full duration of
+    the protected work (minutes, potentially), but the heavy DB writes inside
+    the critical section run on *separate* sessions.  That leaves the lock
+    transaction idle, so we disable ``idle_in_transaction_session_timeout``
+    and ``statement_timeout`` for just this transaction via ``SET LOCAL`` —
+    otherwise Postgres would kill the lock-holding session after ~60s,
+    silently releasing the advisory lock and allowing a second replica in.
+
     Gracefully degrades if the backing DB is not PostgreSQL (e.g. a sqlite
     unit test): logs a debug message and yields True so the caller proceeds
     as if uncontested.
     """
     try:
+        # SET LOCAL applies only to the current (advisory-lock) transaction
+        # and is inherited by no other connection pool users.
+        await session.execute(text("SET LOCAL idle_in_transaction_session_timeout = 0"))
+        await session.execute(text("SET LOCAL statement_timeout = 0"))
         result = await session.execute(
             text("SELECT pg_try_advisory_xact_lock(:k)").bindparams(k=key)
         )

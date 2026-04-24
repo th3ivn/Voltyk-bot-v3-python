@@ -16,13 +16,21 @@ from bot.services.scheduler import (
 
 async def test_advisory_lock_acquired_yields_true():
     session = MagicMock()
+    # Three execute() calls: SET LOCAL idle_in_tx = 0, SET LOCAL stmt_timeout = 0, pg_try_advisory
     result = MagicMock()
     result.scalar = MagicMock(return_value=True)
     session.execute = AsyncMock(return_value=result)
 
     async with _scheduler_advisory_lock(session, 42) as acquired:
         assert acquired is True
-    session.execute.assert_awaited_once()
+    assert session.execute.await_count == 3
+    # The lock-holding tx must disable idle_in_transaction_session_timeout
+    # so Postgres does not release the advisory lock after 60s of idleness
+    # while the critical section runs on separate sessions.
+    sql_texts = [str(call.args[0]) for call in session.execute.await_args_list]
+    assert any("idle_in_transaction_session_timeout = 0" in s for s in sql_texts)
+    assert any("statement_timeout = 0" in s for s in sql_texts)
+    assert any("pg_try_advisory_xact_lock" in s for s in sql_texts)
 
 
 async def test_advisory_lock_contention_yields_false():

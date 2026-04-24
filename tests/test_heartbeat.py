@@ -59,3 +59,49 @@ def test_reset_clears_all_beats():
     heartbeat.register("beta")
     heartbeat.reset()
     assert heartbeat.snapshot() == {}
+
+
+def test_per_task_threshold_overrides_global():
+    """A slow loop (hourly) must not be flagged stale under the fast global threshold."""
+    heartbeat.reset()
+    # Fast loop with no per-task threshold → falls back to global
+    heartbeat.register("fast")
+    # Slow loop with 2h threshold
+    heartbeat.register("slow", threshold_s=7200.0)
+
+    now = time.monotonic()
+    # Force both beats to be 1 hour old
+    heartbeat._beats["fast"] = now - 3600.0
+    heartbeat._beats["slow"] = now - 3600.0
+
+    stale = heartbeat.stale_tasks(threshold_s=300.0)
+    # fast: age 3600 > 300 (global) → stale
+    # slow: age 3600 < 7200 (per-task override) → not stale
+    assert stale == ["fast"]
+
+
+def test_register_without_threshold_preserves_existing():
+    """Re-registering the same name without a threshold must not clobber
+    an already-configured per-task threshold (defensive re-registration
+    from the loop itself after app-level pre-registration)."""
+    heartbeat.reset()
+    heartbeat.register("slow", threshold_s=7200.0)
+    # Re-register as if from inside the loop — no explicit threshold
+    heartbeat.register("slow")
+
+    now = time.monotonic()
+    heartbeat._beats["slow"] = now - 3600.0
+
+    # Still honours 7200s threshold, not the 300s global default
+    assert heartbeat.stale_tasks(threshold_s=300.0) == []
+
+
+def test_register_with_explicit_none_falls_back_to_global():
+    heartbeat.reset()
+    heartbeat.register("x", threshold_s=7200.0)
+    heartbeat.register("x", threshold_s=None)  # explicit reset to global
+
+    now = time.monotonic()
+    heartbeat._beats["x"] = now - 3600.0
+
+    assert heartbeat.stale_tasks(threshold_s=300.0) == ["x"]
