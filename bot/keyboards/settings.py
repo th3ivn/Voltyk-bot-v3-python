@@ -23,7 +23,7 @@ def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
             _btn("Канал", "settings_channel", E_CHANNEL_SECTION),
             _btn("Сповіщення", "settings_alerts", E_NOTIF_SECTION),
         ],
-        [_btn("🗑 Очищення", "settings_cleanup")],
+        [_btn("🧹 Очищення повідомлень", "settings_cleanup")],
     ]
     if is_admin:
         rows.append([_btn("Адмін-панель", "settings_admin", E_ADMIN)])
