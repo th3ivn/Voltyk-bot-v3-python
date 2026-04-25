@@ -198,7 +198,7 @@ class TestChartCacheKey:
     def test_key_format(self):
         from bot.services.chart_cache import _key
 
-        assert _key("kyiv", "1.1") == f"chart:v{CHART_VERSION}:kyiv:1.1"
+        assert _key("kyiv", "1.1") == f"chart:v{CHART_VERSION}:kyiv:1.1:base"
 
     def test_key_uses_chart_version(self):
         from bot.services.chart_cache import _key
@@ -207,6 +207,12 @@ class TestChartCacheKey:
         assert f"v{CHART_VERSION}" in result
         assert "lviv" in result
         assert "2.3" in result
+
+    def test_key_uses_fingerprint_when_provided(self):
+        from bot.services.chart_cache import _key
+
+        result = _key("lviv", "2.3", "abc123")
+        assert result.endswith(":abc123")
 
 
 class TestChartCacheIsUsable:
@@ -247,7 +253,7 @@ class TestChartCacheGet:
         result = await chart_cache.get("kyiv", "1.1")
 
         assert result == b"png-data"
-        mock_redis.get.assert_called_once_with(f"chart:v{CHART_VERSION}:kyiv:1.1")
+        mock_redis.get.assert_called_once_with(f"chart:v{CHART_VERSION}:kyiv:1.1:base")
 
     async def test_returns_none_on_redis_error(self):
         mock_redis = AsyncMock()
@@ -289,7 +295,7 @@ class TestChartCacheStore:
         await chart_cache.store("kyiv", "1.1", b"png-bytes")
 
         mock_redis.setex.assert_called_once_with(
-            f"chart:v{CHART_VERSION}:kyiv:1.1",
+            f"chart:v{CHART_VERSION}:kyiv:1.1:base",
             CHART_TTL_S,
             b"png-bytes",
         )
@@ -322,7 +328,7 @@ class TestChartCacheDelete:
 
         await chart_cache.delete("kyiv", "1.1")
 
-        mock_redis.delete.assert_called_once_with(f"chart:v{CHART_VERSION}:kyiv:1.1")
+        mock_redis.delete.assert_called_once_with(f"chart:v{CHART_VERSION}:kyiv:1.1:base")
 
     async def test_catches_delete_errors(self):
         mock_redis = AsyncMock()
