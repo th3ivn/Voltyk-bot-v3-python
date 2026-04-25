@@ -911,26 +911,42 @@ class TestQueueSourceUpdatedAt:
         _reset_api_state()
 
     async def test_reads_commit_date_for_region_data_path(self):
+        import bot.services.api as api
         from bot.services.api import get_queue_source_updated_at
 
-        payload = [{
-            "commit": {
-                "committer": {"date": "2026-02-19T13:04:00Z"},
-            }
-        }]
+        raw_payload = b'[{"commit":{"committer":{"date":"2026-02-19T13:04:00Z"}}}]'
 
-        with (
-            patch("bot.services.api.settings") as mock_settings,
-            aioresponses() as m,
-        ):
+        class _FakeContent:
+            async def read(self, _limit: int) -> bytes:
+                return raw_payload
+
+        class _FakeResponse:
+            status = 200
+            headers: dict[str, str] = {}
+            content = _FakeContent()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeSession:
+            def __init__(self):
+                self.last_params: dict[str, str] | None = None
+
+            def get(self, _url: str, *, params=None, timeout=None, headers=None):
+                self.last_params = params
+                return _FakeResponse()
+
+        fake_session = _FakeSession()
+        api._http_client = fake_session
+
+        with patch("bot.services.api.settings") as mock_settings:
             mock_settings.GITHUB_TOKEN = ""
-            m.get(
-                re.compile(r"https://api\\.github\\.com/repos/Baskerville42/outage-data-ua/commits.*"),
-                payload=payload,
-                status=200,
-            )
             result = await get_queue_source_updated_at("kyiv-region", "3.1")
 
+        assert fake_session.last_params == {"per_page": "1", "path": "data/kyiv-region.json"}
         assert result == "19.02.2026 15:04"
 
 
