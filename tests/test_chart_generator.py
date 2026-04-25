@@ -338,17 +338,17 @@ class TestBuildSvg:
 
     def test_queue_in_badge(self):
         svg = self._build(queue="3.2")
-        assert "Черга: 3.2" in svg
+        assert "• Черга: 3.2" in svg
 
     def test_with_dtek_updated_at_valid(self):
         data = _make_schedule_data(dtek_updated_at="15.03.2024 10:30")
         svg = self._build(schedule_data=data)
-        assert "Перевірено: 10:30 15.03.2024" in svg
+        assert "Оновлення станом на 10:30 15.03.2024" in svg
 
     def test_with_dtek_updated_at_invalid_format(self):
         data = _make_schedule_data(dtek_updated_at="not-a-date")
         svg = self._build(schedule_data=data)
-        assert "Перевірено:" in svg
+        assert "Оновлення станом на" in svg
 
     def test_normalizer_fills_timestamp_before_render(self):
         from bot.services.api import normalize_schedule_chart_metadata
@@ -357,12 +357,26 @@ class TestBuildSvg:
         svg = self._build(schedule_data=normalized)
 
         assert normalized["dtek_updated_at"] == "15.03.2024 13:10"
-        assert "Перевірено: 13:10 15.03.2024" in svg
+        assert "Оновлення станом на 13:10 15.03.2024" in svg
 
     def test_all_cells_on(self):
         svg = self._build(schedule_data=_make_schedule_data())
         # No off events → all on, no slash icon paths
         assert "<svg" in svg
+
+    def test_no_outages_text_for_both_days_when_no_events(self):
+        svg = self._build(schedule_data=_make_schedule_data())
+        assert svg.count("Відключення не знайдено на сайті ДТЕК") == 2
+
+    def test_no_outages_text_only_for_day_without_events(self):
+        now = datetime.now(KYIV_TZ)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        data = _make_schedule_data(
+            today_events=[_off_event(today_start, 8, 10, possible=False)],
+            tomorrow_events=[],
+        )
+        svg = self._build(schedule_data=data)
+        assert svg.count("Відключення не знайдено на сайті ДТЕК") == 1
 
     def test_all_cells_off(self):
         now = datetime.now(KYIV_TZ)
