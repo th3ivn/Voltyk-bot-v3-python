@@ -14,6 +14,7 @@ from bot.keyboards.admin import (
     get_admin_router_keyboard,
     get_admin_settings_menu_keyboard,
     get_broadcast_cancel_keyboard,
+    get_button_emoji_mode_keyboard,
     get_chart_preview_keyboard,
     get_chart_render_mode_keyboard,
     get_debounce_keyboard,
@@ -41,12 +42,17 @@ from bot.keyboards.channel import (
 
 # ─── common helpers ───────────────────────────────────────────────────────
 from bot.keyboards.common import (
+    E_HELP,
+    E_NEWS,
+    E_SCHEDULE_SEC,
     _btn,
     _nav_row,
     _url_btn,
     _url_btn_with_emoji,
     get_error_keyboard,
     get_understood_keyboard,
+    is_button_custom_emoji_enabled,
+    set_button_custom_emoji_enabled,
 )
 
 # ─── format keyboards ─────────────────────────────────────────────────────
@@ -141,6 +147,9 @@ def _callback_data_set(kb):
 
 
 class TestCommonHelpers:
+    def setup_method(self):
+        set_button_custom_emoji_enabled(True)
+
     def test_btn_basic(self):
         btn = _btn("Label", "cb_data")
         assert btn.text == "Label"
@@ -153,6 +162,23 @@ class TestCommonHelpers:
     def test_btn_with_emoji(self):
         btn = _btn("Label", "cb_data", emoji_id="12345")
         assert btn.callback_data == "cb_data"
+
+    def test_btn_with_emoji_disabled_mode(self):
+        set_button_custom_emoji_enabled(False)
+        btn = _btn("Label", "cb_data", emoji_id="12345")
+        assert btn.callback_data == "cb_data"
+        assert getattr(btn, "icon_custom_emoji_id", None) is None
+        assert is_button_custom_emoji_enabled() is False
+
+    def test_btn_with_known_emoji_id_disabled_uses_text_fallback(self):
+        set_button_custom_emoji_enabled(False)
+        btn = _btn("Допомога", "cb_data", emoji_id=E_HELP)
+        assert btn.text.startswith("❓ ")
+
+    def test_btn_with_existing_text_emoji_not_double_prefixed(self):
+        set_button_custom_emoji_enabled(False)
+        btn = _btn("👀 Графік", "cb_data", emoji_id=E_SCHEDULE_SEC)
+        assert btn.text == "👀 Графік"
 
     def test_url_btn(self):
         btn = _url_btn("Link", "https://example.com")
@@ -167,6 +193,11 @@ class TestCommonHelpers:
     def test_url_btn_with_emoji_has_emoji(self):
         btn = _url_btn_with_emoji("Link", "https://example.com", emoji_id="9999")
         assert btn.url == "https://example.com"
+
+    def test_url_btn_with_known_emoji_id_disabled_uses_text_fallback(self):
+        set_button_custom_emoji_enabled(False)
+        btn = _url_btn_with_emoji("Новини ↗", "https://example.com", emoji_id=E_NEWS)
+        assert btn.text.startswith("📰 ")
 
     def test_nav_row_both(self):
         row = _nav_row("back_cb")
@@ -234,8 +265,16 @@ class TestAdminKeyboard:
         assert "admin_pause" in cbs
         assert "admin_refresh_cooldown" in cbs
         assert "admin_chart_render" in cbs
+        assert "admin_button_emoji" in cbs
         assert "admin_clear_db" in cbs
         assert "admin_restart" in cbs
+
+    def test_get_button_emoji_mode_keyboard(self):
+        kb = get_button_emoji_mode_keyboard(custom_enabled=False)
+        cbs = _callback_data_set(kb)
+        assert "admin_button_emoji_set_custom" in cbs
+        assert "admin_button_emoji_set_regular" in cbs
+        assert "admin_settings_menu" in cbs
 
     def test_get_chart_render_mode_default(self):
         kb = get_chart_render_mode_keyboard()
@@ -627,6 +666,16 @@ class TestFormatKeyboards:
 
 
 class TestHelpKeyboards:
+    def test_get_help_keyboard_shows_text_emoji_when_custom_disabled(self):
+        set_button_custom_emoji_enabled(False)
+        kb = get_help_keyboard(faq_url="https://faq.example.com", support_url="https://support.example.com")
+        texts = [btn.text for btn in _all_buttons(kb)]
+        assert "📘 Інструкція" in texts
+        assert "❓ FAQ" in texts
+        assert "💬 Підтримка" in texts
+        assert "📰 Новини ↗" in texts
+        assert "💬 Обговорення ↗" in texts
+
     def test_get_help_keyboard_no_urls(self):
         kb = get_help_keyboard()
         cbs = _callback_data_set(kb)
@@ -701,6 +750,17 @@ class TestHelpKeyboards:
         assert "instr_schedule" in cbs
         assert "instr_bot_settings" in cbs
         assert "menu_help" in cbs
+
+    def test_get_instructions_keyboard_shows_text_emoji_when_custom_disabled(self):
+        set_button_custom_emoji_enabled(False)
+        kb = get_instructions_keyboard()
+        texts = [btn.text for btn in _all_buttons(kb)]
+        assert "📍 Регіон і черга" in texts
+        assert "🔔 Сповіщення" in texts
+        assert "📺 Канал" in texts
+        assert "📡 IP моніторинг" in texts
+        assert "📊 Графік відключень" in texts
+        assert "⚙️ Налаштування бота" in texts
 
     def test_get_instruction_section_keyboard(self):
         kb = get_instruction_section_keyboard()
@@ -815,6 +875,15 @@ class TestIpKeyboards:
 
 
 class TestMainMenuKeyboards:
+    def test_get_main_menu_shows_text_emoji_when_custom_disabled(self):
+        set_button_custom_emoji_enabled(False)
+        kb = get_main_menu()
+        labels = [btn.text for btn in _all_buttons(kb)]
+        assert "❓ Допомога" in labels
+        assert "🔔 Сповіщення" in labels
+        assert "📺 Канал" in labels
+        assert "⚙️ Налаштування" in labels
+
     def test_get_main_menu_defaults(self):
         kb = get_main_menu()
         cbs = _callback_data_set(kb)
@@ -999,6 +1068,17 @@ class TestScheduleKeyboard:
 
 
 class TestSettingsKeyboards:
+    def test_get_settings_keyboard_shows_text_emoji_when_custom_disabled(self):
+        set_button_custom_emoji_enabled(False)
+        kb = get_settings_keyboard(is_admin=True)
+        labels = [btn.text for btn in _all_buttons(kb)]
+        assert "📍 Регіон" in labels
+        assert "📡 IP" in labels
+        assert "📺 Канал" in labels
+        assert "🔔 Сповіщення" in labels
+        assert "👑 Адмін-панель" in labels
+        assert "🗑 Видалити мої дані" in labels
+
     def test_get_settings_keyboard_not_admin(self):
         kb = get_settings_keyboard(is_admin=False)
         cbs = _callback_data_set(kb)
