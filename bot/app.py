@@ -51,6 +51,7 @@ from bot.services.scheduler import (
 )
 from bot.utils import heartbeat
 from bot.utils.logger import get_logger, setup_logging
+from bot.utils.telegram import is_expired_callback_answer_error
 
 logger = get_logger(__name__)
 
@@ -332,6 +333,9 @@ async def _global_error_handler(event: ErrorEvent) -> None:
     """
     exc = event.exception
     if isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc):
+        return
+    if isinstance(exc, TelegramBadRequest) and is_expired_callback_answer_error(exc):
+        logger.debug("Ignoring expired callback query answer error: %s", exc)
         return
     if isinstance(exc, TelegramForbiddenError):
         logger.debug("TelegramForbiddenError (user blocked bot / kicked): %s", exc)

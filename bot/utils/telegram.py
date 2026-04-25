@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import MaybeInaccessibleMessage, Message
+from aiogram.types import CallbackQuery, MaybeInaccessibleMessage, Message
 
 from bot.utils.logger import get_logger
 
@@ -13,6 +13,7 @@ MSG_NOT_MODIFIED = "message is not modified"
 
 # Telegram exceptions that indicate the message is already gone / immutable
 _EXPECTED_TELEGRAM_ERRORS = (TelegramBadRequest, TelegramForbiddenError)
+_CALLBACK_ANSWER_EXPIRED_ERRORS = ("query is too old", "query ID is invalid")
 
 _TG_EMOJI_RE = re.compile(r'<tg-emoji[^>]*>([^<]*)</tg-emoji>')
 
@@ -85,6 +86,40 @@ async def safe_delete(message: MaybeInaccessibleMessage | None) -> None:
         logger.debug("Could not delete message: %s", e)
 
 
+def is_expired_callback_answer_error(error: TelegramBadRequest) -> bool:
+    """Return True when callback answer failed because query has already expired."""
+    text = str(error)
+    return any(fragment in text for fragment in _CALLBACK_ANSWER_EXPIRED_ERRORS)
+
+
+async def safe_answer_callback(
+    callback: CallbackQuery,
+    text: str | None = None,
+    show_alert: bool | None = None,
+    **kwargs,
+) -> bool:
+    """Best-effort callback answer that suppresses stale-query Telegram errors.
+
+    Returns ``True`` if callback answer succeeded.
+    Returns ``False`` only when Telegram reports an expired/invalid callback query id.
+    Re-raises all other unexpected exceptions so callers don't hide real issues.
+    """
+    answer_kwargs = dict(kwargs)
+    if show_alert is not None:
+        answer_kwargs["show_alert"] = show_alert
+    try:
+        if text is None:
+            await callback.answer(**answer_kwargs)
+        else:
+            await callback.answer(text, **answer_kwargs)
+        return True
+    except TelegramBadRequest as e:
+        if is_expired_callback_answer_error(e):
+            logger.debug("Ignoring expired callback answer: %s", e)
+            return False
+        raise
+
+
 async def safe_edit_or_resend(
     message: MaybeInaccessibleMessage | None,
     text: str,
@@ -108,4 +143,3 @@ async def safe_edit_or_resend(
     except _EXPECTED_TELEGRAM_ERRORS as e:
         logger.warning("safe_edit_or_resend failed: %s", e)
         return None
-
