@@ -108,7 +108,7 @@ def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list
     plain_text, entities = html_to_entities(html_message)
 
     # Use 🔄 as placeholder in text, then overlay with animated custom emoji
-    prefix = "\n\n🔄 Час останнього оновлення даних: "
+    prefix = "\n\n🔄 Перевірено: "
     timestamp_str = str(check_time_unix)
     full_text = plain_text + prefix + timestamp_str
 
@@ -127,7 +127,7 @@ def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list
         "custom_emoji_id": "5017470156276761427",
     })
 
-    # UTF-16 length of the full prefix "\n\n🔄 Час останнього оновлення даних: "
+    # UTF-16 length of the full prefix "\n\n🔄 Перевірено: "
     prefix_utf16 = _utf16_len(prefix)
 
     # Live relative timestamp (e.g. "3 секунди тому")

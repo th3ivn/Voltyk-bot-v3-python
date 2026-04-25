@@ -1481,7 +1481,8 @@ class TestChannelTestHandler:
             patch("bot.handlers.channel.test.fetch_schedule_data", return_value={"data": "x"}),
             patch("bot.handlers.channel.test.parse_schedule_for_queue", return_value={}),
             patch("bot.handlers.channel.test.format_schedule_message", return_value="<b>text</b>"),
-            patch("bot.handlers.channel.test.html_to_entities", return_value=("text", [])),
+            patch("bot.handlers.channel.test.get_schedule_check_time", AsyncMock(return_value=1700000000)),
+            patch("bot.handlers.channel.test.append_timestamp", return_value=("text", [])),
             patch("bot.handlers.channel.test.to_aiogram_entities", return_value=[]),
             patch("bot.handlers.channel.test.fetch_schedule_image", return_value=b"imgdata"),
         ):
@@ -1500,7 +1501,8 @@ class TestChannelTestHandler:
             patch("bot.handlers.channel.test.fetch_schedule_data", return_value={"data": "x"}),
             patch("bot.handlers.channel.test.parse_schedule_for_queue", return_value={}),
             patch("bot.handlers.channel.test.format_schedule_message", return_value="text"),
-            patch("bot.handlers.channel.test.html_to_entities", return_value=("text", [])),
+            patch("bot.handlers.channel.test.get_schedule_check_time", AsyncMock(return_value=1700000000)),
+            patch("bot.handlers.channel.test.append_timestamp", return_value=("text", [])),
             patch("bot.handlers.channel.test.to_aiogram_entities", return_value=[]),
             patch("bot.handlers.channel.test.fetch_schedule_image", return_value=None),
         ):
@@ -1520,7 +1522,8 @@ class TestChannelTestHandler:
             patch("bot.handlers.channel.test.fetch_schedule_data", return_value={"data": "x"}),
             patch("bot.handlers.channel.test.parse_schedule_for_queue", return_value={}),
             patch("bot.handlers.channel.test.format_schedule_message", return_value="text"),
-            patch("bot.handlers.channel.test.html_to_entities", return_value=("text", [])),
+            patch("bot.handlers.channel.test.get_schedule_check_time", AsyncMock(return_value=1700000000)),
+            patch("bot.handlers.channel.test.append_timestamp", return_value=("text", [])),
             patch("bot.handlers.channel.test.to_aiogram_entities", return_value=[]),
             patch("bot.handlers.channel.test.fetch_schedule_image", return_value=b"imgdata"),
         ):

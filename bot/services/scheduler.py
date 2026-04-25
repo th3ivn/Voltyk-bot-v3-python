@@ -51,7 +51,7 @@ from bot.services.api import (
 from bot.services.power_monitor import update_power_notifications_on_schedule_change
 from bot.utils import heartbeat
 from bot.utils.helpers import retry_bot_call
-from bot.utils.html_to_entities import append_timestamp, html_to_entities, to_aiogram_entities
+from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
 from bot.utils.metrics import (
     NOTIFICATION_BLAST_DURATION,
@@ -931,7 +931,7 @@ async def _send_schedule_notification(
     """Send a schedule notification to the user's bot chat and/or channel.
 
     - Bot   → photo + text + inline keyboard + live timestamp
-    - Channel → photo + text only (NO keyboard, NO timestamp)
+    - Channel → photo + text + live timestamp (NO keyboard)
     """
     try:
         async with async_session() as session:
@@ -959,8 +959,8 @@ async def _send_schedule_notification(
         bot_plain_text, raw_bot_entities = append_timestamp(html_text, last_check)
         bot_entities = to_aiogram_entities(raw_bot_entities)
 
-        # ── Channel: photo + text only — NO keyboard, NO timestamp ──────────
-        ch_plain_text, raw_ch_entities = html_to_entities(html_text)
+        # ── Channel: photo + text + live timestamp — NO keyboard ─────────────
+        ch_plain_text, raw_ch_entities = append_timestamp(html_text, last_check)
         ch_entities = to_aiogram_entities(raw_ch_entities)
 
         image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue, sched_data)
