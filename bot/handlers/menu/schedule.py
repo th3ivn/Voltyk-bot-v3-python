@@ -34,15 +34,27 @@ _USER_LAST_CHECK_MAX_SIZE = 10_000  # cap to prevent unbounded growth
 _last_check_cleanup_at: float = 0.0
 
 
-def _ensure_update_timestamp(schedule_data: dict, check_unix: int) -> dict:
-    """Ensure chart metadata always has an update timestamp for the badge."""
-    if schedule_data.get("dtek_updated_at"):
-        return schedule_data
+def _normalize_check_unix(check_unix: int | None) -> int:
+    """Return a safe unix timestamp for entities and fallback render metadata."""
+    safe_unix: int
+    try:
+        safe_unix = int(check_unix) if check_unix is not None else int(time.time())
+    except (TypeError, ValueError):
+        safe_unix = int(time.time())
+    return safe_unix
 
-    fallback = datetime.fromtimestamp(check_unix, tz=settings.timezone).strftime("%d.%m.%Y %H:%M")
+
+def _ensure_update_timestamp(schedule_data: dict, check_unix: int | None) -> tuple[dict, int]:
+    """Ensure chart metadata always has an update timestamp and return safe unix value."""
+    safe_unix = _normalize_check_unix(check_unix)
+
+    if schedule_data.get("dtek_updated_at"):
+        return schedule_data, safe_unix
+
+    fallback = datetime.fromtimestamp(safe_unix, tz=settings.timezone).strftime("%d.%m.%Y %H:%M")
     enriched = dict(schedule_data)
     enriched["dtek_updated_at"] = fallback
-    return enriched
+    return enriched, safe_unix
 
 
 async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSession, edit_photo: bool = False) -> None:
@@ -63,8 +75,8 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
     kb = get_schedule_view_keyboard()
 
     last_check = await get_schedule_check_time(session, user.region, user.queue)
-    schedule_data = _ensure_update_timestamp(schedule_data, last_check)
-    plain_text, raw_entities = append_timestamp(html_text, last_check)
+    schedule_data, safe_unix = _ensure_update_timestamp(schedule_data, last_check)
+    plain_text, raw_entities = append_timestamp(html_text, safe_unix)
     entities = to_aiogram_entities(raw_entities)
 
     image_bytes = await fetch_schedule_image(user.region, user.queue, schedule_data)
