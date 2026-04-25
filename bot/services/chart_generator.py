@@ -74,8 +74,8 @@ BADGE_H     = 48
 BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
 ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
-NO_OUTAGES_TEXT = "Відключення відсутні на сайті ДТК"
-NO_OUTAGES_FONT_SIZE = 15.6  # +20% from 13px for better readability
+NO_OUTAGES_TEXT = "Відключення відсутні на сайті ДТЕК"
+NO_OUTAGES_FONT_SIZE = 18.7  # +20% from previous 15.6px for better readability
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
