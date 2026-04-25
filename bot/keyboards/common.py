@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+# Persistent setting key used by admin panel:
+# true  -> use Telegram custom button icons (premium)
+# false -> fall back to regular text emoji only
+BUTTON_EMOJI_MODE_SETTING_KEY = "button_custom_emoji_enabled"
+_button_custom_emoji_enabled = True
+
 # ─── Custom animated emoji IDs (from old bot, 1:1) ────────────────────────
 
 E_SCHEDULE = "5210956306952758910"
@@ -58,6 +64,17 @@ E_NEWS = "5312374181462055424"
 E_DISCUSS = "5312237842020209022"
 
 
+def set_button_custom_emoji_enabled(enabled: bool) -> None:
+    """Toggle custom emoji icons for inline keyboard buttons at runtime."""
+    global _button_custom_emoji_enabled
+    _button_custom_emoji_enabled = enabled
+
+
+def is_button_custom_emoji_enabled() -> bool:
+    """Return whether custom emoji icons are currently enabled for buttons."""
+    return _button_custom_emoji_enabled
+
+
 def _btn(
     text: str,
     callback_data: str,
@@ -66,7 +83,7 @@ def _btn(
     **kwargs,
 ) -> InlineKeyboardButton:
     params: dict = {"text": text, "callback_data": callback_data, **kwargs}
-    if emoji_id:
+    if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     if style:
         params["style"] = style
@@ -79,7 +96,7 @@ def _url_btn(text: str, url: str) -> InlineKeyboardButton:
 
 def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
     params: dict = {"text": text, "url": url}
-    if emoji_id:
+    if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     return InlineKeyboardButton(**params)
 
