@@ -17,7 +17,7 @@ from bot.keyboards.common import (
 def get_main_menu(channel_paused: bool = False, has_channel: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
-            _btn("👀 Графік", "menu_schedule", E_SCHEDULE_SEC),
+            _btn("Графік", "menu_schedule", E_SCHEDULE_SEC),
             _btn("Допомога", "menu_help", E_HELP),
         ],
         [
