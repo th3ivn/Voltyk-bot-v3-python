@@ -224,7 +224,7 @@ class TestAutoCleanupService:
 
         with (
             patch("bot.services.auto_cleanup.async_session", side_effect=lambda: _async_session_ctx(session)),
-            patch("bot.services.auto_cleanup.get_due_auto_delete", AsyncMock(return_value=due_rows)),
+            patch("bot.services.auto_cleanup.claim_due_auto_delete", AsyncMock(return_value=due_rows)),
             patch("bot.services.auto_cleanup._try_delete", AsyncMock(return_value=True)) as try_delete_mock,
             patch("bot.services.auto_cleanup.remove_auto_delete_entries", AsyncMock(side_effect=_remove)) as remove_mock,
             patch("bot.services.auto_cleanup.heartbeat.beat"),
@@ -255,7 +255,7 @@ class TestAutoCleanupService:
 
         with (
             patch("bot.services.auto_cleanup.async_session", side_effect=lambda: _async_session_ctx(session)),
-            patch("bot.services.auto_cleanup.get_due_auto_delete", AsyncMock(side_effect=RuntimeError("db failed"))),
+            patch("bot.services.auto_cleanup.claim_due_auto_delete", AsyncMock(side_effect=RuntimeError("db failed"))),
             patch("bot.services.auto_cleanup.logger") as logger_mock,
             patch("bot.services.auto_cleanup.heartbeat.beat"),
             patch("bot.services.auto_cleanup.asyncio.sleep", sleep_mock),

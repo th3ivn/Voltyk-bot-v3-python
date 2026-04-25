@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,7 @@ from bot.db.models import AutoDeleteQueue
 
 __all__ = [
     "enqueue_auto_delete",
-    "get_due_auto_delete",
+    "claim_due_auto_delete",
     "remove_auto_delete_entries",
 ]
 
@@ -36,20 +36,28 @@ async def enqueue_auto_delete(
     stmt = stmt.on_conflict_do_update(
         constraint="uq_auto_delete_queue_chat_message",
         set_={
-            "delete_at": stmt.excluded.delete_at,
+            "delete_at": func.least(AutoDeleteQueue.delete_at, stmt.excluded.delete_at),
             "source": stmt.excluded.source,
         },
     )
     await session.execute(stmt)
 
 
-async def get_due_auto_delete(session: AsyncSession, limit: int = 200) -> list[AutoDeleteQueue]:
+async def claim_due_auto_delete(session: AsyncSession, limit: int = 200) -> list[AutoDeleteQueue]:
     now = datetime.now(timezone.utc)
-    result = await session.execute(
-        select(AutoDeleteQueue)
+    due_ids = (
+        select(AutoDeleteQueue.id)
         .where(AutoDeleteQueue.delete_at <= now)
         .order_by(AutoDeleteQueue.delete_at.asc(), AutoDeleteQueue.id.asc())
         .limit(limit)
+        .with_for_update(skip_locked=True)
+        .cte("due_ids")
+    )
+
+    result = await session.execute(
+        select(AutoDeleteQueue)
+        .join(due_ids, due_ids.c.id == AutoDeleteQueue.id)
+        .order_by(AutoDeleteQueue.delete_at.asc(), AutoDeleteQueue.id.asc())
     )
     return list(result.scalars().all())
 

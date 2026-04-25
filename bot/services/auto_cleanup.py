@@ -7,7 +7,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from bot.config import settings
-from bot.db.queries import get_due_auto_delete, remove_auto_delete_entries
+from bot.db.queries import claim_due_auto_delete, remove_auto_delete_entries
 from bot.db.session import async_session
 from bot.utils import heartbeat
 from bot.utils.logger import get_logger
@@ -69,7 +69,7 @@ async def auto_cleanup_loop(bot: Bot) -> None:
         heartbeat.beat("auto_cleanup")
         try:
             async with async_session() as session:
-                due = await get_due_auto_delete(session, limit=200)
+                due = await claim_due_auto_delete(session, limit=200)
                 if not due:
                     await asyncio.sleep(15)
                     continue
