@@ -1,6 +1,7 @@
 """Tests for bot/handlers/admin/*.py
 
 Covered handlers:
+- button_emoji.py: admin_button_emoji, admin_button_emoji_set
 - admin_router.py: admin_router_view, admin_router_set_ip, admin_router_ip_input,
   admin_router_toggle_notify, admin_router_stats
 - chart_settings.py: admin_chart_render, set_chart_render, chart_preview_menu,
@@ -65,6 +66,55 @@ def _make_state() -> AsyncMock:
     state.clear = AsyncMock()
     return state
 
+
+# ===========================================================================
+# button_emoji.py
+# ===========================================================================
+
+class TestAdminButtonEmoji:
+    async def test_not_admin_denied(self):
+        from bot.handlers.admin.button_emoji import admin_button_emoji
+
+        cb = _make_callback(user_id=999)
+        session = _make_session()
+        with patch("bot.handlers.admin.button_emoji.settings") as ms:
+            ms.is_admin.return_value = False
+            await admin_button_emoji(cb, session)
+
+        cb.answer.assert_awaited_once_with("❌ Доступ заборонено")
+
+    async def test_open_menu_reads_setting(self):
+        from bot.handlers.admin.button_emoji import admin_button_emoji
+
+        cb = _make_callback()
+        session = _make_session()
+        with (
+            patch("bot.handlers.admin.button_emoji.settings") as ms,
+            patch("bot.handlers.admin.button_emoji.get_setting", new_callable=AsyncMock, return_value="false"),
+            patch("bot.handlers.admin.button_emoji.safe_edit_text", new_callable=AsyncMock) as mock_edit,
+        ):
+            ms.is_admin.return_value = True
+            await admin_button_emoji(cb, session)
+
+        mock_edit.assert_awaited_once()
+        assert "Поточний режим" in mock_edit.call_args[0][1]
+
+    async def test_set_mode_updates_setting(self):
+        from bot.handlers.admin.button_emoji import admin_button_emoji_set
+
+        cb = _make_callback(data="admin_button_emoji_set_regular")
+        session = _make_session()
+        with (
+            patch("bot.handlers.admin.button_emoji.settings") as ms,
+            patch("bot.handlers.admin.button_emoji.get_setting", new_callable=AsyncMock, return_value="true"),
+            patch("bot.handlers.admin.button_emoji.set_setting", new_callable=AsyncMock) as mock_set,
+        ):
+            ms.is_admin.return_value = True
+            await admin_button_emoji_set(cb, session)
+
+        mock_set.assert_awaited_once()
+        session.commit.assert_awaited_once()
+        cb.message.edit_reply_markup.assert_awaited_once()
 
 # ===========================================================================
 # admin_router.py
