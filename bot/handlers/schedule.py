@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import time
-from datetime import datetime
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.config import settings
 from bot.db.models import User
 from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
 from bot.formatter.timer import format_next_event_message, format_timer_message
 from bot.keyboards.inline import get_schedule_view_keyboard
-from bot.services.api import fetch_schedule_data, fetch_schedule_image, find_next_event, parse_schedule_for_queue
+from bot.services.api import (
+    fetch_schedule_data,
+    fetch_schedule_image,
+    find_next_event,
+    normalize_schedule_chart_metadata,
+    parse_schedule_for_queue,
+)
 from bot.utils.html_to_entities import append_timestamp, to_aiogram_entities
 from bot.utils.logger import get_logger
 
@@ -22,27 +24,12 @@ logger = get_logger(__name__)
 router = Router(name="schedule")
 
 
-def _normalize_check_unix(check_unix: int | None) -> int:
-    """Return a safe unix timestamp for entities and fallback render metadata."""
-    safe_unix: int
-    try:
-        safe_unix = int(check_unix) if check_unix is not None else int(time.time())
-    except (TypeError, ValueError):
-        safe_unix = int(time.time())
-    return safe_unix
-
-
 def _ensure_update_timestamp(schedule_data: dict, check_unix: int | None) -> tuple[dict, int]:
-    """Ensure chart metadata always has an update timestamp and return safe unix value."""
-    safe_unix = _normalize_check_unix(check_unix)
+    """Backward-compatible wrapper for tests/imports.
 
-    if schedule_data.get("dtek_updated_at"):
-        return schedule_data, safe_unix
-
-    fallback = datetime.fromtimestamp(safe_unix, tz=settings.timezone).strftime("%d.%m.%Y %H:%M")
-    enriched = dict(schedule_data)
-    enriched["dtek_updated_at"] = fallback
-    return enriched, safe_unix
+    The normalization logic is centralized in ``bot.services.api``.
+    """
+    return normalize_schedule_chart_metadata(schedule_data, check_unix)
 
 
 async def _get_user_and_data(
@@ -80,7 +67,7 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
     kb = get_schedule_view_keyboard()
 
     now_unix = await get_schedule_check_time(session, user.region, user.queue)
-    schedule_data, safe_unix = _ensure_update_timestamp(schedule_data, now_unix)
+    schedule_data, safe_unix = normalize_schedule_chart_metadata(schedule_data, now_unix)
     plain_text, raw_entities = append_timestamp(html_text, safe_unix)
     entities = to_aiogram_entities(raw_entities)
 
