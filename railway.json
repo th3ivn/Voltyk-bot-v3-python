@@ -7,7 +7,7 @@
   "deploy": {
     "preDeployCommand": "alembic upgrade head",
     "startCommand": "python -m bot",
-    "healthcheckPath": "/health",
+    "healthcheckPath": "/health?token=${{HEALTHCHECK_TOKEN}}",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
