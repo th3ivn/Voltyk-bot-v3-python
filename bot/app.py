@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import os
 import signal
 from contextlib import suppress
@@ -22,7 +21,7 @@ from alembic.config import Config as AlembicConfig
 from sentry_sdk.integrations.aiohttp import AioHttpIntegration
 from sentry_sdk.integrations.asyncio import AsyncioIntegration
 
-from bot.config import ensure_production_endpoint_tokens, settings
+from bot.config import settings
 from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
@@ -176,25 +175,9 @@ async def _run_migrations() -> None:
     logger.info("Alembic migrations applied")
 
 
-def _is_token_authorized(request: web.Request, token: str) -> bool:
-    if not token:
-        return True
-
-    header = request.headers.get("Authorization", "")
-    if header.lower().startswith("bearer "):
-        provided = header[7:].strip()
-        return hmac.compare_digest(provided, token)
-
-    query_token = request.query.get("token", "")
-    return bool(query_token) and hmac.compare_digest(query_token, token)
-
-
 async def _health_handler(request: web.Request) -> web.Response:
     """Shared /health handler used in both polling and webhook modes."""
     from sqlalchemy import text
-
-    if not _is_token_authorized(request, settings.HEALTHCHECK_TOKEN):
-        return web.json_response({"status": "unauthorized"}, status=401)
 
     db_status = "ok"
     redis_status = "ok"
@@ -223,6 +206,7 @@ async def _health_handler(request: web.Request) -> web.Response:
         healthy = False
 
     # ── Extended diagnostics (non-blocking) ──────────────────────────────
+
     memory_mb: int | None = None
     try:
         import resource
@@ -285,9 +269,6 @@ async def _health_handler(request: web.Request) -> web.Response:
 async def _metrics_handler(request: web.Request) -> web.Response:
     """Expose Prometheus metrics at /metrics."""
     from bot.utils.metrics import DB_POOL_CHECKED_OUT, DB_POOL_SIZE, metrics_response
-
-    if not _is_token_authorized(request, settings.METRICS_TOKEN):
-        return web.Response(status=401, text="unauthorized")
 
     try:
         pool_size = engine.pool.size()  # type: ignore[attr-defined]
@@ -528,12 +509,6 @@ async def on_shutdown(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
-
-    # Fail fast if /health or /metrics would be exposed without auth in
-    # production — empty tokens leak internal state.  Done here (not at
-    # import) so tooling such as Alembic migrations can still import the
-    # config module without tripping the guard.
-    ensure_production_endpoint_tokens()
 
     bot = create_bot()
     dp = create_dispatcher()
