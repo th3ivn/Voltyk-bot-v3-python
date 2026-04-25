@@ -35,13 +35,17 @@ KYIV_TZ = settings.timezone
 
 _schedule_cache: OrderedDict[str, tuple[datetime, Any]] = OrderedDict()
 _image_cache: OrderedDict[str, tuple[datetime, bytes]] = OrderedDict()
+_queue_source_update_cache: OrderedDict[str, tuple[datetime, str | None]] = OrderedDict()
+_queue_source_update_etags: dict[str, str] = {}
 CACHE_TTL = timedelta(minutes=2)
+QUEUE_SOURCE_UPDATE_TTL = timedelta(minutes=10)
 MAX_CACHE_SIZE = 100
 
 # Locks protecting concurrent access to caches and commit state
 _schedule_cache_lock: asyncio.Lock = asyncio.Lock()
 _image_cache_lock: asyncio.Lock = asyncio.Lock()
 _commit_state_lock: asyncio.Lock = asyncio.Lock()
+_queue_source_update_lock: asyncio.Lock = asyncio.Lock()
 
 # Chart render mode: False = on_change (cache), True = on_demand (always re-render)
 _chart_render_on_demand: bool = False
@@ -427,6 +431,97 @@ async def _l1_store_async(cache_key: str, now: datetime, data: bytes) -> None:
         _image_cache.move_to_end(cache_key)
 
 
+async def get_queue_source_updated_at(region: str, queue: str) -> str | None:
+    """Return source update time for a конкретної region/queue image.
+
+    Uses GitHub Commits API for the path
+    ``images/{region}/gpv-{queue}-emergency.png`` and caches the normalized
+    ``DD.MM.YYYY HH:MM`` value for a short TTL to keep API usage bounded.
+    """
+    path = f"images/{region}/gpv-{queue.replace('.', '-')}-emergency.png"
+    now = datetime.now()
+
+    async with _queue_source_update_lock:
+        cached = _queue_source_update_cache.get(path)
+        if cached and now - cached[0] < QUEUE_SOURCE_UPDATE_TTL:
+            _queue_source_update_cache.move_to_end(path)
+            return cached[1]
+        cached_value: str | None = cached[1] if cached else None
+        cached_etag = _queue_source_update_etags.get(path)
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Voltyk-Bot/4.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+    if cached_etag:
+        headers["If-None-Match"] = cached_etag
+
+    url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits"
+    params = {"per_page": "1", "path": path}
+
+    _owned = False
+    _session = _http_client
+    if _session is None:
+        _session = aiohttp.ClientSession()
+        _owned = True
+    try:
+        async with _session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=15),
+            headers=headers,
+        ) as resp:
+            if resp.status == 304:
+                async with _queue_source_update_lock:
+                    _queue_source_update_cache[path] = (datetime.now(), cached_value)
+                    _queue_source_update_cache.move_to_end(path)
+                return cached_value
+
+            if resp.status != 200:
+                logger.warning(
+                    "Queue source update API returned %d for %s/%s", resp.status, region, queue,
+                )
+                return cached_value
+
+            new_etag = resp.headers.get("ETag")
+            raw = await resp.content.read(_MAX_COMMIT_RESPONSE + 1)
+            if len(raw) > _MAX_COMMIT_RESPONSE:
+                logger.warning("Queue source commit response too large (%d bytes) for %s", len(raw), path)
+                return cached_value
+
+            commits = json.loads(raw)
+            normalized: str | None = None
+            if commits and isinstance(commits, list):
+                first = commits[0] if commits else None
+                commit = first.get("commit") if isinstance(first, dict) else None
+                committer = commit.get("committer") if isinstance(commit, dict) else None
+                author = commit.get("author") if isinstance(commit, dict) else None
+                raw_ts = (
+                    (committer or {}).get("date")
+                    or (author or {}).get("date")
+                )
+                normalized = _normalize_dtek_updated_at(raw_ts)
+
+            async with _queue_source_update_lock:
+                _queue_source_update_cache[path] = (datetime.now(), normalized)
+                _queue_source_update_cache.move_to_end(path)
+                if len(_queue_source_update_cache) > MAX_CACHE_SIZE:
+                    old_key, _ = _queue_source_update_cache.popitem(last=False)
+                    _queue_source_update_etags.pop(old_key, None)
+                if new_etag:
+                    _queue_source_update_etags[path] = new_etag
+            return normalized
+    except Exception as e:
+        logger.warning("Queue source update fetch failed for %s/%s: %s", region, queue, e)
+        return cached_value
+    finally:
+        if _owned:
+            await _session.close()
+
+
 async def fetch_schedule_image(
     region: str,
     queue: str,
@@ -450,6 +545,10 @@ async def fetch_schedule_image(
     # ── on_demand mode: always render fresh, skip all caches ──────────────────
     chart_fingerprint: str | None = None
     if schedule_data is not None:
+        source_updated_at = await get_queue_source_updated_at(region, queue)
+        if source_updated_at:
+            schedule_data = dict(schedule_data)
+            schedule_data["dtek_updated_at"] = source_updated_at
         schedule_data, _ = normalize_schedule_chart_metadata(schedule_data)
         chart_fingerprint = build_chart_fingerprint(
             schedule_data,

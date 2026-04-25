@@ -38,6 +38,8 @@ def _reset_api_state() -> None:
     api._last_etag = None
     api._http_client = None
     api._chart_render_on_demand = False
+    api._queue_source_update_cache.clear()
+    api._queue_source_update_etags.clear()
 
 
 def _make_raw_schedule(queue: str = "1.1") -> dict:
@@ -903,6 +905,36 @@ class TestFetchScheduleDataEdgeCases:
 # ---------------------------------------------------------------------------
 
 
+class TestQueueSourceUpdatedAt:
+    def setup_method(self):
+        _reset_api_state()
+
+    async def test_reads_commit_date_for_queue_image_path(self):
+        from bot.services.api import get_queue_source_updated_at
+
+        payload = [{
+            "commit": {
+                "committer": {"date": "2026-02-19T13:04:00Z"},
+            }
+        }]
+        url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits"
+
+        with (
+            patch("bot.services.api.settings") as mock_settings,
+            aioresponses() as m,
+        ):
+            mock_settings.GITHUB_TOKEN = ""
+            m.get(
+                url,
+                payload=payload,
+                status=200,
+                repeat=True,
+            )
+            result = await get_queue_source_updated_at("kyiv-region", "3.1")
+
+        assert result == "19.02.2026 15:04"
+
+
 class TestFetchScheduleImage:
     def setup_method(self):
         _reset_api_state()
@@ -919,7 +951,7 @@ class TestFetchScheduleImage:
         with patch(
             "bot.services.chart_generator.generate_schedule_chart",
             AsyncMock(return_value=fake_png),
-        ):
+        ), patch("bot.services.api.get_queue_source_updated_at", AsyncMock(return_value=None)):
             result = await fetch_schedule_image("kyiv", "1.1", schedule_data)
 
         assert result == fake_png
@@ -970,6 +1002,7 @@ class TestFetchScheduleImage:
                 "bot.services.chart_generator.generate_schedule_chart",
                 AsyncMock(return_value=generated_png),
             ),
+            patch("bot.services.api.get_queue_source_updated_at", AsyncMock(return_value=None)),
         ):
             result = await fetch_schedule_image("kyiv", "1.1", schedule_data)
 
@@ -995,6 +1028,7 @@ class TestFetchScheduleImage:
                 "bot.services.chart_generator.generate_schedule_chart",
                 AsyncMock(side_effect=[png_old, png_new]),
             ),
+            patch("bot.services.api.get_queue_source_updated_at", AsyncMock(side_effect=[None, None])),
         ):
             first = await fetch_schedule_image("kyiv", "1.1", sched_old)
             second = await fetch_schedule_image("kyiv", "1.1", sched_new)
@@ -1022,6 +1056,7 @@ class TestFetchScheduleImage:
                 "bot.services.chart_generator.generate_schedule_chart",
                 AsyncMock(return_value=None),
             ),
+            patch("bot.services.api.get_queue_source_updated_at", AsyncMock(return_value=None)),
             aioresponses() as m,
         ):
             mock_settings.IMAGE_URL_TEMPLATE = url_template
@@ -1041,6 +1076,7 @@ class TestFetchScheduleImage:
             patch("bot.services.api.settings") as mock_settings,
             patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
             patch("bot.services.chart_generator.generate_schedule_chart", AsyncMock(return_value=None)),
+            patch("bot.services.api.get_queue_source_updated_at", AsyncMock(return_value=None)),
             aioresponses() as m,
         ):
             mock_settings.IMAGE_URL_TEMPLATE = url_template
@@ -1065,6 +1101,7 @@ class TestFetchScheduleImage:
             patch("bot.services.api.settings") as mock_settings,
             patch("bot.services.chart_cache.get", AsyncMock(return_value=None)),
             patch("bot.services.chart_generator.generate_schedule_chart", AsyncMock(return_value=None)),
+            patch("bot.services.api.get_queue_source_updated_at", AsyncMock(return_value=None)),
             aioresponses() as m,
         ):
             mock_settings.IMAGE_URL_TEMPLATE = url_template
