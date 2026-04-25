@@ -31,7 +31,7 @@ def format_live_status_message(user: User, region_name: str | None = None) -> st
     ns = user.notification_settings
     notifications_enabled = has_any_notification_enabled(ns)
 
-    msg += f"📍 <b>{region_name} · {user.queue}</b>\n\n"
+    msg += f"🌍 <b>{region_name} · {user.queue}</b>\n\n"
     msg += f"📡 IP: {'підключено ✅' if has_ip else 'не підключено 😕'}\n"
     msg += f"📺 Канал: {'підключено ✅' if has_channel else 'не підключено'}\n"
     msg += f"🔔 Сповіщення: {'увімкнено ✅' if notifications_enabled else 'вимкнено'}\n"
@@ -56,7 +56,7 @@ def format_main_menu_message(user: User) -> str:
 
     return (
         f"🏠 Головне меню\n\n"
-        f"📍 Регіон: {region_name} • {user.queue}\n"
+        f"🌍 Регіон: {region_name} • {user.queue}\n"
         f"📺 Канал: {channel_text}\n"
         f"🔔 Сповіщення: {notif_text}\n"
     )
