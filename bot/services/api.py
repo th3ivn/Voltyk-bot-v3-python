@@ -432,13 +432,15 @@ async def _l1_store_async(cache_key: str, now: datetime, data: bytes) -> None:
 
 
 async def get_queue_source_updated_at(region: str, queue: str) -> str | None:
-    """Return source update time for a конкретної region/queue image.
+    """Return source update time for a region/queue based on upstream ``data``.
 
-    Uses GitHub Commits API for the path
-    ``images/{region}/gpv-{queue}-emergency.png`` and caches the normalized
-    ``DD.MM.YYYY HH:MM`` value for a short TTL to keep API usage bounded.
+    For accuracy we read commit metadata for ``data/{region}.json`` from the
+    source repository (rather than ``images/...`` pre-rendered assets).
+    This reflects when the schedule data file for the region was last updated.
+
+    ``queue`` is kept in the signature for call-site compatibility and logging.
     """
-    path = f"images/{region}/gpv-{queue.replace('.', '-')}-emergency.png"
+    path = f"data/{region}.json"
     now = datetime.now()
 
     async with _queue_source_update_lock:
