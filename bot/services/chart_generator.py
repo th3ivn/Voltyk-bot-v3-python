@@ -376,17 +376,24 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     p.append(f'<rect width="{IMG_W}" height="{img_h}" fill="{C_BG}"/>')
 
     # ── Header: two gradient badges ───────────────────────────────────────────
-    # Parse update timestamp
+    # Parse update timestamp (contract: callers should pass normalized metadata).
     dtek_raw = schedule_data.get("dtek_updated_at")
-    update_str = ""
-    if dtek_raw:
-        try:
-            dtek_dt    = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
-            update_str = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
-        except ValueError:
-            update_str = _esc(dtek_raw)
+    if not isinstance(dtek_raw, str) or not dtek_raw.strip():
+        logger.warning(
+            "Missing chart metadata dtek_updated_at for %s/%s; using emergency fallback", region, queue,
+        )
+        dtek_raw = now.strftime("%d.%m.%Y %H:%M")
 
-    left_txt  = update_str or _esc("Час оновлення поки невідомий")
+    try:
+        dtek_dt = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
+        left_txt = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
+    except ValueError:
+        logger.warning(
+            "Invalid chart metadata dtek_updated_at=%r for %s/%s; using emergency fallback", dtek_raw, region, queue,
+        )
+        dtek_dt = now
+        left_txt = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
+
     right_txt = _esc(f"Регіон: {region_label} • Черга: {queue}")
 
     # Badge width = estimated text width + horizontal padding

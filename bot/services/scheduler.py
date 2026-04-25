@@ -46,6 +46,7 @@ from bot.services.api import (
     fetch_schedule_image,
     find_next_event,
     invalidate_image_cache,
+    normalize_schedule_chart_metadata,
     parse_schedule_for_queue,
 )
 from bot.services.power_monitor import update_power_notifications_on_schedule_change
@@ -897,7 +898,8 @@ async def _prerender_chart(region: str, queue: str, sched_data: dict) -> None:
 
     try:
         await chart_cache.delete(region, queue)
-        data = await generate_schedule_chart(region, queue, sched_data)
+        normalized_sched, _ = normalize_schedule_chart_metadata(sched_data)
+        data = await generate_schedule_chart(region, queue, normalized_sched)
         if data:
             await chart_cache.store(region, queue, data)
             logger.info(
@@ -956,11 +958,12 @@ async def _send_schedule_notification(
 
         # ── Bot: photo + text + keyboard + live timestamp ───────────────────
         kb = get_schedule_view_keyboard()
-        bot_plain_text, raw_bot_entities = append_timestamp(html_text, last_check)
+        sched_data, safe_unix = normalize_schedule_chart_metadata(sched_data, last_check)
+        bot_plain_text, raw_bot_entities = append_timestamp(html_text, safe_unix)
         bot_entities = to_aiogram_entities(raw_bot_entities)
 
         # ── Channel: photo + text + live timestamp — NO keyboard ─────────────
-        ch_plain_text, raw_ch_entities = append_timestamp(html_text, last_check)
+        ch_plain_text, raw_ch_entities = append_timestamp(html_text, safe_unix)
         ch_entities = to_aiogram_entities(raw_ch_entities)
 
         image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue, sched_data)

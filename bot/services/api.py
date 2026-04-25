@@ -56,6 +56,72 @@ def set_chart_render_mode(on_demand: bool) -> None:
 def get_chart_render_on_demand() -> bool:
     return _chart_render_on_demand
 
+
+def _normalize_check_unix(check_unix: int | None) -> int:
+    """Return a safe unix timestamp for timestamp entities/chart metadata."""
+    try:
+        return int(check_unix) if check_unix is not None else int(time.time())
+    except (TypeError, ValueError):
+        return int(time.time())
+
+
+def _normalize_dtek_updated_at(value: Any) -> str | None:
+    """Normalize upstream timestamp into ``DD.MM.YYYY HH:MM`` Kyiv format."""
+    if isinstance(value, datetime):
+        return value.astimezone(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(int(value), tz=KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+
+    if not isinstance(value, str):
+        return None
+
+    raw = value.strip()
+    if not raw:
+        return None
+
+    if raw.isdigit():
+        try:
+            return datetime.fromtimestamp(int(raw), tz=KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+        except (OverflowError, ValueError):
+            return None
+
+    known_formats = ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S")
+    for fmt in known_formats:
+        try:
+            dt = datetime.strptime(raw, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=KYIV_TZ)
+            return dt.astimezone(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            continue
+
+    try:
+        iso_candidate = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(iso_candidate)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=KYIV_TZ)
+        return dt.astimezone(KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+    except ValueError:
+        return None
+
+
+def normalize_schedule_chart_metadata(
+    schedule_data: dict,
+    check_unix: int | None = None,
+) -> tuple[dict, int]:
+    """Return chart metadata with guaranteed ``dtek_updated_at`` before rendering."""
+    safe_unix = _normalize_check_unix(check_unix)
+    normalized_data = dict(schedule_data)
+
+    normalized_dt = _normalize_dtek_updated_at(schedule_data.get("dtek_updated_at"))
+    if normalized_dt is None:
+        normalized_dt = datetime.fromtimestamp(safe_unix, tz=KYIV_TZ).strftime("%d.%m.%Y %H:%M")
+
+    normalized_data["dtek_updated_at"] = normalized_dt
+    return normalized_data, safe_unix
+
+
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
 _last_etag: str | None = None
@@ -361,6 +427,9 @@ async def fetch_schedule_image(
     from bot.services import chart_cache
 
     # ── on_demand mode: always render fresh, skip all caches ──────────────────
+    if schedule_data is not None:
+        schedule_data, _ = normalize_schedule_chart_metadata(schedule_data)
+
     if _chart_render_on_demand and schedule_data is not None:
         from bot.services.chart_generator import generate_schedule_chart
         return await generate_schedule_chart(region, queue, schedule_data)
