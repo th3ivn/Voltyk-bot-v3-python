@@ -140,7 +140,7 @@ def build_chart_fingerprint(schedule_data: dict | None = None, *, chart_version:
     normalized_dt = _normalize_dtek_updated_at((schedule_data or {}).get("dtek_updated_at")) or "unknown"
     version_part = f"v{chart_version}" if chart_version is not None else "v?"
     raw = f"{version_part}:{normalized_dt}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 _http_client: aiohttp.ClientSession | None = None
