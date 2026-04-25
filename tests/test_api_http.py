@@ -910,7 +910,7 @@ class TestQueueSourceUpdatedAt:
     def setup_method(self):
         _reset_api_state()
 
-    async def test_reads_commit_date_for_queue_image_path(self):
+    async def test_reads_commit_date_for_region_data_path(self):
         from bot.services.api import get_queue_source_updated_at
 
         payload = [{
@@ -925,7 +925,7 @@ class TestQueueSourceUpdatedAt:
         ):
             mock_settings.GITHUB_TOKEN = ""
             m.get(
-                re.compile(r"https://api\.github\.com/repos/Baskerville42/outage-data-ua/commits\?.*"),
+                re.compile(r"https://api\\.github\\.com/repos/Baskerville42/outage-data-ua/commits\\?.*path=(data%2F|data/)kyiv-region\\.json.*"),
                 payload=payload,
                 status=200,
             )

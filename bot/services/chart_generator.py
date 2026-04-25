@@ -386,13 +386,13 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
 
     try:
         dtek_dt = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
-        left_txt = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
+        left_txt = _esc(f"Перевірено: {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
     except ValueError:
         logger.warning(
             "Invalid chart metadata dtek_updated_at=%r for %s/%s; using emergency fallback", dtek_raw, region, queue,
         )
         dtek_dt = now
-        left_txt = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
+        left_txt = _esc(f"Перевірено: {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
 
     right_txt = _esc(f"Регіон: {region_label} • Черга: {queue}")
 
