@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
 from bot.db.queries import get_setting, set_setting
-from bot.keyboards.inline import get_button_emoji_mode_keyboard
 from bot.keyboards.common import (
     BUTTON_EMOJI_MODE_SETTING_KEY,
     is_button_custom_emoji_enabled,
     set_button_custom_emoji_enabled,
 )
+from bot.keyboards.inline import get_button_emoji_mode_keyboard
 from bot.utils.telegram import safe_edit_text
 
 router = Router(name="admin_button_emoji")

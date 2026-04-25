@@ -7,13 +7,13 @@ sub-module (e.g. ``from bot.keyboards.admin import get_admin_keyboard``).
 from __future__ import annotations
 
 from bot.keyboards.admin import (
-    get_button_emoji_mode_keyboard,
     get_admin_analytics_keyboard,
     get_admin_intervals_keyboard,
     get_admin_keyboard,
     get_admin_router_keyboard,
     get_admin_settings_menu_keyboard,
     get_broadcast_cancel_keyboard,
+    get_button_emoji_mode_keyboard,
     get_chart_preview_keyboard,
     get_chart_render_mode_keyboard,
     get_debounce_keyboard,
