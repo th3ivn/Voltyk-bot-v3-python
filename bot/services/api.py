@@ -86,7 +86,14 @@ def _normalize_dtek_updated_at(value: Any) -> str | None:
         except (OverflowError, ValueError):
             return None
 
-    known_formats = ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S")
+    known_formats = (
+        "%d.%m.%Y %H:%M",
+        "%d.%m.%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+    )
     for fmt in known_formats:
         try:
             dt = datetime.strptime(raw, fmt)
@@ -549,7 +556,15 @@ def _hour_to_datetime(base_date: datetime, hour_value: float) -> datetime:
 
 
 def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
-    """Parse raw API data into schedule events for a specific queue."""
+    """Parse raw API data into schedule events for a specific queue.
+
+    Returns a dict with:
+    - ``hasData``: ``True`` when at least one event was parsed.
+    - ``events``: list of power-on/off windows.
+    - ``queue``: queue label passed to the parser.
+    - ``dtek_updated_at``: normalized upstream update timestamp in
+      ``DD.MM.YYYY HH:MM`` (Kyiv time) or ``None`` when absent/invalid.
+    """
     if not raw_data or not isinstance(raw_data, dict):
         return {"hasData": False, "events": [], "queue": queue}
 
@@ -616,18 +631,54 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
 
 
 def _extract_dtek_updated_at(raw_data: dict, fact: dict) -> str | None:
-    """Extract update timestamp from known upstream payload variants."""
-    candidate_keys = ("update", "updated_at", "updatedAt", "last_update", "lastUpdated")
+    """Extract and normalize update timestamp from known upstream payload variants."""
+    candidate_keys = (
+        "update",
+        "updated",
+        "updated_at",
+        "updatedAt",
+        "last_update",
+        "lastUpdated",
+        "last_updated_at",
+        "generated_at",
+        "generatedAt",
+        "timestamp",
+        "ts",
+    )
+    nested_containers = (
+        "meta",
+        "metadata",
+        "info",
+        "header",
+        "source",
+        "mirror",
+        "attrs",
+        "timestamps",
+        "payload",
+        "result",
+    )
 
-    for key in candidate_keys:
-        value = fact.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    def _iter_candidates(container: dict, root_name: str) -> list[tuple[str, Any]]:
+        out: list[tuple[str, Any]] = []
+        for key in candidate_keys:
+            if key in container:
+                out.append((f"{root_name}.{key}", container.get(key)))
 
-    for key in candidate_keys:
-        value = raw_data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        for nested in nested_containers:
+            nested_value = container.get(nested)
+            if not isinstance(nested_value, dict):
+                continue
+            for key in candidate_keys:
+                if key in nested_value:
+                    out.append((f"{root_name}.{nested}.{key}", nested_value.get(key)))
+        return out
+
+    for source, candidate in _iter_candidates(fact, "fact") + _iter_candidates(raw_data, "raw"):
+        normalized = _normalize_dtek_updated_at(candidate)
+        if normalized is not None:
+            return normalized
+        if candidate not in (None, ""):
+            logger.warning("Ignoring invalid dtek_updated_at candidate from %s: %r", source, candidate)
 
     return None
 
