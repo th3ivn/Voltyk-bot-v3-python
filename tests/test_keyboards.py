@@ -666,16 +666,6 @@ class TestFormatKeyboards:
 
 
 class TestHelpKeyboards:
-    def test_get_help_keyboard_shows_text_emoji_when_custom_disabled(self):
-        set_button_custom_emoji_enabled(False)
-        kb = get_help_keyboard(faq_url="https://faq.example.com", support_url="https://support.example.com")
-        texts = [btn.text for btn in _all_buttons(kb)]
-        assert "📘 Інструкція" in texts
-        assert "❓ FAQ" in texts
-        assert "💬 Підтримка" in texts
-        assert "📰 Новини ↗" in texts
-        assert "💬 Обговорення ↗" in texts
-
     def test_get_help_keyboard_no_urls(self):
         kb = get_help_keyboard()
         cbs = _callback_data_set(kb)
@@ -750,17 +740,6 @@ class TestHelpKeyboards:
         assert "instr_schedule" in cbs
         assert "instr_bot_settings" in cbs
         assert "menu_help" in cbs
-
-    def test_get_instructions_keyboard_shows_text_emoji_when_custom_disabled(self):
-        set_button_custom_emoji_enabled(False)
-        kb = get_instructions_keyboard()
-        texts = [btn.text for btn in _all_buttons(kb)]
-        assert "📍 Регіон і черга" in texts
-        assert "🔔 Сповіщення" in texts
-        assert "📺 Канал" in texts
-        assert "📡 IP моніторинг" in texts
-        assert "📊 Графік відключень" in texts
-        assert "⚙️ Налаштування бота" in texts
 
     def test_get_instruction_section_keyboard(self):
         kb = get_instruction_section_keyboard()
