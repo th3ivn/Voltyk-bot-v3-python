@@ -26,10 +26,10 @@ from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.keyboards.common import BUTTON_EMOJI_MODE_SETTING_KEY, set_button_custom_emoji_enabled
+from bot.middlewares.auto_cleanup import AutoCleanupCommandMiddleware, AutoCleanupResponseMiddleware
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware, load_maintenance_mode
 from bot.middlewares.throttle import ThrottleMiddleware
-from bot.middlewares.auto_cleanup import AutoCleanupCommandMiddleware, AutoCleanupResponseMiddleware
 from bot.services import chart_cache
 from bot.services.api import (
     close_http_client,
@@ -37,6 +37,7 @@ from bot.services.api import (
     load_last_commit_sha,
     set_chart_render_mode,
 )
+from bot.services.auto_cleanup import auto_cleanup_loop, stop_auto_cleanup
 from bot.services.chart_generator import shutdown_chart_executor
 from bot.services.power_monitor import (
     daily_ping_error_loop,
@@ -44,7 +45,6 @@ from bot.services.power_monitor import (
     save_states_on_shutdown,
     stop_power_monitor,
 )
-from bot.services.auto_cleanup import auto_cleanup_loop, stop_auto_cleanup
 from bot.services.scheduler import (
     daily_flush_loop,
     reminder_checker_loop,

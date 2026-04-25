@@ -57,5 +57,5 @@ async def get_due_auto_delete(session: AsyncSession, limit: int = 200) -> list[A
 async def remove_auto_delete_entries(session: AsyncSession, ids: list[int]) -> int:
     if not ids:
         return 0
-    res = await session.execute(delete(AutoDeleteQueue).where(AutoDeleteQueue.id.in_(ids)))
-    return int(res.rowcount or 0)
+    await session.execute(delete(AutoDeleteQueue).where(AutoDeleteQueue.id.in_(ids)))
+    return len(ids)
