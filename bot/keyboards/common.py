@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+# Persistent setting key used by admin panel:
+# true  -> use Telegram custom button icons (premium)
+# false -> fall back to regular text emoji only
+BUTTON_EMOJI_MODE_SETTING_KEY = "button_custom_emoji_enabled"
+_button_custom_emoji_enabled = True
+
 # ─── Custom animated emoji IDs (from old bot, 1:1) ────────────────────────
 
 E_SCHEDULE = "5210956306952758910"
@@ -57,6 +63,68 @@ E_BOT_SETTINGS = "5312280340721604022"
 E_NEWS = "5312374181462055424"
 E_DISCUSS = "5312237842020209022"
 
+_FALLBACK_TEXT_EMOJI_BY_ID: dict[str, str] = {
+    E_HELP: "❓",
+    E_ALERTS: "🔔",
+    E_CHANNEL: "📺",
+    E_BOT_SETTINGS: "⚙️",
+    E_RESUME: "▶️",
+    E_PAUSE_CHANNEL: "⏸️",
+    E_SCHEDULE_SEC: "📊",
+    E_SCHEDULE_CHANGES: "📈",
+    E_BOT_NOTIF: "📱",
+    E_FACT: "⚡",
+    E_REGION: "📍",
+    E_REFRESH: "🔄",
+    E_INSTRUCTION: "📍",
+    E_INSTR_HELP: "📘",
+    E_IP_SECTION: "📡",
+    E_CHANNEL_SECTION: "📺",
+    E_NOTIF_SECTION: "🔔",
+    E_ADMIN: "👑",
+    E_DELETE_DATA: "🗑",
+    E_CHANGE_IP: "✏️",
+    E_DELETE_IP: "🗑",
+    E_PING_CHECK: "📡",
+    E_SUPPORT: "💬",
+    E_FAQ: "❓",
+    E_NEWS: "📺",
+    E_DISCUSS: "💬",
+    E_SUCCESS: "✅",
+}
+
+
+def set_button_custom_emoji_enabled(enabled: bool) -> None:
+    """Toggle custom emoji icons for inline keyboard buttons at runtime."""
+    global _button_custom_emoji_enabled
+    _button_custom_emoji_enabled = enabled
+
+
+def is_button_custom_emoji_enabled() -> bool:
+    """Return whether custom emoji icons are currently enabled for buttons."""
+    return _button_custom_emoji_enabled
+
+
+def _with_fallback_text_emoji(text: str, emoji_id: str | None) -> str:
+    """Prefix plain button text with a standard emoji when custom icons are disabled."""
+    if _button_custom_emoji_enabled or not emoji_id:
+        return text
+    lowered = text.lower()
+    if "новини" in lowered:
+        fallback_emoji = "📰"
+    elif "обговорення" in lowered or "підтрим" in lowered:
+        fallback_emoji = "💬"
+    else:
+        fallback_emoji = _FALLBACK_TEXT_EMOJI_BY_ID.get(emoji_id)
+    if not fallback_emoji:
+        return text
+    # If the button text already starts with a symbol/emoji (e.g. "👀 Графік"),
+    # avoid double prefixing.
+    first_char = text[:1]
+    if first_char and not first_char.isalnum():
+        return text
+    return f"{fallback_emoji} {text}"
+
 
 def _btn(
     text: str,
@@ -65,8 +133,8 @@ def _btn(
     style: str | None = None,
     **kwargs,
 ) -> InlineKeyboardButton:
-    params: dict = {"text": text, "callback_data": callback_data, **kwargs}
-    if emoji_id:
+    params: dict = {"text": _with_fallback_text_emoji(text, emoji_id), "callback_data": callback_data, **kwargs}
+    if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     if style:
         params["style"] = style
@@ -78,8 +146,8 @@ def _url_btn(text: str, url: str) -> InlineKeyboardButton:
 
 
 def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url}
-    if emoji_id:
+    params: dict = {"text": _with_fallback_text_emoji(text, emoji_id), "url": url}
+    if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     return InlineKeyboardButton(**params)
 
