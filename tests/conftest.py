@@ -1,6 +1,8 @@
 """Shared pytest fixtures for the Voltyk Bot test suite."""
 from __future__ import annotations
 
+import asyncio
+import inspect
 import os
 
 # Set required environment variables BEFORE any bot modules are imported,
@@ -13,6 +15,26 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+
+def pytest_configure(config):
+    """Register local asyncio marker when pytest-asyncio plugin is unavailable."""
+    config.addinivalue_line("markers", "asyncio: mark test as async")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem):
+    """Run coroutine tests without requiring external pytest-asyncio plugin."""
+    testfunction = pyfuncitem.obj
+    if not inspect.iscoroutinefunction(testfunction):
+        return None
+
+    funcargs = {
+        name: pyfuncitem.funcargs[name]
+        for name in pyfuncitem._fixtureinfo.argnames
+    }
+    asyncio.run(testfunction(**funcargs))
+    return True
 
 # ---------------------------------------------------------------------------
 # Simple mock ORM objects (avoid importing SQLAlchemy models in unit tests)
