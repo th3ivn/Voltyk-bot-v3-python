@@ -343,12 +343,12 @@ class TestBuildSvg:
     def test_with_dtek_updated_at_valid(self):
         data = _make_schedule_data(dtek_updated_at="15.03.2024 10:30")
         svg = self._build(schedule_data=data)
-        assert "Останнє оновлення графіка станом на 10:30 15.03.2024" in svg
+        assert "Перевірено: 10:30 15.03.2024" in svg
 
     def test_with_dtek_updated_at_invalid_format(self):
         data = _make_schedule_data(dtek_updated_at="not-a-date")
         svg = self._build(schedule_data=data)
-        assert "Останнє оновлення графіка станом на" in svg
+        assert "Перевірено:" in svg
 
     def test_normalizer_fills_timestamp_before_render(self):
         from bot.services.api import normalize_schedule_chart_metadata
@@ -357,7 +357,7 @@ class TestBuildSvg:
         svg = self._build(schedule_data=normalized)
 
         assert normalized["dtek_updated_at"] == "15.03.2024 13:10"
-        assert "Останнє оновлення графіка станом на 13:10 15.03.2024" in svg
+        assert "Перевірено: 13:10 15.03.2024" in svg
 
     def test_all_cells_on(self):
         svg = self._build(schedule_data=_make_schedule_data())
