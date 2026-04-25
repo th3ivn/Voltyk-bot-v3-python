@@ -69,8 +69,9 @@ async def close() -> None:
 
 # ── Key helpers ───────────────────────────────────────────────────────────────
 
-def _key(region: str, queue: str) -> str:
-    return f"chart:v{CHART_VERSION}:{region}:{queue}"
+def _key(region: str, queue: str, fingerprint: str | None = None) -> str:
+    suffix = fingerprint or "base"
+    return f"chart:v{CHART_VERSION}:{region}:{queue}:{suffix}"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -88,23 +89,23 @@ async def ping() -> bool:
     return True
 
 
-async def get(region: str, queue: str) -> bytes | None:
+async def get(region: str, queue: str, fingerprint: str | None = None) -> bytes | None:
     """Return the cached PNG bytes, or None if not found / Redis unavailable."""
     if _redis is None:
         return None
     try:
-        return await _redis.get(_key(region, queue))
+        return await _redis.get(_key(region, queue, fingerprint))
     except Exception as e:
         logger.warning("chart_cache.get %s/%s failed: %s", region, queue, e)
         return None
 
 
-async def store(region: str, queue: str, data: bytes) -> None:
+async def store(region: str, queue: str, data: bytes, fingerprint: str | None = None) -> None:
     """Persist PNG bytes in Redis with the standard TTL."""
     if _redis is None:
         return
     try:
-        await _redis.setex(_key(region, queue), CHART_TTL_S, data)
+        await _redis.setex(_key(region, queue, fingerprint), CHART_TTL_S, data)
         logger.debug(
             "chart_cache: stored %s/%s (%d KB, TTL %dh)",
             region, queue, len(data) // 1024, CHART_TTL_S // 3600,
@@ -113,12 +114,12 @@ async def store(region: str, queue: str, data: bytes) -> None:
         logger.warning("chart_cache.store %s/%s failed: %s", region, queue, e)
 
 
-async def delete(region: str, queue: str) -> None:
+async def delete(region: str, queue: str, fingerprint: str | None = None) -> None:
     """Remove the cached chart so the next request triggers a fresh render."""
     if _redis is None:
         return
     try:
-        await _redis.delete(_key(region, queue))
+        await _redis.delete(_key(region, queue, fingerprint))
         logger.debug("chart_cache: deleted %s/%s", region, queue)
     except Exception as e:
         logger.warning("chart_cache.delete %s/%s failed: %s", region, queue, e)

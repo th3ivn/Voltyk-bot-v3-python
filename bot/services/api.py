@@ -129,6 +129,20 @@ def normalize_schedule_chart_metadata(
     return normalized_data, safe_unix
 
 
+def build_chart_fingerprint(schedule_data: dict | None = None, *, chart_version: int | None = None) -> str:
+    """Return a stable cache fingerprint for chart images.
+
+    The fingerprint includes:
+    - normalized ``dtek_updated_at`` (header metadata shown on chart),
+    - optional chart template version (``chart_cache.CHART_VERSION``),
+    so cache keys rotate both on data timestamp changes and layout updates.
+    """
+    normalized_dt = _normalize_dtek_updated_at((schedule_data or {}).get("dtek_updated_at")) or "unknown"
+    version_part = f"v{chart_version}" if chart_version is not None else "v?"
+    raw = f"{version_part}:{normalized_dt}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
 _http_client: aiohttp.ClientSession | None = None
 _last_commit_sha: str | None = None
 _last_etag: str | None = None
@@ -434,14 +448,19 @@ async def fetch_schedule_image(
     from bot.services import chart_cache
 
     # ── on_demand mode: always render fresh, skip all caches ──────────────────
+    chart_fingerprint: str | None = None
     if schedule_data is not None:
         schedule_data, _ = normalize_schedule_chart_metadata(schedule_data)
+        chart_fingerprint = build_chart_fingerprint(
+            schedule_data,
+            chart_version=chart_cache.CHART_VERSION,
+        )
 
     if _chart_render_on_demand and schedule_data is not None:
         from bot.services.chart_generator import generate_schedule_chart
         return await generate_schedule_chart(region, queue, schedule_data)
 
-    cache_key = f"{region}_{queue}"
+    cache_key = f"{region}_{queue}_{chart_fingerprint}" if chart_fingerprint else f"{region}_{queue}"
     now = datetime.now()
 
     # ── L1: in-memory ─────────────────────────────────────────────────────────
@@ -453,7 +472,7 @@ async def fetch_schedule_image(
                 return data
 
     # ── L2: Redis ─────────────────────────────────────────────────────────────
-    redis_data = await chart_cache.get(region, queue)
+    redis_data = await chart_cache.get(region, queue, fingerprint=chart_fingerprint)
     if redis_data:
         await _l1_store_async(cache_key, now, redis_data)
         return redis_data
@@ -463,7 +482,7 @@ async def fetch_schedule_image(
         from bot.services.chart_generator import generate_schedule_chart
         generated = await generate_schedule_chart(region, queue, schedule_data)
         if generated:
-            await chart_cache.store(region, queue, generated)
+            await chart_cache.store(region, queue, generated, fingerprint=chart_fingerprint)
             await _l1_store_async(cache_key, now, generated)
             return generated
         logger.warning("Local chart generation failed for %s/%s — falling back to GitHub", region, queue)
@@ -490,7 +509,7 @@ async def fetch_schedule_image(
                     if len(data) > _MAX_IMAGE_RESPONSE:
                         logger.warning("Image response too large (%d bytes) for %s/%s", len(data), region, queue)
                         return None
-                    await chart_cache.store(region, queue, data)
+                    await chart_cache.store(region, queue, data, fingerprint=chart_fingerprint)
                     await _l1_store_async(cache_key, now, data)
                     return data
         finally:

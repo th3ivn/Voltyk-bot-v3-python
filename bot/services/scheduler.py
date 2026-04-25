@@ -40,6 +40,7 @@ from bot.db.session import async_session
 from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_reminder_keyboard, get_schedule_view_keyboard
 from bot.services.api import (
+    build_chart_fingerprint,
     calculate_schedule_hash,
     check_source_repo_updated,
     fetch_schedule_data,
@@ -897,11 +898,15 @@ async def _prerender_chart(region: str, queue: str, sched_data: dict) -> None:
         return
 
     try:
-        await chart_cache.delete(region, queue)
         normalized_sched, _ = normalize_schedule_chart_metadata(sched_data)
+        chart_fingerprint = build_chart_fingerprint(
+            normalized_sched,
+            chart_version=chart_cache.CHART_VERSION,
+        )
+        await chart_cache.delete(region, queue, fingerprint=chart_fingerprint)
         data = await generate_schedule_chart(region, queue, normalized_sched)
         if data:
-            await chart_cache.store(region, queue, data)
+            await chart_cache.store(region, queue, data, fingerprint=chart_fingerprint)
             logger.info(
                 "Chart pre-rendered for %s/%s (%d KB)",
                 region, queue, len(data) // 1024,

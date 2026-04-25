@@ -974,7 +974,40 @@ class TestFetchScheduleImage:
             result = await fetch_schedule_image("kyiv", "1.1", schedule_data)
 
         assert result == generated_png
-        assert "kyiv_1.1" in api._image_cache
+        assert any(key.startswith("kyiv_1.1_") for key in api._image_cache)
+
+    async def test_dtek_updated_at_change_creates_new_cache_path(self):
+        """Different header timestamp should use a different cache fingerprint/path."""
+        import bot.services.api as api
+        from bot.services.api import fetch_schedule_image
+
+        png_old = b"generated_old"
+        png_new = b"generated_new"
+        sched_old = {"events": [], "dtek_updated_at": "07.04.2026 06:00"}
+        sched_new = {"events": [], "dtek_updated_at": "07.04.2026 07:00"}
+        chart_get = AsyncMock(return_value=None)
+        chart_store = AsyncMock()
+
+        with (
+            patch("bot.services.chart_cache.get", chart_get),
+            patch("bot.services.chart_cache.store", chart_store),
+            patch(
+                "bot.services.chart_generator.generate_schedule_chart",
+                AsyncMock(side_effect=[png_old, png_new]),
+            ),
+        ):
+            first = await fetch_schedule_image("kyiv", "1.1", sched_old)
+            second = await fetch_schedule_image("kyiv", "1.1", sched_new)
+
+        assert first == png_old
+        assert second == png_new
+        assert len(api._image_cache) == 2
+
+        first_fp = chart_get.await_args_list[0].kwargs["fingerprint"]
+        second_fp = chart_get.await_args_list[1].kwargs["fingerprint"]
+        assert first_fp != second_fp
+        assert f"kyiv_1.1_{first_fp}" in api._image_cache
+        assert f"kyiv_1.1_{second_fp}" in api._image_cache
 
     async def test_local_generation_fails_falls_back_to_github(self):
         """generate_schedule_chart returns None → falls back to GitHub PNG fetch."""
