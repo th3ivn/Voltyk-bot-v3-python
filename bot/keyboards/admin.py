@@ -29,8 +29,19 @@ def get_admin_settings_menu_keyboard() -> InlineKeyboardMarkup:
         [_btn("⏸ Debounce", "admin_debounce"), _btn("⏸️ Режим паузи", "admin_pause")],
         [_btn("🔄 Cooldown перевірки", "admin_refresh_cooldown")],
         [_btn("🖼 Режим графіка", "admin_chart_render")],
+        [_btn("😀 Емодзі кнопок", "admin_button_emoji")],
         [_btn("🗑 Очистити базу", "admin_clear_db"), _btn("🔄 Перезапуск", "admin_restart")],
         [_btn("← Назад", "admin_menu"), _btn("⤴ Меню", "back_to_main")],
+    ])
+
+
+def get_button_emoji_mode_keyboard(custom_enabled: bool = True) -> InlineKeyboardMarkup:
+    custom_style = "success" if custom_enabled else None
+    regular_style = "success" if not custom_enabled else None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("✨ Кастомні (Premium)", "admin_button_emoji_set_custom", style=custom_style)],
+        [_btn("🙂 Звичайні", "admin_button_emoji_set_regular", style=regular_style)],
+        [_btn("← Назад", "admin_settings_menu"), _btn("⤴ Меню", "back_to_main")],
     ])
 
 
