@@ -9,7 +9,6 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -490,17 +489,18 @@ class TestParseScheduleForQueueTomorrow:
         result = parse_schedule_for_queue(raw, "1.1")
         assert result.get("dtek_updated_at") == "07.04.2026 06:00"
 
-    def test_dtek_updated_at_invalid_value_is_not_exposed(self, caplog):
+    def test_dtek_updated_at_invalid_value_is_not_exposed(self):
         from bot.services.api import parse_schedule_for_queue
 
         raw = self._make_raw_two_days()
         raw["fact"]["update"] = "totally-not-a-date"
 
-        with caplog.at_level(logging.WARNING, logger="bot.services.api"):
+        with patch("bot.services.api.logger.warning") as mock_warning:
             result = parse_schedule_for_queue(raw, "1.1")
 
         assert result.get("dtek_updated_at") is None
-        assert "Ignoring invalid dtek_updated_at candidate" in caplog.text
+        mock_warning.assert_called_once()
+        assert "Ignoring invalid dtek_updated_at candidate" in mock_warning.call_args[0][0]
 
     def test_tomorrow_possible_events_included(self):
         from bot.services.api import parse_schedule_for_queue
