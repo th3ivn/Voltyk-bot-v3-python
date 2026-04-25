@@ -239,6 +239,10 @@ class TestAppendTimestamp:
         full_text, _ = append_timestamp("hello", 1000)
         assert full_text.startswith("hello")
 
+    def test_uses_short_prefix(self):
+        full_text, _ = append_timestamp("hello", 1000)
+        assert "\n\n🔄 Перевірено: " in full_text
+
     def test_custom_emoji_offset(self):
         # plain_text="hello" (5 UTF-16 units), then "\n\n" (2 units) before 🔄
         _, entities = append_timestamp("hello", 1000)
@@ -248,12 +252,12 @@ class TestAppendTimestamp:
         assert emoji_entity["length"] == 2  # 🔄 is a surrogate pair
 
     def test_date_time_offset(self):
-        # prefix = "\n\n🔄 Час останнього оновлення даних: "
-        # _utf16_len(prefix) = 37
+        # prefix = "\n\n🔄 Перевірено: "
+        # _utf16_len(prefix) = 17
         _, entities = append_timestamp("hello", 1000)
         dt_entity = next(e for e in entities if e["type"] == "date_time")
-        # offset = _utf16_len("hello") + _utf16_len(prefix) = 5 + 37 = 42
-        assert dt_entity["offset"] == 42
+        # offset = _utf16_len("hello") + _utf16_len(prefix) = 5 + 17 = 22
+        assert dt_entity["offset"] == 22
         assert dt_entity["unix_time"] == 1000
         assert dt_entity["date_time_format"] == "r"
 

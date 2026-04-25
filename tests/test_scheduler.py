@@ -1334,7 +1334,6 @@ class TestSendScheduleNotification:
             patch("bot.services.scheduler.get_schedule_view_keyboard", return_value=MagicMock()),
             patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=None)),
             patch("bot.services.scheduler.append_timestamp", return_value=("plain", [])),
-            patch("bot.services.scheduler.html_to_entities", return_value=("plain", [])),
             patch("bot.services.scheduler.to_aiogram_entities", return_value=[]),
             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call),
         ]
@@ -2537,7 +2536,6 @@ class TestSendScheduleNotificationMore:
             patch("bot.services.scheduler.get_schedule_view_keyboard", return_value=MagicMock()),
             patch("bot.services.scheduler.fetch_schedule_image", AsyncMock(return_value=None)),
             patch("bot.services.scheduler.append_timestamp", return_value=("plain", [])),
-            patch("bot.services.scheduler.html_to_entities", return_value=("plain", [])),
             patch("bot.services.scheduler.to_aiogram_entities", return_value=[]),
             patch("bot.services.scheduler.retry_bot_call", side_effect=_fake_retry_bot_call),
         ]
