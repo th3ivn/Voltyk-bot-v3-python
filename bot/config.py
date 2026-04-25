@@ -85,6 +85,7 @@ class Settings(BaseSettings):
 
     SCHEDULER_BATCH_SIZE: int = 50
     SCHEDULER_STAGGER_MS: int = 20
+    AUTO_DELETE_DELAY_MINUTES: int = 120
 
     DATA_URL_TEMPLATE: str = (
         "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/{region}.json"
@@ -174,6 +175,7 @@ class Settings(BaseSettings):
         "SHUTDOWN_FLUSH_TIMEOUT_S",
         "ADMIN_NOTIFY_COOLDOWN_S",
         "BG_TASK_STALE_THRESHOLD_S",
+        "AUTO_DELETE_DELAY_MINUTES",
     )
     @classmethod
     def validate_positive_runtime_settings(cls, v: int) -> int:
@@ -237,4 +239,3 @@ if settings.USE_WEBHOOK and not settings.WEBHOOK_SECRET.strip():
         "but Telegram or your webhook client must be configured to send the same secret token. "
         "Outside local development, use a strong random value."
     )
-
