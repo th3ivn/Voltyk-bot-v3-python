@@ -52,6 +52,7 @@ async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> Non
                 remind_15m=ns.remind_15m,
                 remind_30m=ns.remind_30m,
                 remind_1h=ns.remind_1h,
+                has_ip=bool(user.router_ip),
             ),
         )
 
@@ -76,6 +77,7 @@ async def notif_select_bot(callback: CallbackQuery, session: AsyncSession) -> No
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
+            has_ip=bool(user.router_ip),
             back_cb="settings_alerts",
         ),
     )
@@ -101,6 +103,7 @@ async def notif_select_channel(callback: CallbackQuery, session: AsyncSession) -
             remind_15m=cc.ch_remind_15m,
             remind_30m=cc.ch_remind_30m,
             remind_1h=cc.ch_remind_1h,
+            has_ip=bool(user.router_ip),
         ),
     )
 
@@ -124,6 +127,7 @@ async def notif_toggle_schedule(callback: CallbackQuery, session: AsyncSession) 
                 remind_15m=ns.remind_15m,
                 remind_30m=ns.remind_30m,
                 remind_1h=ns.remind_1h,
+                has_ip=bool(user.router_ip),
             ),
         )
     await callback.answer()
@@ -187,6 +191,7 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
+            has_ip=bool(user.router_ip),
         ),
     )
     await callback.answer()
@@ -222,6 +227,7 @@ async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
             remind_15m=ns.remind_15m,
             remind_30m=ns.remind_30m,
             remind_1h=ns.remind_1h,
+            has_ip=bool(user.router_ip),
         ),
     )
     await callback.answer()
@@ -349,6 +355,7 @@ async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> No
             remind_15m=cc.ch_remind_15m,
             remind_30m=cc.ch_remind_30m,
             remind_1h=cc.ch_remind_1h,
+            has_ip=bool(user.router_ip),
         ),
     )
     await callback.answer()

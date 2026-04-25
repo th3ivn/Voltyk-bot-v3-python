@@ -138,6 +138,13 @@ def _callback_data_set(kb):
     return {btn.callback_data for btn in _all_buttons(kb) if btn.callback_data}
 
 
+def _button_text_by_callback(kb, callback_data: str) -> str | None:
+    for btn in _all_buttons(kb):
+        if btn.callback_data == callback_data:
+            return btn.text
+    return None
+
+
 # ===========================================================================
 # common.py
 # ===========================================================================
@@ -918,6 +925,14 @@ class TestNotificationsKeyboards:
         cbs = _callback_data_set(kb)
         assert "custom_back" in cbs
 
+    def test_get_notification_main_keyboard_fact_label_without_ip(self):
+        kb = get_notification_main_keyboard(has_ip=False)
+        assert _button_text_by_callback(kb, "notif_toggle_fact_off") == "Фактично за графіком"
+
+    def test_get_notification_main_keyboard_fact_label_with_ip(self):
+        kb = get_notification_main_keyboard(has_ip=True)
+        assert _button_text_by_callback(kb, "notif_toggle_fact_off") == "Фактично за IP-адресою"
+
     def test_get_notification_reminders_keyboard_defaults(self):
         kb = get_notification_reminders_keyboard()
         cbs = _callback_data_set(kb)
@@ -993,6 +1008,10 @@ class TestNotificationsKeyboards:
             remind_15m=False, remind_30m=True, remind_1h=True
         )
         assert isinstance(kb.inline_keyboard, list)
+
+    def test_get_channel_notification_keyboard_fact_label_without_ip(self):
+        kb = get_channel_notification_keyboard(has_ip=False)
+        assert _button_text_by_callback(kb, "ch_notif_toggle_fact") == "Фактично за графіком"
 
 
 # ===========================================================================
