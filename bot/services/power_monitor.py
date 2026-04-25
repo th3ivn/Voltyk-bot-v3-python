@@ -399,7 +399,7 @@ async def _handle_power_state_change(
             if is_scheduled_outage and next_event and next_event.get("time"):
                 schedule_text = f"\n🗓 Світло має з'явитися: <b>{_format_time(next_event['time'])}</b>"
             else:
-                schedule_text = "\n🔍 Графік не передбачав це відключення"
+                schedule_text = "\n⚠️ Позапланове відключення"
         else:
             if next_event and next_event["type"] == "power_off":
                 start_str = _format_time(next_event["time"])
