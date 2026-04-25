@@ -79,10 +79,12 @@ def get_wizard_notify_target_keyboard() -> InlineKeyboardMarkup:
 def get_wizard_bot_notification_keyboard(**kw) -> InlineKeyboardMarkup:
     return _notif_keyboard("wizard_notif", kw.get("schedule_changes", True), kw.get("fact_off", True),
                            kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
-                           "wizard_notify_back", "wizard_bot_done")
+                           "wizard_notify_back", "wizard_bot_done",
+                           fact_label="Фактично за графіком")
 
 
 def get_wizard_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
     return _notif_keyboard("wizard_ch_notif", kw.get("schedule_changes", True), kw.get("fact_off", True),
                            kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
-                           "wizard_channel_back", "wizard_channel_done")
+                           "wizard_channel_back", "wizard_channel_done",
+                           fact_label="Фактично за графіком")

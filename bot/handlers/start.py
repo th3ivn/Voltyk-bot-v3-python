@@ -220,7 +220,11 @@ async def wizard_notify_bot(callback: CallbackQuery, state: FSMContext, session:
         await state.clear()
         return
     await safe_edit_text(callback.message,
-        "🔔 Налаштуйте сповіщення в боті:",
+        "🔔 Налаштуйте сповіщення в боті:\n\n"
+        "📈 Оновлення графіків — коли змінюється розклад відключень.\n"
+        "⏰ 1 год / 30 хв / 15 хв — за скільки часу надсилати нагадування до події.\n"
+        "⚡ Фактично за графіком — сповіщення в момент початку/завершення події за графіком.\n\n"
+        "Після підключення IP-адреси у налаштуваннях з’явиться режим «Фактично за IP-адресою».",
         reply_markup=get_wizard_bot_notification_keyboard(
             schedule_changes=ns.notify_schedule_changes,
             remind_off=ns.notify_remind_off,

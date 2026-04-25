@@ -18,6 +18,7 @@ def _notif_keyboard(
     schedule_changes: bool, fact_off: bool,
     remind_15m: bool, remind_30m: bool, remind_1h: bool,
     back_cb: str, done_cb: str | None = None,
+    fact_label: str = "Фактично за IP-адресою",
 ) -> InlineKeyboardMarkup:
     def _s(v: bool) -> str:
         return "success" if v else "default"
@@ -29,7 +30,7 @@ def _notif_keyboard(
             _btn("30 хв", f"{prefix}_time_30", style=_s(remind_30m)),
             _btn("15 хв", f"{prefix}_time_15", style=_s(remind_15m)),
         ],
-        [_btn("Фактично за IP-адресою", f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
+        [_btn(fact_label, f"{prefix}_toggle_fact", E_FACT, style=_s(fact_off))],
     ]
     last_row = [_btn("← Назад", back_cb)]
     if done_cb:
@@ -55,6 +56,7 @@ def get_notification_main_keyboard(
     remind_30m: bool = False,
     remind_1h: bool = False,
     has_channel: bool = False,
+    has_ip: bool = False,
     back_cb: str = "back_to_settings",
 ) -> InlineKeyboardMarkup:
     def _s(v: bool) -> str:
@@ -67,7 +69,14 @@ def get_notification_main_keyboard(
             _btn("30 хв", "notif_time_30", style=_s(remind_30m)),
             _btn("15 хв", "notif_time_15", style=_s(remind_15m)),
         ],
-        [_btn("Фактично за IP-адресою", "notif_toggle_fact_off", E_FACT, style=_s(fact_off))],
+        [
+            _btn(
+                "Фактично за IP-адресою" if has_ip else "Фактично за графіком",
+                "notif_toggle_fact_off",
+                E_FACT,
+                style=_s(fact_off),
+            )
+        ],
     ]
     if has_channel:
         rows.append([_btn("📍 Куди надсилати  →", "notif_targets")])
@@ -129,6 +138,7 @@ def get_notification_select_keyboard() -> InlineKeyboardMarkup:
 def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
     kb = _notif_keyboard("ch_notif", kw.get("schedule", True), kw.get("fact_off", True),
                          kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
-                         "notif_main")
+                         "notif_main",
+                         fact_label="Фактично за IP-адресою" if kw.get("has_ip", False) else "Фактично за графіком")
     kb.inline_keyboard[-1].append(_btn("⤴ Меню", "back_to_main"))
     return kb
