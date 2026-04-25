@@ -171,14 +171,21 @@ jobs:
       - name: Dependency vulnerability scan (pip-audit)
         # Scan project deps in an isolated venv so system-level packages
         # installed by the GitHub Actions runner do not produce false-positive
-        # CVE findings.  Upgrade pip inside the venv first so pip itself does
-        # not show stale CVEs from the runner's bundled pip 24.x.
+        # CVE findings.
+        #
+        # NOTE:
+        # - pip-audit currently reports CVE-2026-3219 on pip itself in this
+        #   isolated scanner venv with no available fixed version yet.
+        # - That finding is for the scanner bootstrap tool, not for runtime
+        #   application dependencies of this project.
+        # We therefore ignore only this CVE in CI until an upstream fixed pip
+        # release is available.
         run: |
           python -m venv /tmp/audit-venv
           /tmp/audit-venv/bin/pip install --upgrade pip -q
           /tmp/audit-venv/bin/pip install pip-audit -q
           /tmp/audit-venv/bin/pip install -e . -q
-          /tmp/audit-venv/bin/pip-audit
+          /tmp/audit-venv/bin/pip-audit --ignore-vuln CVE-2026-3219
 
       - name: Static security analysis (bandit)
         # -ll: report only HIGH and MEDIUM severity issues
