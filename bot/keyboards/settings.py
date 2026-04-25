@@ -6,7 +6,6 @@ from bot.keyboards.common import (
     E_ADMIN,
     E_CHANNEL_SECTION,
     E_DELETE_DATA,
-    E_INSTRUCTION,
     E_IP_SECTION,
     E_NOTIF_SECTION,
     _btn,
@@ -16,7 +15,7 @@ from bot.keyboards.common import (
 def get_settings_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
-            _btn("Регіон", "settings_region", E_INSTRUCTION),
+            _btn("🌍 Регіон", "settings_region"),
             _btn("IP", "settings_ip", E_IP_SECTION),
         ],
         [
