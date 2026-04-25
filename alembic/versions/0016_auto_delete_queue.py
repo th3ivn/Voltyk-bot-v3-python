@@ -23,8 +23,11 @@ def _table_exists(name: str) -> bool:
 
 
 def upgrade() -> None:
-    if not context.is_offline_mode() and _table_exists("auto_delete_queue"):
-        return
+    if not context.is_offline_mode():
+        if not _table_exists("users"):
+            return
+        if _table_exists("auto_delete_queue"):
+            return
     op.create_table(
         "auto_delete_queue",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
