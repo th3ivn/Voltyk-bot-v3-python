@@ -1126,12 +1126,15 @@ async def save_states_on_shutdown() -> None:
     """
     global _http_connector
     try:
-        # asyncio.timeout (3.11+) is a separate code path from asyncio.wait_for
-        # so tests that monkey-patch wait_for for the connector-close branch
-        # below don't accidentally stub out the flush-timeout here.
-        async with asyncio.timeout(settings.SHUTDOWN_FLUSH_TIMEOUT_S):
-            await _save_all_user_states()
-    except TimeoutError:
+        timeout_s = settings.SHUTDOWN_FLUSH_TIMEOUT_S
+        if hasattr(asyncio, "timeout"):
+            # asyncio.timeout is available on Python 3.11+.
+            async with asyncio.timeout(timeout_s):
+                await _save_all_user_states()
+        else:
+            # Fallback for Python 3.10 test runners / older environments.
+            await asyncio.wait_for(_save_all_user_states(), timeout=timeout_s)
+    except asyncio.TimeoutError:
         logger.warning(
             "Shutdown flush exceeded %ds timeout; %d dirty states deferred to next boot",
             settings.SHUTDOWN_FLUSH_TIMEOUT_S, len(_dirty_states),

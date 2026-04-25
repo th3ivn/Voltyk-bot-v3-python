@@ -26,6 +26,7 @@ from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
 from bot.keyboards.common import BUTTON_EMOJI_MODE_SETTING_KEY, set_button_custom_emoji_enabled
+from bot.middlewares.auto_cleanup import AutoCleanupCommandMiddleware, AutoCleanupResponseMiddleware
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware, load_maintenance_mode
 from bot.middlewares.throttle import ThrottleMiddleware
@@ -36,6 +37,7 @@ from bot.services.api import (
     load_last_commit_sha,
     set_chart_render_mode,
 )
+from bot.services.auto_cleanup import auto_cleanup_loop, stop_auto_cleanup
 from bot.services.chart_generator import shutdown_chart_executor
 from bot.services.power_monitor import (
     daily_ping_error_loop,
@@ -319,10 +321,12 @@ async def _stop_health_server() -> None:
     _health_runner = None
 
 def create_bot() -> Bot:
-    return Bot(
+    bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    bot.session.middleware(AutoCleanupResponseMiddleware())
+    return bot
 
 async def _global_error_handler(event: ErrorEvent) -> None:
     """Catch-all for exceptions raised in update handlers.
@@ -383,6 +387,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(DbSessionMiddleware())
     dp.my_chat_member.middleware(DbSessionMiddleware())
+    dp.message.middleware(AutoCleanupCommandMiddleware())
 
     register_all_handlers(dp)
 
@@ -464,6 +469,7 @@ async def on_startup(bot: Bot) -> None:
         ("reminder_checker_loop", None),             # 60s cadence
         ("daily_ping_error_loop", 2 * _HOUR + 300),  # 1h cadence + grace
         ("daily_flush_loop", 26 * _HOUR),            # 24h cadence + grace
+        ("auto_cleanup", None),                      # 15s cadence
     ):
         heartbeat.register(_hb_name, threshold_s=_hb_threshold)
 
@@ -472,6 +478,7 @@ async def on_startup(bot: Bot) -> None:
     _bg(lambda: schedule_checker_loop(bot), "schedule_checker_loop")
     _bg(lambda: daily_flush_loop(bot), "daily_flush_loop")
     _bg(lambda: reminder_checker_loop(bot), "reminder_checker_loop")
+    _bg(lambda: auto_cleanup_loop(bot), "auto_cleanup")
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down...")
@@ -490,6 +497,7 @@ async def on_shutdown(bot: Bot) -> None:
 
     stop_scheduler()
     stop_power_monitor()
+    stop_auto_cleanup()
 
     global _bg_restart_enabled
     _bg_restart_enabled = False

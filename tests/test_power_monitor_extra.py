@@ -1657,9 +1657,8 @@ class TestSaveStatesOnShutdown:
             with pytest.raises(asyncio.CancelledError):
                 await save_states_on_shutdown()
 
-        mock_wf.assert_called_once()
-        _, kwargs = mock_wf.call_args
-        assert kwargs.get("timeout") == 5.0
+        assert mock_wf.call_count >= 1
+        assert any(call.kwargs.get("timeout") == 5.0 for call in mock_wf.call_args_list)
 
     async def test_cancelled_error_wait_for_times_out_logs_and_reraises(self):
         """Lines 995-996: wait_for raises TimeoutError → logged, CancelledError re-raised."""
@@ -1715,7 +1714,7 @@ class TestSaveStatesOnShutdown:
             with pytest.raises(asyncio.CancelledError):
                 await save_states_on_shutdown()
 
-        mock_wf.assert_not_called()
+        assert not any(call.kwargs.get("timeout") == 5.0 for call in mock_wf.call_args_list)
 
     async def test_cancelled_error_task_done_with_exception_logs_and_reraises(self):
         """CancelledError else-branch: done task that raised → exception consumed via await, logged."""
@@ -1745,8 +1744,9 @@ class TestSaveStatesOnShutdown:
             with pytest.raises(asyncio.CancelledError):
                 await save_states_on_shutdown()
 
-        # wait_for not called because task was already done
-        mock_wf.assert_not_called()
+        # wait_for may be used by shutdown flush fallback on Python 3.10,
+        # but connector-close path should not use the 5s timeout branch.
+        assert not any(call.kwargs.get("timeout") == 5.0 for call in mock_wf.call_args_list)
 
     async def test_flush_timeout_warns_and_continues(self):
         """TimeoutError during shutdown flush is logged but does not prevent connector close."""
