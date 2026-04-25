@@ -74,7 +74,8 @@ BADGE_H     = 48
 BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
 ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
-NO_OUTAGES_TEXT = "Відключення не знайдено на сайті ДТЕК"
+NO_OUTAGES_TEXT = "Відключення відсутні на сайті ДТК"
+NO_OUTAGES_FONT_SIZE = 15.6  # +20% from 13px for better readability
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
@@ -553,7 +554,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
             data_center_x = PAD_X + LABEL_W + (24 * CELL_W) / 2
             p.append(
                 f'<text x="{data_center_x:.1f}" y="{row_cy:.1f}" '
-                f'font-family="{FONT}" font-size="13" font-weight="bold" '
+                f'font-family="{FONT}" font-size="{NO_OUTAGES_FONT_SIZE}" font-weight="bold" '
                 f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
                 f'{_esc(NO_OUTAGES_TEXT)}</text>'
             )
