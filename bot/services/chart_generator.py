@@ -36,21 +36,26 @@ MONTHS_UK = [
 
 # ── Layout (logical pixels at 1×) ─────────────────────────────────────────────
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
+# Visual scale-up requested by UX feedback:
+# - Typography for key labels/legends/badges: +20%
+# - Table/image geometry: proportionally larger to keep visual balance.
 OUTPUT_SCALE = 5.0
 
-IMG_W    = 1078   # 1018 table + 2×30 padding
-PAD_X    = 30
-PAD_Y    = 30     # equal to PAD_X — uniform margins on all sides
-LABEL_W  = 130
-CELL_W   = 37    # 24 × 37 = 888;  888 + 130 = 1018 = 1078 − 2×30 ✓
-TITLE_H  = 60    # fits two gradient badges (h=48) + 12 px breathing room
-GAP      = 12
-HEADER_H = 72
-ROW_H    = 46
-LEGEND_H = 46
+TEXT_SCALE = 1.20
 
-TABLE_W   = LABEL_W + 24 * CELL_W  # 1018
-LABEL_PAD = 10   # left padding inside the label column
+PAD_X    = 34
+PAD_Y    = PAD_X  # uniform margins on all sides
+LABEL_W  = 146
+CELL_W   = 42
+TITLE_H  = 68
+GAP      = 14
+HEADER_H = 81
+ROW_H    = 52
+LEGEND_H = 52
+
+TABLE_W   = LABEL_W + 24 * CELL_W
+IMG_W     = TABLE_W + 2 * PAD_X
+LABEL_PAD = 12   # left padding inside the label column
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 C_BG        = "#F1F4F9"   # overall image + header-row background
@@ -71,11 +76,15 @@ C_BADGE_BD  = "#BCCADE"   # border
 C_BADGE_TXT  = "#3A4556"   # text
 C_WATERMARK  = "#B8C2CC"   # subtle watermark text
 BADGE_H     = 48
-BADGE_FS    = 17
-BADGE_PAD_H = 24          # horizontal padding inside badge
+BADGE_FS    = round(17 * TEXT_SCALE, 1)
+BADGE_PAD_H = 28          # horizontal padding inside badge
 ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
 NO_OUTAGES_TEXT = "Відключення відсутні на сайті ДТЕК"
-NO_OUTAGES_FONT_SIZE = 18.7  # +20% from previous 15.6px for better readability
+NO_OUTAGES_FONT_SIZE = round(18.7 * TEXT_SCALE, 1)
+HEADER_LABEL_FS = round(14 * TEXT_SCALE, 1)
+HOUR_LABEL_FS = round(13 * TEXT_SCALE, 1)
+DATE_LABEL_FS = round(13 * TEXT_SCALE, 1)
+LEGEND_TEXT_FS = round(12 * TEXT_SCALE, 1)
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
@@ -402,7 +411,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     # Badge width = estimated text width + horizontal padding
     # ~0.62 × font-size per character for bold DejaVu Cyrillic/digits
     def _bw(text: str) -> int:
-        return max(210, int(len(text) * BADGE_FS * 0.62) + BADGE_PAD_H * 2)
+        return max(252, int(len(text) * BADGE_FS * 0.62) + BADGE_PAD_H * 2)
 
     left_bw  = _bw(left_txt)
     right_bw = _bw(right_txt)
@@ -517,15 +526,16 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     text_lx  = PAD_X + LABEL_PAD   # left-aligned start x for label column
 
     # "Часові проміжки" — two lines, left-aligned, vertically centered (per spec §3)
-    # dominant-baseline="central" centers each glyph on its y; ±8 gives 16px line-gap
+    # dominant-baseline="central" centers each glyph on its y.
+    header_line_gap = 10
     p.append(
-        f'<text x="{text_lx}" y="{hdr_mid - 8:.1f}" '
-        f'font-family="{FONT}" font-size="14" font-weight="bold" '
+        f'<text x="{text_lx}" y="{hdr_mid - header_line_gap:.1f}" '
+        f'font-family="{FONT}" font-size="{HEADER_LABEL_FS}" font-weight="bold" '
         f'fill="{C_TEXT_MID}" dominant-baseline="central">Часові</text>'
     )
     p.append(
-        f'<text x="{text_lx}" y="{hdr_mid + 8:.1f}" '
-        f'font-family="{FONT}" font-size="14" font-weight="bold" '
+        f'<text x="{text_lx}" y="{hdr_mid + header_line_gap:.1f}" '
+        f'font-family="{FONT}" font-size="{HEADER_LABEL_FS}" font-weight="bold" '
         f'fill="{C_TEXT_MID}" dominant-baseline="central">проміжки</text>'
     )
 
@@ -536,7 +546,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         col_cy = table_y + HEADER_H / 2
         p.append(
             f'<text transform="translate({col_cx:.1f},{col_cy:.1f}) rotate(-90)" '
-            f'font-family="{FONT}" font-size="13" font-weight="bold" '
+            f'font-family="{FONT}" font-size="{HOUR_LABEL_FS}" font-weight="bold" '
             f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
             f'{label}</text>'
         )
@@ -546,7 +556,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         row_cy = table_y + HEADER_H + row_i * ROW_H + ROW_H / 2
         p.append(
             f'<text x="{text_lx}" y="{row_cy:.1f}" '
-            f'font-family="{FONT}" font-size="13" font-weight="bold" '
+            f'font-family="{FONT}" font-size="{DATE_LABEL_FS}" font-weight="bold" '
             f'fill="{C_TEXT}" dominant-baseline="central">'
             f'{_esc(_day_label(dt))}</text>'
         )
@@ -578,11 +588,11 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         text_cy = leg_y + SH / 2
         p.append(
             f'<text x="{text_cx:.1f}" y="{text_cy:.1f}" '
-            f'font-family="{FONT}" font-size="12" '
+            f'font-family="{FONT}" font-size="{LEGEND_TEXT_FS}" '
             f'fill="{C_TEXT_MID}" dominant-baseline="central">'
             f'{_esc(label)}</text>'
         )
-        lx += SW + 5 + len(label) * 12 * 0.58 + 18  # type: ignore[assignment]
+        lx += SW + 6 + len(label) * LEGEND_TEXT_FS * 0.58 + 18  # type: ignore[assignment]
 
     # ── Watermark (bottom-right, subtle) ─────────────────────────────────────
     wm_x  = IMG_W - PAD_X      # right-aligned within right margin
