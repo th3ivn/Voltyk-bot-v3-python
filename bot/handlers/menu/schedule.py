@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import settings
 from bot.db.queries import get_schedule_check_time, get_setting, get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
 from bot.keyboards.inline import get_error_keyboard, get_region_keyboard, get_schedule_view_keyboard
@@ -32,6 +34,17 @@ _USER_LAST_CHECK_MAX_SIZE = 10_000  # cap to prevent unbounded growth
 _last_check_cleanup_at: float = 0.0
 
 
+def _ensure_update_timestamp(schedule_data: dict, check_unix: int) -> dict:
+    """Ensure chart metadata always has an update timestamp for the badge."""
+    if schedule_data.get("dtek_updated_at"):
+        return schedule_data
+
+    fallback = datetime.fromtimestamp(check_unix, tz=settings.timezone).strftime("%d.%m.%Y %H:%M")
+    enriched = dict(schedule_data)
+    enriched["dtek_updated_at"] = fallback
+    return enriched
+
+
 async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSession, edit_photo: bool = False) -> None:
     """Send schedule as photo with live timestamp entities.
 
@@ -50,6 +63,7 @@ async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSess
     kb = get_schedule_view_keyboard()
 
     last_check = await get_schedule_check_time(session, user.region, user.queue)
+    schedule_data = _ensure_update_timestamp(schedule_data, last_check)
     plain_text, raw_entities = append_timestamp(html_text, last_check)
     entities = to_aiogram_entities(raw_entities)
 

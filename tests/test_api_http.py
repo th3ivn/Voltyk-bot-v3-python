@@ -450,6 +450,16 @@ class TestParseScheduleForQueueTomorrow:
         result = parse_schedule_for_queue(raw, "1.1")
         assert result.get("dtek_updated_at") == "07.04.2026 06:00"
 
+    def test_dtek_updated_at_extracted_from_top_level_fallback(self):
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = self._make_raw_two_days()
+        raw["fact"].pop("update")
+        raw["updated_at"] = "08.04.2026 07:30"
+
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result.get("dtek_updated_at") == "08.04.2026 07:30"
+
     def test_tomorrow_possible_events_included(self):
         from bot.services.api import parse_schedule_for_queue
 

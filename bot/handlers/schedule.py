@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import settings
 from bot.db.models import User
 from bot.db.queries import get_schedule_check_time, get_user_by_telegram_id
 from bot.formatter.schedule import format_schedule_message
@@ -16,6 +19,17 @@ from bot.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router(name="schedule")
+
+
+def _ensure_update_timestamp(schedule_data: dict, check_unix: int) -> dict:
+    """Ensure chart metadata always has an update timestamp for the badge."""
+    if schedule_data.get("dtek_updated_at"):
+        return schedule_data
+
+    fallback = datetime.fromtimestamp(check_unix, tz=settings.timezone).strftime("%d.%m.%Y %H:%M")
+    enriched = dict(schedule_data)
+    enriched["dtek_updated_at"] = fallback
+    return enriched
 
 
 async def _get_user_and_data(
@@ -53,6 +67,7 @@ async def cmd_schedule(message: Message, session: AsyncSession) -> None:
     kb = get_schedule_view_keyboard()
 
     now_unix = await get_schedule_check_time(session, user.region, user.queue)
+    schedule_data = _ensure_update_timestamp(schedule_data, now_unix)
     plain_text, raw_entities = append_timestamp(html_text, now_unix)
     entities = to_aiogram_entities(raw_entities)
 

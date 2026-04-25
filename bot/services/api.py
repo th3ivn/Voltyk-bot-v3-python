@@ -542,8 +542,25 @@ def parse_schedule_for_queue(raw_data: dict | None, queue: str) -> dict:
 
     events.sort(key=lambda e: e["start"])
 
-    dtek_updated_at: str | None = fact.get("update")  # "DD.MM.YYYY HH:MM" from DTEK source
+    dtek_updated_at: str | None = _extract_dtek_updated_at(raw_data, fact)
     return {"hasData": len(events) > 0, "events": events, "queue": queue, "dtek_updated_at": dtek_updated_at}
+
+
+def _extract_dtek_updated_at(raw_data: dict, fact: dict) -> str | None:
+    """Extract update timestamp from known upstream payload variants."""
+    candidate_keys = ("update", "updated_at", "updatedAt", "last_update", "lastUpdated")
+
+    for key in candidate_keys:
+        value = fact.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    for key in candidate_keys:
+        value = raw_data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return None
 
 
 def _parse_dt(dt_str: str) -> datetime:

@@ -382,12 +382,12 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     if dtek_raw:
         try:
             dtek_dt    = datetime.strptime(dtek_raw, "%d.%m.%Y %H:%M")
-            update_str = _esc(f"Оновлення від {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
+            update_str = _esc(f"Останнє оновлення графіка станом на {dtek_dt.strftime('%H:%M %d.%m.%Y')}")
         except ValueError:
             update_str = _esc(dtek_raw)
 
-    left_txt  = update_str or _esc("Час оновлення невідомий")
-    right_txt = _esc(f"{region_label}, Черга {queue}")
+    left_txt  = update_str or _esc("Час оновлення поки невідомий")
+    right_txt = _esc(f"Регіон: {region_label} • Черга: {queue}")
 
     # Badge width = estimated text width + horizontal padding
     # ~0.62 × font-size per character for bold DejaVu Cyrillic/digits
