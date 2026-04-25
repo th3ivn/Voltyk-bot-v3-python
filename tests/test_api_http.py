@@ -460,6 +460,48 @@ class TestParseScheduleForQueueTomorrow:
         result = parse_schedule_for_queue(raw, "1.1")
         assert result.get("dtek_updated_at") == "08.04.2026 07:30"
 
+    def test_dtek_updated_at_extracted_from_fact_metadata(self):
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = self._make_raw_two_days()
+        raw["fact"].pop("update")
+        raw["fact"]["metadata"] = {"updatedAt": "2026-04-08T04:30:00+03:00"}
+
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result.get("dtek_updated_at") == "08.04.2026 04:30"
+
+    def test_dtek_updated_at_extracted_from_raw_meta_iso_z(self):
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = self._make_raw_two_days()
+        raw["fact"].pop("update")
+        raw["meta"] = {"last_update": "2026-04-07T03:00:00Z"}
+
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result.get("dtek_updated_at") == "07.04.2026 06:00"
+
+    def test_dtek_updated_at_unix_timestamp_supported(self):
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = self._make_raw_two_days()
+        raw["fact"]["update"] = "1775530800"
+
+        result = parse_schedule_for_queue(raw, "1.1")
+        assert result.get("dtek_updated_at") == "07.04.2026 06:00"
+
+    def test_dtek_updated_at_invalid_value_is_not_exposed(self):
+        from bot.services.api import parse_schedule_for_queue
+
+        raw = self._make_raw_two_days()
+        raw["fact"]["update"] = "totally-not-a-date"
+
+        with patch("bot.services.api.logger.warning") as mock_warning:
+            result = parse_schedule_for_queue(raw, "1.1")
+
+        assert result.get("dtek_updated_at") is None
+        mock_warning.assert_called_once()
+        assert "Ignoring invalid dtek_updated_at candidate" in mock_warning.call_args[0][0]
+
     def test_tomorrow_possible_events_included(self):
         from bot.services.api import parse_schedule_for_queue
 
