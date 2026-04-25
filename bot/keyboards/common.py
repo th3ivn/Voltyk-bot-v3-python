@@ -63,6 +63,37 @@ E_BOT_SETTINGS = "5312280340721604022"
 E_NEWS = "5312374181462055424"
 E_DISCUSS = "5312237842020209022"
 
+_BUTTON_EMOJI_TEXT_FALLBACKS: dict[str, str] = {
+    E_SCHEDULE_SEC: "📅",
+    E_HELP: "❓",
+    E_ALERTS: "🔔",
+    E_CHANNEL: "📺",
+    E_BOT_SETTINGS: "⚙️",
+    E_RESUME: "▶️",
+    E_PAUSE_CHANNEL: "⏸️",
+    E_INSTRUCTION: "📍",
+    E_NOTIF_SECTION: "🔔",
+    E_ADMIN: "🛠️",
+    E_DELETE_DATA: "🗑️",
+    E_CHANGE_IP: "✏️",
+    E_DELETE_IP: "🗑",
+    E_PING_CHECK: "📶",
+    E_SUPPORT: "💬",
+    E_INSTR_HELP: "📘",
+    E_FAQ: "❓",
+    E_NEWS: "📢",
+    E_DISCUSS: "💬",
+    E_CHANNEL_SECTION: "📺",
+    E_IP_SECTION: "📡",
+    E_REGION: "📍",
+    E_REFRESH: "🔄",
+    E_SCHEDULE_CHANGES: "📈",
+    E_FACT: "⚡",
+    E_SUCCESS: "✅",
+    E_BOT_NOTIF: "📱",
+}
+_KNOWN_FALLBACK_EMOJI = set(_BUTTON_EMOJI_TEXT_FALLBACKS.values())
+
 
 def set_button_custom_emoji_enabled(enabled: bool) -> None:
     """Toggle custom emoji icons for inline keyboard buttons at runtime."""
@@ -75,6 +106,18 @@ def is_button_custom_emoji_enabled() -> bool:
     return _button_custom_emoji_enabled
 
 
+def _inject_text_emoji_fallback(text: str, emoji_id: str | None) -> str:
+    if _button_custom_emoji_enabled or not emoji_id:
+        return text
+    fallback = _BUTTON_EMOJI_TEXT_FALLBACKS.get(emoji_id)
+    if not fallback:
+        return text
+    stripped = text.lstrip()
+    if any(stripped.startswith(f"{emoji} ") or stripped == emoji for emoji in _KNOWN_FALLBACK_EMOJI):
+        return text
+    return f"{fallback} {text}"
+
+
 def _btn(
     text: str,
     callback_data: str,
@@ -82,7 +125,7 @@ def _btn(
     style: str | None = None,
     **kwargs,
 ) -> InlineKeyboardButton:
-    params: dict = {"text": text, "callback_data": callback_data, **kwargs}
+    params: dict = {"text": _inject_text_emoji_fallback(text, emoji_id), "callback_data": callback_data, **kwargs}
     if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     if style:
@@ -95,7 +138,7 @@ def _url_btn(text: str, url: str) -> InlineKeyboardButton:
 
 
 def _url_btn_with_emoji(text: str, url: str, emoji_id: str | None = None) -> InlineKeyboardButton:
-    params: dict = {"text": text, "url": url}
+    params: dict = {"text": _inject_text_emoji_fallback(text, emoji_id), "url": url}
     if emoji_id and _button_custom_emoji_enabled:
         params["icon_custom_emoji_id"] = emoji_id
     return InlineKeyboardButton(**params)
