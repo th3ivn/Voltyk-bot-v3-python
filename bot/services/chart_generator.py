@@ -37,12 +37,13 @@ MONTHS_UK = [
 # ── Layout (logical pixels at 1×) ─────────────────────────────────────────────
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
 # Visual scale-up requested by UX feedback:
-# - Typography for key labels/legends/badges: +20%
-# - Table/image geometry/icons: +30% from the original baseline.
-# Geometry is derived from baseline values so all chart parts stay proportional.
+# - Photo container (chart canvas): +20% (width and height)
+# - Inner chart elements (geometry + typography): +20%
+# All metrics are derived from the baseline so the whole block is scaled
+# proportionally without stretching individual elements.
 OUTPUT_SCALE = 5.0
 
-GEOMETRY_SCALE = 1.30
+GEOMETRY_SCALE = 1.20
 TEXT_SCALE = 1.20
 
 def _g(value: float) -> int:
