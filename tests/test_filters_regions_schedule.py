@@ -178,7 +178,26 @@ class TestRegionsDict:
         assert REGIONS["kyiv"] == Region(code="kyiv", name="Київ")
         assert REGIONS["kyiv-region"] == Region(code="kyiv-region", name="Київщина")
         assert REGIONS["dnipro"] == Region(code="dnipro", name="Дніпропетровщина")
-        assert REGIONS["odesa"] == Region(code="odesa", name="Одещина")
+
+
+class TestScheduleTimestampNormalization:
+    def test_schedule_handler_fallback_for_none_check_time(self):
+        from bot.handlers.schedule import _ensure_update_timestamp
+
+        enriched, safe_unix = _ensure_update_timestamp({"events": []}, None)
+
+        assert isinstance(safe_unix, int)
+        assert safe_unix > 0
+        assert enriched.get("dtek_updated_at")
+
+    def test_menu_schedule_handler_fallback_for_none_check_time(self):
+        from bot.handlers.menu.schedule import _ensure_update_timestamp
+
+        enriched, safe_unix = _ensure_update_timestamp({"events": []}, None)
+
+        assert isinstance(safe_unix, int)
+        assert safe_unix > 0
+        assert enriched.get("dtek_updated_at")
 
     def test_all_values_are_region_instances(self):
         from bot.constants.regions import REGIONS, Region

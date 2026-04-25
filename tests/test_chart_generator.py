@@ -338,18 +338,22 @@ class TestBuildSvg:
 
     def test_queue_in_badge(self):
         svg = self._build(queue="3.2")
-        assert "3.2" in svg
+        assert "Черга: 3.2" in svg
 
     def test_with_dtek_updated_at_valid(self):
         data = _make_schedule_data(dtek_updated_at="15.03.2024 10:30")
         svg = self._build(schedule_data=data)
-        assert "10:30" in svg
+        assert "Останнє оновлення графіка станом на 10:30 15.03.2024" in svg
 
     def test_with_dtek_updated_at_invalid_format(self):
         data = _make_schedule_data(dtek_updated_at="not-a-date")
         svg = self._build(schedule_data=data)
         # Falls back to raw string, escaped
         assert "not-a-date" in svg
+
+    def test_without_dtek_updated_at_uses_new_unknown_phrase(self):
+        svg = self._build(schedule_data=_make_schedule_data())
+        assert "Час оновлення поки невідомий" in svg
 
     def test_all_cells_on(self):
         svg = self._build(schedule_data=_make_schedule_data())
