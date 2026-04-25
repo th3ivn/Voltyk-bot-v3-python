@@ -33,6 +33,14 @@ _USER_LAST_CHECK_MAX_SIZE = 10_000  # cap to prevent unbounded growth
 _last_check_cleanup_at: float = 0.0
 
 
+def _ensure_update_timestamp(schedule_data: dict, check_unix: int | None) -> tuple[dict, int]:
+    """Backward-compatible wrapper for tests/imports.
+
+    The normalization logic is centralized in ``bot.services.api``.
+    """
+    return normalize_schedule_chart_metadata(schedule_data, check_unix)
+
+
 async def _send_schedule_photo(callback: CallbackQuery, user, session: AsyncSession, edit_photo: bool = False) -> None:
     """Send schedule as photo with live timestamp entities.
 

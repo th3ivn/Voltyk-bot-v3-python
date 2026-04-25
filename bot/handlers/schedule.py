@@ -24,6 +24,14 @@ logger = get_logger(__name__)
 router = Router(name="schedule")
 
 
+def _ensure_update_timestamp(schedule_data: dict, check_unix: int | None) -> tuple[dict, int]:
+    """Backward-compatible wrapper for tests/imports.
+
+    The normalization logic is centralized in ``bot.services.api``.
+    """
+    return normalize_schedule_chart_metadata(schedule_data, check_unix)
+
+
 async def _get_user_and_data(
     message: Message,
     session: AsyncSession,
