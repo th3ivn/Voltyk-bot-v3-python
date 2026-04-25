@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision = "0016"
 down_revision = "0015"
@@ -16,7 +16,23 @@ branch_labels = None
 depends_on = None
 
 
+def _table_exists(name: str) -> bool:
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name=:t)"
+        ),
+        {"t": name},
+    )
+    return bool(result.scalar())
+
+
 def upgrade() -> None:
+    if _table_exists("auto_delete_queue"):
+        return
     op.create_table(
         "auto_delete_queue",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -34,6 +50,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _table_exists("auto_delete_queue"):
+        return
     op.drop_index("idx_auto_delete_queue_due", table_name="auto_delete_queue")
     op.drop_index("ix_auto_delete_queue_delete_at", table_name="auto_delete_queue")
     op.drop_index("ix_auto_delete_queue_chat_id", table_name="auto_delete_queue")

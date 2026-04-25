@@ -57,7 +57,7 @@ class TestAutoCleanupCommandMiddleware:
         event = MagicMock(spec=Message)
         event.text = "/start"
         event.message_id = 42
-        event.chat.id = 777
+        event.chat = SimpleNamespace(id=777)
         event.from_user.id = 555
 
         session = MagicMock(spec=AsyncSession)
@@ -84,7 +84,7 @@ class TestAutoCleanupCommandMiddleware:
         event = MagicMock(spec=Message)
         event.text = "/start"
         event.message_id = 42
-        event.chat.id = 777
+        event.chat = SimpleNamespace(id=777)
         event.from_user.id = 555
 
         session = MagicMock(spec=AsyncSession)
