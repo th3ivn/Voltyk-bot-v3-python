@@ -9,6 +9,7 @@ Covers the previously untested 61%:
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -917,7 +918,6 @@ class TestQueueSourceUpdatedAt:
                 "committer": {"date": "2026-02-19T13:04:00Z"},
             }
         }]
-        url = "https://api.github.com/repos/Baskerville42/outage-data-ua/commits"
 
         with (
             patch("bot.services.api.settings") as mock_settings,
@@ -925,10 +925,9 @@ class TestQueueSourceUpdatedAt:
         ):
             mock_settings.GITHUB_TOKEN = ""
             m.get(
-                url,
+                re.compile(r"https://api\.github\.com/repos/Baskerville42/outage-data-ua/commits\?.*"),
                 payload=payload,
                 status=200,
-                repeat=True,
             )
             result = await get_queue_source_updated_at("kyiv-region", "3.1")
 
