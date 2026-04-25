@@ -364,6 +364,20 @@ class TestBuildSvg:
         # No off events → all on, no slash icon paths
         assert "<svg" in svg
 
+    def test_no_outages_text_for_both_days_when_no_events(self):
+        svg = self._build(schedule_data=_make_schedule_data())
+        assert svg.count("Відключення не знайдено на сайті ДТЕК") == 2
+
+    def test_no_outages_text_only_for_day_without_events(self):
+        now = datetime.now(KYIV_TZ)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        data = _make_schedule_data(
+            today_events=[_off_event(today_start, 8, 10, possible=False)],
+            tomorrow_events=[],
+        )
+        svg = self._build(schedule_data=data)
+        assert svg.count("Відключення не знайдено на сайті ДТЕК") == 1
+
     def test_all_cells_off(self):
         now = datetime.now(KYIV_TZ)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)

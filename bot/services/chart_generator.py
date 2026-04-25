@@ -74,6 +74,7 @@ BADGE_H     = 48
 BADGE_FS    = 17
 BADGE_PAD_H = 24          # horizontal padding inside badge
 ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
+NO_OUTAGES_TEXT = "Відключення не знайдено на сайті ДТЕК"
 
 # ── Icon path data (viewBox 0 0 20 20) ───────────────────────────────────────
 # Slashed bolt (represents "no power" / left half of split icon).
@@ -345,6 +346,7 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
     region_label    = REGIONS[region].name if region in REGIONS else region
     today_states    = _get_hour_states(today_ev,    today_start)
     tomorrow_states = _get_hour_states(tomorrow_ev, tomorrow_start)
+    no_outages_rows = [len(today_ev) == 0, len(tomorrow_ev) == 0]
 
     table_h = HEADER_H + 2 * ROW_H
     table_y = PAD_Y + TITLE_H + GAP
@@ -454,9 +456,16 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
             f'<rect x="{PAD_X}" y="{row_y}" width="{LABEL_W}" '
             f'height="{ROW_H}" fill="{C_HDR_BG}"/>'
         )
-        for col_i, state in enumerate(states):
-            cx = PAD_X + LABEL_W + col_i * CELL_W
-            p.append(_cell_svg(cx, row_y, state))
+        data_start_x = PAD_X + LABEL_W
+        if no_outages_rows[row_i]:
+            p.append(
+                f'<rect x="{data_start_x}" y="{row_y}" '
+                f'width="{24 * CELL_W}" height="{ROW_H}" fill="{CELL_ON}"/>'
+            )
+        else:
+            for col_i, state in enumerate(states):
+                cx = data_start_x + col_i * CELL_W
+                p.append(_cell_svg(cx, row_y, state))
 
     # Horizontal grid lines (below header, between rows, below last row)
     for i in range(3):
@@ -473,13 +482,25 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
         f'stroke="{C_BORDER_DK}" stroke-width="1"/>'
     )
 
-    # Vertical separators between hour columns (full height including header)
+    # Vertical separators between hour columns in the header row.
     for col in range(1, 24):
         lx = PAD_X + LABEL_W + col * CELL_W
         p.append(
-            f'<line x1="{lx}" y1="{table_y}" x2="{lx}" y2="{table_y + table_h}" '
+            f'<line x1="{lx}" y1="{table_y}" x2="{lx}" y2="{table_y + HEADER_H}" '
             f'stroke="{C_BORDER}" stroke-width="1"/>'
         )
+
+    # Vertical separators for data rows with outage details.
+    for row_i in range(2):
+        if no_outages_rows[row_i]:
+            continue
+        row_y = table_y + HEADER_H + row_i * ROW_H
+        for col in range(1, 24):
+            lx = PAD_X + LABEL_W + col * CELL_W
+            p.append(
+                f'<line x1="{lx}" y1="{row_y}" x2="{lx}" y2="{row_y + ROW_H}" '
+                f'stroke="{C_BORDER}" stroke-width="1"/>'
+            )
 
     p.append('</g>')
 
@@ -528,6 +549,14 @@ def _build_svg(region: str, queue: str, schedule_data: dict) -> str:  # noqa: PL
             f'fill="{C_TEXT}" dominant-baseline="central">'
             f'{_esc(_day_label(dt))}</text>'
         )
+        if no_outages_rows[row_i]:
+            data_center_x = PAD_X + LABEL_W + (24 * CELL_W) / 2
+            p.append(
+                f'<text x="{data_center_x:.1f}" y="{row_cy:.1f}" '
+                f'font-family="{FONT}" font-size="13" font-weight="bold" '
+                f'fill="{C_TEXT_MID}" text-anchor="middle" dominant-baseline="central">'
+                f'{_esc(NO_OUTAGES_TEXT)}</text>'
+            )
 
     # ── Legend ────────────────────────────────────────────────────────────────
     legend_items = [
