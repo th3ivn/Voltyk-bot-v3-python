@@ -925,12 +925,14 @@ class TestQueueSourceUpdatedAt:
         ):
             mock_settings.GITHUB_TOKEN = ""
             m.get(
-                re.compile(r"https://api\\.github\\.com/repos/Baskerville42/outage-data-ua/commits\\?.*path=(data%2F|data/)kyiv-region\\.json.*"),
+                re.compile(r"https://api\\.github\\.com/repos/Baskerville42/outage-data-ua/commits.*"),
                 payload=payload,
                 status=200,
             )
             result = await get_queue_source_updated_at("kyiv-region", "3.1")
+            requested_urls = [str(key[1]) for key in m.requests.keys()]
 
+        assert any("path=data/kyiv-region.json" in url or "path=data%2Fkyiv-region.json" in url for url in requested_urls)
         assert result == "19.02.2026 15:04"
 
 
