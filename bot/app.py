@@ -25,6 +25,7 @@ from bot.config import settings
 from bot.db.queries import get_setting, set_setting
 from bot.db.session import async_session, check_db_connectivity, engine
 from bot.handlers import register_all_handlers
+from bot.keyboards.common import BUTTON_EMOJI_MODE_SETTING_KEY, set_button_custom_emoji_enabled
 from bot.middlewares.db import DbSessionMiddleware
 from bot.middlewares.maintenance import MaintenanceMiddleware, load_maintenance_mode
 from bot.middlewares.throttle import ThrottleMiddleware
@@ -430,7 +431,10 @@ async def on_startup(bot: Bot) -> None:
     async with async_session() as _s:
         _mode = await get_setting(_s, "chart_render_mode") or "on_change"
         set_chart_render_mode(on_demand=(_mode == "on_demand"))
+        _button_emoji_mode = await get_setting(_s, BUTTON_EMOJI_MODE_SETTING_KEY)
+        set_button_custom_emoji_enabled(_button_emoji_mode != "false")
     logger.info("Chart render mode: %s", _mode)
+    logger.info("Button custom emoji mode: %s", "enabled" if _button_emoji_mode != "false" else "disabled")
 
     # Notify admins that bot started — but never within ADMIN_NOTIFY_COOLDOWN_S
     # of the last such notice.  A crashlooping pod must not spam admins on
