@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("chat_id", sa.String(length=64), nullable=False),
         sa.Column("message_id", sa.BigInteger(), nullable=False),
-        sa.Column("source", sa.String(length=16), nullable=False, server_default="bot_reply"),
+        sa.Column("source", sa.String(length=16), nullable=False, server_default=sa.text("'bot_reply'")),
         sa.Column("delete_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("chat_id", "message_id", name="uq_auto_delete_queue_chat_message"),

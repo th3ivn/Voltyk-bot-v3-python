@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -219,7 +220,7 @@ class AutoDeleteQueue(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     chat_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="bot_reply")
+    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'bot_reply'"))
     delete_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -494,4 +495,3 @@ class AdminTicketReminder(Base):
     )
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
