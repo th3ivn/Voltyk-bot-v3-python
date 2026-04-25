@@ -38,20 +38,26 @@ MONTHS_UK = [
 # cairosvg renders at OUTPUT_SCALE× → OUTPUT_SCALE * IMG_W physical pixels.
 # Visual scale-up requested by UX feedback:
 # - Typography for key labels/legends/badges: +20%
-# - Table/image geometry: proportionally larger to keep visual balance.
+# - Table/image geometry/icons: +30% from the original baseline.
+# Geometry is derived from baseline values so all chart parts stay proportional.
 OUTPUT_SCALE = 5.0
 
+GEOMETRY_SCALE = 1.30
 TEXT_SCALE = 1.20
 
-PAD_X    = 34
+def _g(value: float) -> int:
+    return int(round(value * GEOMETRY_SCALE))
+
+
+PAD_X    = _g(26)
 PAD_Y    = PAD_X  # uniform margins on all sides
-LABEL_W  = 146
-CELL_W   = 42
-TITLE_H  = 68
-GAP      = 14
-HEADER_H = 81
-ROW_H    = 52
-LEGEND_H = 52
+LABEL_W  = _g(112)
+CELL_W   = _g(32)
+TITLE_H  = _g(52)
+GAP      = _g(11)
+HEADER_H = _g(62)
+ROW_H    = _g(40)
+LEGEND_H = _g(40)
 
 TABLE_W   = LABEL_W + 24 * CELL_W
 IMG_W     = TABLE_W + 2 * PAD_X
@@ -75,9 +81,9 @@ C_BADGE_G2  = "#CAD7E8"   # gradient bottom
 C_BADGE_BD  = "#BCCADE"   # border
 C_BADGE_TXT  = "#3A4556"   # text
 C_WATERMARK  = "#B8C2CC"   # subtle watermark text
-BADGE_H     = 48
+BADGE_H     = _g(37)
 BADGE_FS    = round(17 * TEXT_SCALE, 1)
-BADGE_PAD_H = 28          # horizontal padding inside badge
+BADGE_PAD_H = _g(22)      # horizontal padding inside badge
 ICON_SCALE  = 0.95        # icon drawn at 95% of cell size, centered
 NO_OUTAGES_TEXT = "Відключення відсутні на сайті ДТЕК"
 NO_OUTAGES_FONT_SIZE = round(18.7 * TEXT_SCALE, 1)
