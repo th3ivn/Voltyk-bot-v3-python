@@ -8,7 +8,7 @@ from bot.db.queries import get_user_by_telegram_id
 from bot.formatter.messages import format_main_menu_message
 from bot.keyboards.inline import get_main_menu
 from bot.utils.logger import get_logger
-from bot.utils.telegram import safe_delete, safe_edit_text
+from bot.utils.telegram import safe_answer_callback, safe_delete, safe_edit_text
 
 logger = get_logger(__name__)
 router = Router(name="menu_navigation")
@@ -16,7 +16,7 @@ router = Router(name="menu_navigation")
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, session: AsyncSession) -> None:
-    await callback.answer()
+    await safe_answer_callback(callback)
     user = await get_user_by_telegram_id(session, callback.from_user.id)
     if not user:
         await safe_edit_text(callback.message, "❌ Спочатку запустіть бота, натиснувши /start")

@@ -250,6 +250,23 @@ class TestMenuHelp:
 # ---------------------------------------------------------------------------
 
 class TestMenuNavigation:
+    async def test_back_to_main_continues_when_callback_answer_expired(self):
+        from bot.handlers.menu.navigation import back_to_main
+
+        user = _make_user(last_menu_message_id=None)
+        cb = _make_callback()
+
+        with (
+            patch("bot.handlers.menu.navigation.safe_answer_callback", AsyncMock(return_value=False)) as mock_answer,
+            patch("bot.handlers.menu.navigation.get_user_by_telegram_id", AsyncMock(return_value=user)),
+            patch("bot.handlers.menu.navigation.format_main_menu_message", return_value="text"),
+            patch("bot.handlers.menu.navigation.get_main_menu", return_value=MagicMock()),
+            patch("bot.handlers.menu.navigation.safe_edit_text", AsyncMock(return_value=True)),
+        ):
+            await back_to_main(cb, AsyncMock())
+
+        mock_answer.assert_awaited_once_with(cb)
+
     async def test_back_to_main_no_user(self):
         from bot.handlers.menu.navigation import back_to_main
 

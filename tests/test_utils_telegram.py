@@ -247,6 +247,67 @@ class TestSafeDelete:
 
 
 # ---------------------------------------------------------------------------
+# safe_answer_callback
+# ---------------------------------------------------------------------------
+
+
+class TestSafeAnswerCallback:
+    async def test_answers_without_text(self):
+        from bot.utils.telegram import safe_answer_callback
+
+        cb = MagicMock()
+        cb.answer = AsyncMock()
+
+        result = await safe_answer_callback(cb)
+
+        assert result is True
+        cb.answer.assert_awaited_once_with()
+
+    async def test_answers_with_text_and_alert(self):
+        from bot.utils.telegram import safe_answer_callback
+
+        cb = MagicMock()
+        cb.answer = AsyncMock()
+
+        result = await safe_answer_callback(cb, "ok", show_alert=True)
+
+        assert result is True
+        cb.answer.assert_awaited_once_with("ok", show_alert=True)
+
+    async def test_expired_query_error_returns_false(self):
+        from bot.utils.telegram import safe_answer_callback
+
+        cb = MagicMock()
+        cb.answer = AsyncMock(side_effect=_bad_request("query is too old and response timeout expired"))
+
+        result = await safe_answer_callback(cb)
+
+        assert result is False
+
+    async def test_invalid_query_id_error_returns_false(self):
+        from bot.utils.telegram import safe_answer_callback
+
+        cb = MagicMock()
+        cb.answer = AsyncMock(side_effect=_bad_request("Bad Request: query ID is invalid"))
+
+        result = await safe_answer_callback(cb)
+
+        assert result is False
+
+    async def test_unexpected_bad_request_is_raised(self):
+        from bot.utils.telegram import safe_answer_callback
+
+        cb = MagicMock()
+        cb.answer = AsyncMock(side_effect=_bad_request("message text is empty"))
+
+        try:
+            await safe_answer_callback(cb)
+            raise AssertionError("Expected TelegramBadRequest to be raised")
+        except TelegramBadRequest:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # safe_edit_or_resend
 # ---------------------------------------------------------------------------
 
