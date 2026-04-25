@@ -282,6 +282,11 @@ async def _health_handler(request: web.Request) -> web.Response:
     return web.json_response(payload, status=status_code)
 
 
+async def _ready_handler(_: web.Request) -> web.Response:
+    """Minimal unauthenticated readiness endpoint for platform probes."""
+    return web.json_response({"status": "ok"})
+
+
 async def _metrics_handler(request: web.Request) -> web.Response:
     """Expose Prometheus metrics at /metrics."""
     from bot.utils.metrics import DB_POOL_CHECKED_OUT, DB_POOL_SIZE, metrics_response
@@ -314,6 +319,7 @@ async def _start_health_server() -> None:
         return
 
     app = web.Application(client_max_size=1 * 1024 * 1024)
+    app.router.add_get("/ready", _ready_handler)
     app.router.add_get("/health", _health_handler)
     app.router.add_get("/metrics", _metrics_handler)
 
@@ -552,6 +558,7 @@ async def main() -> None:
             logger.info("Webhook set: %s", webhook_url)
 
             app = web.Application(client_max_size=1 * 1024 * 1024)
+            app.router.add_get("/ready", _ready_handler)
             app.router.add_get("/health", _health_handler)
             app.router.add_get("/metrics", _metrics_handler)
 
