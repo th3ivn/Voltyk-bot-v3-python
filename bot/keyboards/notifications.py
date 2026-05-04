@@ -48,6 +48,7 @@ def get_reminder_keyboard() -> InlineKeyboardMarkup:
 
 def get_notification_main_keyboard(
     schedule_changes: bool = True,
+    daily_0600: bool = True,
     remind_off: bool = True,
     fact_off: bool = True,
     remind_on: bool = True,
@@ -64,6 +65,7 @@ def get_notification_main_keyboard(
 
     rows = [
         [_btn("Оновлення графіків", "notif_toggle_schedule", E_SCHEDULE_CHANGES, style=_s(schedule_changes))],
+        [_btn("Щоденний графік о 06:00", "notif_toggle_daily_0600", style=_s(daily_0600))],
         [
             _btn("1 год", "notif_time_60", style=_s(remind_1h)),
             _btn("30 хв", "notif_time_30", style=_s(remind_30m)),
@@ -140,5 +142,6 @@ def get_channel_notification_keyboard(**kw) -> InlineKeyboardMarkup:
                          kw.get("remind_15m", True), kw.get("remind_30m", False), kw.get("remind_1h", False),
                          "notif_main",
                          fact_label="Фактично за IP-адресою" if kw.get("has_ip", False) else "Фактично за графіком")
+    kb.inline_keyboard.insert(1, [_btn("Щоденний графік о 06:00", "ch_notif_toggle_daily_0600", style="success" if kw.get("daily_0600", True) else "default")])
     kb.inline_keyboard[-1].append(_btn("⤴ Меню", "back_to_main"))
     return kb

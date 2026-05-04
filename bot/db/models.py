@@ -64,6 +64,7 @@ class UserNotificationSettings(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
     notify_schedule_changes: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    notify_daily_schedule_0600: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_remind_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_fact_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_remind_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
@@ -141,6 +142,7 @@ class UserChannelConfig(Base):
     picture_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     ch_notify_schedule: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    ch_notify_daily_schedule_0600: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     ch_notify_remind_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     ch_notify_remind_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     ch_notify_fact_off: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

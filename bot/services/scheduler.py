@@ -947,8 +947,11 @@ async def _send_schedule_notification(
                 return
 
             ns = fresh_user.notification_settings
-            if ns is not None and not ns.notify_schedule_changes:
-                return
+            if ns is not None:
+                if is_daily_planned and not ns.notify_daily_schedule_0600:
+                    return
+                if (not is_daily_planned) and not ns.notify_schedule_changes:
+                    return
 
             last_check = await get_schedule_check_time(session, fresh_user.region, fresh_user.queue)
 
@@ -1023,7 +1026,7 @@ async def _send_schedule_notification(
         cc = fresh_user.channel_config
         if cc and cc.channel_id and cc.channel_status == "active" and not cc.channel_paused:
             ch_id: str = cc.channel_id
-            if cc.ch_notify_schedule:
+            if (is_daily_planned and cc.ch_notify_daily_schedule_0600) or ((not is_daily_planned) and cc.ch_notify_schedule):
                 try:
                     # Delete the previous channel schedule message; skip for
                     # daily planned messages (first message of the day at 06:00).

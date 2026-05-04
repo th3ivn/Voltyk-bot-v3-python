@@ -68,7 +68,8 @@ def build_notification_settings_message(ns: UserNotificationSettings) -> str:
 
     return (
         '<tg-emoji emoji-id="5262598817626234330">🔔</tg-emoji> Керування сповіщеннями\n\n'
-        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(ns.notify_schedule_changes)}\n\n'
+        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(ns.notify_schedule_changes)}\n'
+        f'<tg-emoji emoji-id="5190718715910863006">🕕</tg-emoji> Щоденний графік о 06:00 — {_c(ns.notify_daily_schedule_0600)}\n\n'
         f'<tg-emoji emoji-id="5451732530048802485">⏳</tg-emoji> Нагадування про події перед (вимкнення / відновлення):\n'
         f"├ За 1 год — {_c(ns.remind_1h)}\n"
         f"├ За 30 хв — {_c(ns.remind_30m)}\n"
@@ -84,7 +85,8 @@ def build_channel_notification_message(cc: UserChannelConfig) -> str:
 
     return (
         f'<tg-emoji emoji-id="5424818078833715060">📺</tg-emoji> Сповіщення каналу\n\n'
-        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(cc.ch_notify_schedule)}\n\n'
+        f'<tg-emoji emoji-id="5231200819986047254">📈</tg-emoji> Оновлення графіків — {_c(cc.ch_notify_schedule)}\n'
+        f'<tg-emoji emoji-id="5190718715910863006">🕕</tg-emoji> Щоденний графік о 06:00 — {_c(cc.ch_notify_daily_schedule_0600)}\n\n'
         f'<tg-emoji emoji-id="5451732530048802485">⏳</tg-emoji> Нагадування про події перед (вимкнення / відновлення):\n'
         f"├ За 1 год — {_c(cc.ch_remind_1h)}\n"
         f"├ За 30 хв — {_c(cc.ch_remind_30m)}\n"

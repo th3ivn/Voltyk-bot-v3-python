@@ -45,6 +45,7 @@ async def settings_alerts(callback: CallbackQuery, session: AsyncSession) -> Non
             text,
             reply_markup=get_notification_main_keyboard(
                 schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
                 remind_off=ns.notify_remind_off,
                 fact_off=ns.notify_fact_off,
                 remind_on=ns.notify_remind_on,
@@ -70,6 +71,7 @@ async def notif_select_bot(callback: CallbackQuery, session: AsyncSession) -> No
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
             remind_off=ns.notify_remind_off,
             fact_off=ns.notify_fact_off,
             remind_on=ns.notify_remind_on,
@@ -96,6 +98,7 @@ async def notif_select_channel(callback: CallbackQuery, session: AsyncSession) -
         text,
         reply_markup=get_channel_notification_keyboard(
             schedule=cc.ch_notify_schedule,
+                daily_0600=cc.ch_notify_daily_schedule_0600,
             remind_off=cc.ch_notify_remind_off,
             fact_off=cc.ch_notify_fact_off,
             remind_on=cc.ch_notify_remind_on,
@@ -120,6 +123,35 @@ async def notif_toggle_schedule(callback: CallbackQuery, session: AsyncSession) 
             text,
             reply_markup=get_notification_main_keyboard(
                 schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
+                remind_off=ns.notify_remind_off,
+                fact_off=ns.notify_fact_off,
+                remind_on=ns.notify_remind_on,
+                fact_on=ns.notify_fact_on,
+                remind_15m=ns.remind_15m,
+                remind_30m=ns.remind_30m,
+                remind_1h=ns.remind_1h,
+                has_ip=bool(user.router_ip),
+            ),
+        )
+    await callback.answer()
+
+
+
+
+@router.callback_query(F.data == "notif_toggle_daily_0600")
+async def notif_toggle_daily_0600(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if user and user.notification_settings:
+        ns = user.notification_settings
+        ns.notify_daily_schedule_0600 = not ns.notify_daily_schedule_0600
+        text = build_notification_settings_message(ns)
+        await safe_edit_text(
+            callback.message,
+            text,
+            reply_markup=get_notification_main_keyboard(
+                schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
                 remind_off=ns.notify_remind_off,
                 fact_off=ns.notify_fact_off,
                 remind_on=ns.notify_remind_on,
@@ -184,6 +216,7 @@ async def notif_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
             remind_off=ns.notify_remind_off,
             fact_off=ns.notify_fact_off,
             remind_on=ns.notify_remind_on,
@@ -220,6 +253,7 @@ async def notif_time(callback: CallbackQuery, session: AsyncSession) -> None:
         text,
         reply_markup=get_notification_main_keyboard(
             schedule_changes=ns.notify_schedule_changes,
+                daily_0600=ns.notify_daily_schedule_0600,
             remind_off=ns.notify_remind_off,
             fact_off=ns.notify_fact_off,
             remind_on=ns.notify_remind_on,
@@ -326,6 +360,8 @@ async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> No
 
     if action == "toggle_schedule":
         cc.ch_notify_schedule = not cc.ch_notify_schedule
+    elif action == "toggle_daily_0600":
+        cc.ch_notify_daily_schedule_0600 = not cc.ch_notify_daily_schedule_0600
     elif action == "toggle_fact":
         new_val = not cc.ch_notify_fact_off
         cc.ch_notify_fact_off = new_val
@@ -348,6 +384,7 @@ async def ch_notif_handler(callback: CallbackQuery, session: AsyncSession) -> No
         text,
         reply_markup=get_channel_notification_keyboard(
             schedule=cc.ch_notify_schedule,
+                daily_0600=cc.ch_notify_daily_schedule_0600,
             remind_off=cc.ch_notify_remind_off,
             fact_off=cc.ch_notify_fact_off,
             remind_on=cc.ch_notify_remind_on,
