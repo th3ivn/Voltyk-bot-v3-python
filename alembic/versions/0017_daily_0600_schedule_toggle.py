@@ -1,7 +1,7 @@
 """add dedicated 06:00 daily schedule notification toggles
 
 Revision ID: 0017_daily_0600_schedule_toggle
-Revises: 0016_auto_delete_queue
+Revises: 0016
 Create Date: 2026-05-04
 """
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "0017_daily_0600_schedule_toggle"
-down_revision = "0016_auto_delete_queue"
+down_revision = "0016"
 branch_labels = None
 depends_on = None
 
