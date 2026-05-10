@@ -971,7 +971,9 @@ async def _send_schedule_notification(
         bot_entities = to_aiogram_entities(raw_bot_entities)
 
         # ── Channel: photo + text + live timestamp — NO keyboard ─────────────
-        ch_plain_text, raw_ch_entities = append_timestamp(html_text, safe_unix)
+        ch_plain_text, raw_ch_entities = append_timestamp(
+            html_text, safe_unix, include_timestamp=False
+        )
         ch_entities = to_aiogram_entities(raw_ch_entities)
 
         image_bytes = await fetch_schedule_image(fresh_user.region, fresh_user.queue, sched_data)
