@@ -249,8 +249,35 @@ async def check_router_http(router_ip: str | None) -> bool | None:
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 
+def _ukrainian_day_word(days: int) -> str:
+    """Return the correct Ukrainian word form for 'day' based on count."""
+    last_two = days % 100
+    last_one = days % 10
+    if 11 <= last_two <= 14:
+        return "днів"
+    if last_one == 1:
+        return "день"
+    if 2 <= last_one <= 4:
+        return "дні"
+    return "днів"
+
+
 def _format_exact_duration(total_minutes: float) -> str:
-    """Format duration in Ukrainian: 'X год Y хв'."""
+    """Format duration in Ukrainian: 'X дн Y год Z хв'."""
+    total_minutes_int = int(total_minutes)
+    days = total_minutes_int // (24 * 60)
+    remaining_minutes = total_minutes_int % (24 * 60)
+    hours = remaining_minutes // 60
+    minutes = remaining_minutes % 60
+
+    if days > 0:
+        parts: list[str] = [f"{days} {_ukrainian_day_word(days)}"]
+        if hours > 0:
+            parts.append(f"{hours} год")
+        if minutes > 0:
+            parts.append(f"{minutes} хв")
+        return " ".join(parts)
+
     hours = int(total_minutes // 60)
     minutes = int(total_minutes % 60)
 
