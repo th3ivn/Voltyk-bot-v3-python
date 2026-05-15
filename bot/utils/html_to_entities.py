@@ -100,17 +100,12 @@ def html_to_entities(html: str) -> tuple[str, list[dict]]:
     return "".join(text_parts), entities
 
 
-def append_timestamp(
-    html_message: str, check_time_unix: int, *, include_timestamp: bool = True
-) -> tuple[str, list[dict]]:
+def append_timestamp(html_message: str, check_time_unix: int) -> tuple[str, list[dict]]:
     """Append a live date_time entity (Bot API 9.5) to an HTML message.
 
     Returns (plain_text, entities) — use with entities= parameter, NOT parse_mode.
     """
     plain_text, entities = html_to_entities(html_message)
-
-    if not include_timestamp:
-        return plain_text, entities
 
     # Use 🔄 as placeholder in text, then overlay with animated custom emoji
     prefix = "\n\n🔄 Перевірено: "
